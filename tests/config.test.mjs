@@ -74,7 +74,7 @@ test('loadConfig: reads the fixture project and normalises absolute paths', () =
   const config = loadConfig(FIXTURE_ROOT);
   assert.equal(config.project, 'Lighthouse Fixture');
   assert.equal(config.repo, 'atlas-fixtures/lighthouse');
-  assert.deepEqual(config.workstreams, ['beacon', 'tide', 'harbor', 'anchor']);
+  assert.deepEqual(config.workstreams, ['beacon', 'tide', 'reef', 'harbor', 'anchor', 'shoal']);
   assert.ok(path.isAbsolute(config.projectRoot));
   assert.ok(path.isAbsolute(config.workstreamsRoot));
   assert.ok(path.isAbsolute(config.configPath));
@@ -159,11 +159,11 @@ test("resolveWorkstreams: loads the fixture's workstreams in declaration order",
   const workstreams = resolveWorkstreams(config);
   assert.deepEqual(
     workstreams.map((w) => w.slug),
-    ['beacon', 'tide', 'harbor', 'anchor'],
+    ['beacon', 'tide', 'reef', 'harbor', 'anchor', 'shoal'],
   );
   assert.deepEqual(
     workstreams.map((w) => w.manifest.codename),
-    ['Beacon', 'Tide', 'Harbor', 'Anchor'],
+    ['Beacon', 'Tide', 'Reef', 'Harbor', 'Anchor', 'Shoal'],
   );
 });
 
@@ -176,6 +176,17 @@ test('resolveWorkstreams: the fixture exercises workstreams of different milesto
   assert.equal(bySlug.harbor.manifest.milestones.length, 0);
   assert.equal(bySlug.anchor.manifest.milestones.length, 4);
   assert.ok(bySlug.anchor.manifest.milestones.every((m) => m.status === 'done'));
+
+  // M2.1 (#780): the fixture also carries a workstream the work went ROUND a milestone of, and
+  // one that has not started at all — the two shapes the rebuilt page has to draw and the M1
+  // fixture had no case for.
+  assert.equal(bySlug.reef.manifest.milestones.length, 5);
+  assert.deepEqual(
+    bySlug.reef.manifest.milestones.map((m) => m.status),
+    ['done', 'done', 'parked', 'done', 'done'],
+  );
+  assert.equal(bySlug.shoal.manifest.stage, 'not-started');
+  assert.equal(bySlug.shoal.manifest.milestones.length, 0);
 });
 
 test('resolveWorkstreams: a workstream directory that does not exist fails with that path named', () => {

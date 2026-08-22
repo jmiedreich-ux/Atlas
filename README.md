@@ -53,8 +53,8 @@ backlog. `issues: read` is what stops that; `contents: read` is what lets `actio
 | `api-dir`      | no       | `.atlas-api`           | Where the write-back Function is placed, so a workflow can name it as an Azure Static Web Apps `api_location`. Resolved like `output-dir`, replaced wholesale each run, and refused if it overlaps `output-dir` or anything the build reads. Set it to an empty string for a project publishing the site without the endpoints. The action's `api-path` output holds where it landed — see **Write-back**, below. |
 | `github-token` | no       | *(none)*               | A token used to fetch each workstream's open issues and pull requests. There is no safe default, so it is left unset rather than defaulted: without it, the build still succeeds — `src/github.mjs` tolerates GitHub being unreachable — but the requests are unauthenticated and subject to GitHub's public rate limit. Pass `${{ github.token }}`, as above, to authenticate as the workflow's own run. |
 
-Per decision 46, the version tags (`v1.0.0`, and the `v1` major tag moved forward to it) live in
-**this** repository. A consuming project holds none of its own — nothing to bump, nothing to keep
+Per decision 46, the version tags (a `vX.Y.Z` per release, and the `v1` major tag moved forward to
+the newest compatible one) live in **this** repository. A consuming project holds none of its own — nothing to bump, nothing to keep
 in sync — it only ever points at Atlas's.
 
 ## Running it yourself
@@ -121,6 +121,7 @@ projects them, so the site and this file cannot disagree.
     "depth": { "barTo": "…", "headAt": "…", "tipLabel": "…", "note": "…",
                "completedCount": 3, "milestoneCount": 6 },
     "milestones": [ { "id": "M1", "label": "M1", "depth": 1, "status": "done",
+                      "started": "2026-03-02", "completed": "2026-03-05",  // stored days, or null
                       "plan": "m1-plan.md", "planPath": "docs/features/…/m1-plan.md",
                       "acceptance": { "kind": "…", "record": "…" }, "url": "/workstream/…/m1/" } ],
     "issues": [ { "number": 101, "title": "…", "url": "…" } ]
@@ -181,12 +182,13 @@ fixed convention, at its own root:
     "design": [{ "name": "lighthouse/Beacon Overview v1", "where": "design-project" }],
     "milestones": [
       { "id": "M1", "label": "M1", "depth": 1, "title": "Signal contract",
-        "status": "done", "plan": "m1-plan.md", "issue": 101, "pr": 201,
+        "status": "done", "started": "2026-03-02", "completed": "2026-03-05",
+        "plan": "m1-plan.md", "issue": 101, "pr": 201,
         "acceptance": { "kind": "demo-script", "record": "docs/features/beacon/m1-demo.md" } }
     ] }
   ```
 
-  Every field is required. `id` is the durable, never-renamed identifier (decision 17); `label` is
+  Every field is required except `started` and `completed`. `id` is the durable, never-renamed identifier (decision 17); `label` is
   its normalised display form, and the two are allowed — expected — to differ. `plan` is a
   filename resolved relative to the workstream's own directory (`docs/features/beacon/m1-plan.md`
   above); it must exist. `issue` and `pr` are GitHub numbers or `null`. `acceptance.record` is
@@ -200,7 +202,14 @@ fixed convention, at its own root:
   blank chip (decision 32):
 
   - workstream **`stage`** ∈ `not-started, designing, planned, shipping`
-  - milestone **`status`** ∈ `done, next, gated, parked, unplanned`
+  - milestone **`status`** ∈ `done, next, blocked, parked, unplanned`
+
+  `started` and `completed` are optional and are stored calendar days, written `YYYY-MM-DD` — the
+  day the milestone began and the day it closed. Both are facts recorded when they happened;
+  nothing on the site is ever computed from today's date, which is what keeps two builds of one
+  input byte-identical. A closed milestone shows both days and how long it took, one in flight
+  shows its start day alone, and one not yet begun shows nothing. `completed` may not be recorded
+  without `started`, and may not be earlier than it.
 
 - **The plan and acceptance files a manifest names** — `m1-plan.md` and the rest, beside
   `workstream.json` in the same workstream directory; a manifest pointing at one that doesn't
@@ -225,6 +234,26 @@ its own and makes no judgement about what belongs on the site; a file that shoul
 by everyone who can reach the site should not be under `docs/`. The only exceptions Atlas makes are
 `workstream.json` manifests, which are read rather than served, and dot-files and dot-directories,
 which are skipped.
+
+Alongside the pages, every build writes four files of its own: `state.json` (above), `tokens.css`
+and `order.js` copied from the theme, and `staticwebapp.config.json` (below).
+
+## Who can read the site
+
+**Atlas emits a `staticwebapp.config.json` that gates the whole site, so a project that configures
+nothing is not public** (decision 7: nothing on an Atlas site is anonymous). Every route requires
+the `reader` role, which is granted by Azure Static Web Apps **role invitation** — deliberately not
+`authenticated`, which means "signed in to the identity provider" and would put a login page in
+front of a public site rather than controlling access to it. The `/.auth/*` endpoints are exempted
+first, or the gate would lock a reader out of the gate itself, and an unauthorised visitor is
+redirected to sign in rather than shown a bare 401.
+
+The identity provider is Microsoft (`aad`), which is what decision 7 names. **A project using a
+different provider, or a different role name, overwrites `staticwebapp.config.json` in its own
+deploy step, after the build.** Atlas emits the safe default; it does not read the choice from
+`atlas.config.json`.
+
+See `src/swa.mjs`, which is the authoritative source for the emitted file.
 
 ## Write-back — answering, not only reading
 

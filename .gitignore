@@ -21,5 +21,11 @@ atlas-cwd-test-*/
 .superpowers/
 
 # Controller-staged reference copies of the plan and spec (not part of the generator).
-.m1-plan.md
+#
+# THIS REPOSITORY IS PUBLIC. A milestone plan is working material for the session that runs it —
+# and an UNSHIPPED one is a design document for a feature that does not exist yet, which at an
+# immutable public tag is a security posture published ahead of the thing it protects. Two of
+# these slipped past the rule by being swept up in a `git add -A`; the pattern is a glob now, so
+# the next one cannot.
+.m*-plan.md
 .atlas-decisions.md

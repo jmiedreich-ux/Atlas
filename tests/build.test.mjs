@@ -16,6 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { build } from '../src/build.mjs';
+import { MILESTONE_STATUSES } from '../src/schema.mjs';
+import { serialiseSwaConfig } from '../src/swa.mjs';
 
 // Everything here runs against `fixture/`, the invented nautical project, and writes into
 // `.tmp-tests/` — deliberately beside the repository rather than in `os.tmpdir()`. Where the two
@@ -114,7 +116,7 @@ const SUMMARY = await build(FIXTURE_ROOT, OUT, { fetchImpl: stubFetch, quiet: tr
 const read = (rel) => readFileSync(path.join(OUT, rel), 'utf8');
 const state = JSON.parse(read('state.json'));
 
-const FIXTURE_WORKSTREAMS = ['beacon', 'tide', 'harbor', 'anchor'];
+const FIXTURE_WORKSTREAMS = ['beacon', 'tide', 'reef', 'harbor', 'anchor', 'shoal'];
 
 function manifestOf(slug) {
   return JSON.parse(readFileSync(path.join(FIXTURE_ROOT, 'docs', 'features', slug, 'workstream.json'), 'utf8'));
@@ -122,15 +124,47 @@ function manifestOf(slug) {
 
 // --- what the build produced --------------------------------------------------------------------
 
-test('build: a page for the depth chart and a page for the phone view', () => {
-  assert.ok(existsSync(path.join(OUT, 'index.html')), 'no depth chart at /');
+test('build: a page for the feature planning chart and a page for the phone view', () => {
+  assert.ok(existsSync(path.join(OUT, 'index.html')), 'no feature planning chart at /');
   assert.ok(existsSync(path.join(OUT, 'mobile', 'index.html')), 'no phone view at /mobile/');
 
-  assert.match(read('index.html'), /class="depth-chart"/);
+  assert.match(read('index.html'), /<svg class="planning-chart"/);
   assert.match(read('mobile/index.html'), /class="card-list"/);
 
   // Both surfaces render the project's own name, from atlas.config.json and nowhere else.
   assert.match(read('index.html'), /Lighthouse Fixture/);
+});
+
+// The M1 name described the mechanism — a ladder of depths — rather than what the page is for.
+// The rename is only done when a reader cannot meet the old word anywhere: not in the title bar,
+// not in the navigation, not in a breadcrumb back to it, and not in the machine-readable index an
+// agent orients from.
+test('build: the first surface is named "Feature planning" everywhere a reader meets it', () => {
+  const home = read('index.html');
+  assert.match(home, /<title>Feature planning · Lighthouse Fixture<\/title>/, 'the title bar still says something else');
+  assert.match(home, /<h1>Feature planning<\/h1>/, 'the page heading still says something else');
+
+  // Every page's navigation, and every breadcrumb that leads back to this one.
+  const linkingPages = [
+    'index.html',
+    'mobile/index.html',
+    'records/index.html',
+    'workstream/beacon/index.html',
+    'workstream/beacon/m1/index.html',
+    'ROADMAP/index.html',
+  ];
+  for (const page of linkingPages) {
+    const html = read(page);
+    assert.match(html, /href="\/">Feature planning</, `${page} does not call the home surface Feature planning`);
+    assert.ok(!/>Project depth</.test(html), `${page} still carries the old name`);
+    assert.ok(!/>Depth</.test(html), `${page} still carries the old nav label`);
+  }
+
+  const surface = state.surfaces.find((entry) => entry.url === '/');
+  assert.ok(surface, 'state.json lists no surface at /');
+  assert.equal(surface.title, 'Feature planning');
+  // The id is a machine key in a v1 contract, and v1 is not being bumped: only the wording moves.
+  assert.equal(surface.id, 'depth');
 });
 
 test('build: a page per workstream, and a page per milestone', () => {
@@ -183,6 +217,11 @@ const EXPECTED_FILES = [
   'docs/features/beacon/m4-plan/index.html',
   'docs/features/beacon/m5-plan/index.html',
   'docs/features/beacon/m6-plan/index.html',
+  'docs/features/reef/m1-plan/index.html',
+  'docs/features/reef/m2-plan/index.html',
+  'docs/features/reef/m3-plan/index.html',
+  'docs/features/reef/m4-plan/index.html',
+  'docs/features/reef/m5-plan/index.html',
   'docs/features/tide/m1-plan/index.html',
   'docs/features/tide/m2-plan/index.html',
   'docs/features/tide/m3-plan/index.html',
@@ -191,8 +230,10 @@ const EXPECTED_FILES = [
   'docs/support.js',
   'index.html',
   'mobile/index.html',
+  'order.js',
   'records/index.html',
   'state.json',
+  'staticwebapp.config.json',
   'tokens.css',
   'workstream/anchor/index.html',
   'workstream/anchor/m1/index.html',
@@ -207,6 +248,13 @@ const EXPECTED_FILES = [
   'workstream/beacon/m5/index.html',
   'workstream/beacon/m6/index.html',
   'workstream/harbor/index.html',
+  'workstream/reef/index.html',
+  'workstream/reef/m1/index.html',
+  'workstream/reef/m2/index.html',
+  'workstream/reef/m3/index.html',
+  'workstream/reef/m4/index.html',
+  'workstream/reef/m5/index.html',
+  'workstream/shoal/index.html',
   'workstream/tide/index.html',
   'workstream/tide/m1/index.html',
   'workstream/tide/m2/index.html',
@@ -226,7 +274,13 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
   // the includes directory set to `.`, Eleventy skipped that exclusion entirely — it never
   // ignores the input directory — and discovered all six. Six extra files appear here, and the
   // count no longer matches what `planPages` produced.
-  const copied = new Set([...state.assets.map((asset) => asset.path), 'tokens.css', 'state.json']);
+  const copied = new Set([
+    ...state.assets.map((asset) => asset.path),
+    'tokens.css',
+    'order.js',
+    'state.json',
+    'staticwebapp.config.json',
+  ]);
   const rendered = listFiles(OUT).filter((file) => !copied.has(file));
 
   assert.equal(
@@ -918,14 +972,90 @@ test('build: two builds into one output directory — at most one may report suc
   );
 });
 
-test('build: the theme stylesheet is served where every page links to it', () => {
-  assert.ok(existsSync(path.join(OUT, 'tokens.css')), 'no /tokens.css, so every page is unstyled');
-  assert.equal(
-    sha256(path.join(OUT, 'tokens.css')),
-    sha256(path.join(REPO_ROOT, 'theme', 'tokens.css')),
-    'the stylesheet was altered on its way out',
+test('package.json: the generator says which version of itself this is', () => {
+  // Decision 46 puts the release tags in this repository, and a tag is cut from a commit whose
+  // package.json is the thing anyone reads to find out what they have. It went out at 1.0.0 and
+  // stayed there through a milestone that changed the manifest vocabulary and rebuilt a surface —
+  // so it is asserted as a shape and as "not the version M1 shipped", which is what actually went
+  // wrong.
+  const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/, `not a version: ${manifest.version}`);
+  assert.notEqual(manifest.version, '1.0.0', 'still claiming to be the version M1 shipped');
+
+  // The major stays 1: `uses: <owner>/atlas@v1` resolves against the moving major tag, and this
+  // milestone is additive for a project that already builds — a manifest saying `gated` fails, and
+  // that is a vocabulary change the README documents rather than a new contract.
+  assert.equal(manifest.version.split('.')[0], '1');
+});
+
+test('README: the files it says a build writes are the files a build writes', () => {
+  // It said "three files" and then listed four. Counted against the output rather than read,
+  // because a number in prose beside a list is exactly what drifts when the list grows.
+  const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+
+  const generated = ['state.json', 'tokens.css', 'order.js', 'staticwebapp.config.json'];
+  const written = listFiles(OUT).filter(
+    (file) => !file.endsWith('.html') && !state.assets.some((asset) => asset.path === file),
   );
+  assert.deepEqual(written.sort(), [...generated].sort(), 'the build writes a different set than this test knows');
+
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six'];
+  const claimed = /every build writes (\w+) files of its own/.exec(readme);
+  assert.ok(claimed, 'the README no longer says how many files a build writes');
+  assert.equal(
+    words.indexOf(claimed[1]),
+    generated.length,
+    `the README says "${claimed[1]}" files and the build writes ${generated.length}`,
+  );
+  for (const file of generated) {
+    assert.ok(readme.includes(`\`${file}\``), `the README never names ${file}`);
+  }
+});
+
+test('build: the site is gated by default — a project that configures nothing is not public', () => {
+  // #780's top generator gap. The gate on the one live Atlas site is a file that project's own
+  // workflow copies in, so any OTHER project adopting the generator published its records to the
+  // world. Decision 7 says nothing on an Atlas site is anonymous, and this is what makes that
+  // true for a project that does nothing at all.
+  const emitted = path.join(OUT, 'staticwebapp.config.json');
+  assert.ok(existsSync(emitted), 'the build published a site with no access configuration');
+
+  const config = JSON.parse(readFileSync(emitted, 'utf8'));
+  const catchAll = config.routes.find((route) => route.route === '/*');
+  assert.ok(catchAll, 'nothing covers the whole site');
+  assert.ok(!catchAll.allowedRoles.includes('anonymous'), 'the whole site is readable anonymously');
+  assert.ok(
+    !catchAll.allowedRoles.includes('authenticated'),
+    'the site is open to anyone with an account, which decision 7 is not',
+  );
+
+  // It reaches the output byte-for-byte as the module writes it, so the module's own tests are
+  // testing the file that ships.
+  assert.equal(readFileSync(emitted, 'utf8'), serialiseSwaConfig());
+
+  // And it is not mistaken for one of the project's own records.
+  assert.ok(!state.assets.some((asset) => asset.path.endsWith('staticwebapp.config.json')));
+  assert.ok(!state.documents.some((doc) => doc.path.endsWith('staticwebapp.config.json')));
+});
+
+test("build: the theme's own files are served where the layouts link to them", () => {
+  // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
+  // `njk` and nothing else, so neither can be picked up as a page of its own.
+  for (const file of ['tokens.css', 'order.js']) {
+    assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
+    assert.equal(
+      sha256(path.join(OUT, file)),
+      sha256(path.join(REPO_ROOT, 'theme', file)),
+      `${file} was altered on its way out`,
+    );
+  }
   assert.match(read('index.html'), /href="\/tokens\.css"/);
+  assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
+
+  // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
+  // up behaviour it has no use for.
+  assert.ok(!read('mobile/index.html').includes('order.js'), 'the phone view loads the ordering script');
+  assert.ok(!read('records/index.html').includes('order.js'), 'the records index loads the ordering script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {
@@ -1049,7 +1179,13 @@ test('build: an unknown milestone status fails the build, naming the value', asy
 
   assert.ok(error, 'the build accepted a status outside the closed vocabulary');
   assert.match(error.message, /"shipped"/, 'the failure never named the offending value');
-  assert.match(error.message, /done|next|gated|parked|unplanned/, 'the failure never named what is allowed');
+  // The whole closed vocabulary, in order, not an alternation any one of whose branches passing
+  // would satisfy it — `/done|next|.../` matched on "done" alone and could not tell a reader
+  // whether the rest of the list was still being offered.
+  assert.ok(
+    error.message.includes(MILESTONE_STATUSES.join(', ')),
+    `the failure never named what is allowed: ${error.message}`,
+  );
 });
 
 test('build: a workstream with no gate fails the build (decision 32)', async () => {

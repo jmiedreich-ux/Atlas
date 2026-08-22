@@ -78,14 +78,14 @@ const TABLE = [
   ['not-started', null, 'not-started'],
   ['not-started', 'done', 'not-started'],
   ['not-started', 'next', 'not-started'],
-  ['not-started', 'gated', 'not-started'],
+  ['not-started', 'blocked', 'not-started'],
   ['not-started', 'parked', 'not-started'],
   ['not-started', 'unplanned', 'not-started'],
 
   ['designing', null, 'designing'],
   ['designing', 'done', 'designing'],
   ['designing', 'next', 'designing'],
-  ['designing', 'gated', 'designing'],
+  ['designing', 'blocked', 'designing'],
   ['designing', 'parked', 'designing'],
   ['designing', 'unplanned', 'designing'],
 
@@ -93,7 +93,7 @@ const TABLE = [
   ['planned', null, 'awaiting-decision'],
   ['planned', 'done', 'awaiting-decision'],
   ['planned', 'next', 'awaiting-decision'],
-  ['planned', 'gated', 'awaiting-decision'],
+  ['planned', 'blocked', 'awaiting-decision'],
   ['planned', 'parked', 'awaiting-decision'],
   ['planned', 'unplanned', 'awaiting-decision'],
 
@@ -101,7 +101,7 @@ const TABLE = [
   ['shipping', null, 'awaiting-decision'],
   ['shipping', 'done', 'awaiting-decision'],
   ['shipping', 'next', 'moving'],
-  ['shipping', 'gated', 'awaiting-decision'],
+  ['shipping', 'blocked', 'awaiting-decision'],
   ['shipping', 'parked', 'blocked'],
   ['shipping', 'unplanned', 'awaiting-decision'],
 ];

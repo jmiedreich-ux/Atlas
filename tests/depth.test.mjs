@@ -265,12 +265,15 @@ test('computeLadder: tipLabel is the column\'s own milestone id, never the ladde
 
 // --- full fixture integration ------------------------------------------------------------------
 
-test('computeLadder: the fixture project (6 / 3 / 0 / 4-done depths) produces the expected columns', () => {
+test('computeLadder: the fixture project (6 / 3 / 5-with-a-gap / 0 / 4-done / nothing) produces the expected columns', () => {
   const config = loadConfig(FIXTURE_ROOT);
   const workstreams = resolveWorkstreams(config);
   const { rows, columns } = computeLadder(workstreams);
 
-  assert.deepEqual(columns.map((c) => c.codename), ['Beacon', 'Tide', 'Harbor', 'Anchor']);
+  assert.deepEqual(
+    columns.map((c) => c.codename),
+    ['Beacon', 'Tide', 'Reef', 'Harbor', 'Anchor', 'Shoal'],
+  );
 
   const milestoneRows = rows.filter((r) => r.kind === 'milestone');
   assert.equal(milestoneRows.length, 6, 'the ladder must be as deep as Beacon, the deepest workstream');
@@ -279,16 +282,38 @@ test('computeLadder: the fixture project (6 / 3 / 0 / 4-done depths) produces th
   assert.equal(beacon.barTo, 'depth-3');
   assert.equal(beacon.headAt, 'depth-4');
   assert.equal(beacon.tipLabel, 'M4');
+  assert.equal(beacon.liveAt, 'depth-4', 'Beacon M4 is `next`, so that row is where work is under way');
+  assert.equal(beacon.recordedTo, 'depth-6', 'M5 and M6 are on record past the bar');
 
   const tide = columns.find((c) => c.codename === 'Tide');
   assert.equal(tide.barTo, 'depth-1');
   assert.equal(tide.headAt, 'depth-2');
   assert.equal(tide.tipLabel, 'M2');
 
+  // The case the M1 rule got wrong (#780): M3 is parked and M4 and M5 shipped after it, so the
+  // bar reaches M5 and M3 is noted rather than stopping the column at M2.
+  const reef = columns.find((c) => c.codename === 'Reef');
+  assert.equal(reef.barTo, 'depth-5', 'the bar must reach the real edge of finished work');
+  assert.equal(reef.headAt, 'depth-6');
+  assert.equal(reef.completedCount, 4);
+  assert.equal(reef.milestoneCount, 5);
+  assert.deepEqual(reef.skipped.map((s) => s.id), ['M3']);
+  assert.equal(reef.skipped[0].status, 'parked');
+  assert.equal(reef.skipped[0].issue, 703, 'the marker carries the issue number to read the reason at');
+  assert.equal(reef.recordedTo, null, 'nothing is recorded past Reef M5, so it has no faint reach');
+
   const harbor = columns.find((c) => c.codename === 'Harbor');
   assert.equal(harbor.barTo, 'designing');
   assert.equal(harbor.headAt, 'planned');
   assert.equal(harbor.tipLabel, 'Planned');
+
+  // The one column that has completed nothing at all. Its ribbon still has to be drawn — #780:
+  // "every feature has one, including those with no milestones" — but the DATA says null.
+  const shoal = columns.find((c) => c.codename === 'Shoal');
+  assert.equal(shoal.barTo, null);
+  assert.equal(shoal.headAt, 'not-started');
+  assert.equal(shoal.recordedTo, null);
+  assert.equal(shoal.liveAt, null);
 
   for (const col of columns) {
     assert.ok(typeof col.note === 'string' && col.note.length > 0, `${col.codename} must carry a note`);
@@ -372,38 +397,61 @@ test('assertLadderResolves: a null barTo is a column with nothing complete yet, 
 });
 
 // --- decision 24, once: completion is counted here and nowhere else --------------------------
+//
+// M2.1 INVERTS the rule these tests used to assert. M1 counted the contiguous run from depth 1,
+// so the first milestone that was not `done` stopped the bar — the comment in src/depth.mjs said
+// as much. #780 rules that wrong for how the work actually goes: a milestone the work went round
+// is noted, not treated as a wall, and the bar carries on to the real edge of what is finished.
 
-test('computeLadder: a column carries its own completion, counted as the contiguous run the bar draws', () => {
-  // The phone view and the depth chart used to answer "how much of this is complete?" separately,
-  // and disagreed: the chart counts the contiguous run from depth 1 (a done M3 behind an un-done
-  // M2 does not extend the bar past M1), the phone counted every `done` milestone anywhere. One
-  // count now, on the column, so the two surfaces cannot drift again.
+test('computeLadder: a skipped milestone is noted, and the bar carries on past it', () => {
+  // The M1 rule stopped this column dead at the stages, reporting nothing complete while two
+  // milestones were finished. The bar now reaches the deepest `done` milestone, and the one the
+  // work went round is carried on the column as a skip rather than swallowing everything after it.
   const [column] = computeLadder([
     entry('gapped', {
       codename: 'Gapped',
       stage: 'shipping',
       milestones: [
-        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' }),
-        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
-        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'parked' }),
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'parked', issue: 709 }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'done' }),
       ],
     }),
   ]).columns;
 
-  // The bar still covers the three pre-milestone stages a shipping workstream is past; what it
-  // does NOT cover is any milestone, and that is what the phone view draws.
-  assert.equal(column.barTo, 'planned', 'the bar stops at the last pre-milestone row');
-  assert.equal(column.headAt, 'depth-1', 'the head points at M1, which is not done');
-  assert.equal(column.completedCount, 0, 'a done M2 behind an un-done M1 completes nothing');
+  assert.equal(column.barTo, 'depth-3', 'the bar must reach the real edge of finished work');
+  assert.equal(column.headAt, 'depth-4', 'the head still sits one row past the bar');
+  assert.equal(column.completedCount, 2, 'the parked milestone is not finished, so it is not counted');
   assert.equal(column.milestoneCount, 3);
+  assert.deepEqual(column.covered, [true, false, true]);
+
   assert.deepEqual(
-    column.covered,
-    [false, false, false],
-    'no segment may be filled while the bar covers no milestone',
+    column.skipped,
+    [{ id: 'M2', label: 'M2', depth: 2, rowId: 'depth-2', status: 'parked', issue: 709 }],
+    'the milestone the work went round must be noted, with its reason and its issue number',
   );
 });
 
-test('computeLadder: completion covers the run from depth 1, in the order the manifest lists', () => {
+test('computeLadder: nothing behind the bar is skipped unless the work really did go round it', () => {
+  // The control for the test above. A column with no gap has no skips at all — the marker must
+  // not appear merely because a column has milestones.
+  const [column] = computeLadder([
+    entry('solid', {
+      codename: 'Solid',
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'blocked' }),
+      ],
+    }),
+  ]).columns;
+
+  assert.equal(column.barTo, 'depth-2');
+  assert.deepEqual(column.skipped, [], 'a milestone BELOW the bar is not skipped, it is simply ahead');
+});
+
+test('computeLadder: completion is every finished milestone, in the order the manifest lists', () => {
   const [column] = computeLadder([
     entry('run', {
       codename: 'Run',
@@ -421,7 +469,7 @@ test('computeLadder: completion covers the run from depth 1, in the order the ma
   assert.equal(column.completedCount, 2);
   assert.equal(column.milestoneCount, 3);
   assert.deepEqual(column.covered, [false, true, true]);
-  assert.equal(column.headAt, 'depth-3', 'the head sits one past the completed run');
+  assert.equal(column.headAt, 'depth-3', 'the head sits one past the deepest finished milestone');
 });
 
 test('computeLadder: a workstream with no milestones completes nothing and has nothing to draw', () => {
@@ -429,4 +477,76 @@ test('computeLadder: a workstream with no milestones completes nothing and has n
   assert.equal(column.completedCount, 0);
   assert.equal(column.milestoneCount, 0);
   assert.deepEqual(column.covered, []);
+  assert.deepEqual(column.skipped, []);
+  assert.equal(column.recordedTo, null, 'no milestone is on record, so nothing is recorded ahead');
+  assert.equal(column.liveAt, null);
+});
+
+// --- #780: the arrow's length is the last milestone that has a record --------------------------
+
+test('computeLadder: recordedTo is the deepest milestone on record, whatever its status', () => {
+  // The faint reach's end. Not an expected depth, not a guess — the deepest milestone the manifest
+  // actually carries, which is the one number the records already supply.
+  const [column] = computeLadder([
+    entry('keystone', {
+      codename: 'Keystone',
+      stage: 'planned',
+      milestones: [1, 2, 3, 4, 5, 6].map((depth) =>
+        milestone({ id: `M${depth}`, label: `M${depth}`, depth, status: 'blocked', plan: `m${depth}-plan.md` }),
+      ),
+    }),
+  ]).columns;
+
+  assert.equal(column.barTo, 'planned', 'nothing is finished, so the solid arrow ends at the stage it reached');
+  assert.equal(column.recordedTo, 'depth-6', 'six milestones are on record, so the faint reach covers six');
+  assert.equal(column.liveAt, null, 'nothing is in flight — every milestone is blocked');
+});
+
+test('computeLadder: recordedTo is null when nothing is recorded past the bar', () => {
+  // A feature with no records beyond its current position has one arrow only (#780).
+  const [column] = computeLadder([
+    entry('anchor', {
+      codename: 'Anchor',
+      stage: 'shipping',
+      milestones: [1, 2].map((depth) =>
+        milestone({ id: `M${depth}`, label: `M${depth}`, depth, status: 'done', plan: `m${depth}-plan.md` }),
+      ),
+    }),
+  ]).columns;
+
+  assert.equal(column.barTo, 'depth-2');
+  assert.equal(column.recordedTo, null, 'the records stop where the finished work does, so there is no faint reach');
+});
+
+test('computeLadder: liveAt names the row where work is actually in flight, and only there', () => {
+  const inFlight = computeLadder([
+    entry('tide', {
+      codename: 'Tide',
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', plan: 'm2-plan.md' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'unplanned', plan: 'm3-plan.md' }),
+      ],
+    }),
+  ]).columns[0];
+
+  assert.equal(inFlight.barTo, 'depth-1');
+  assert.equal(inFlight.headAt, 'depth-2');
+  assert.equal(inFlight.liveAt, 'depth-2', 'the milestone at the head is `next`, so that row is in flight');
+
+  // The control: the same shape with the head landing on a milestone that is NOT under way.
+  const stalled = computeLadder([
+    entry('stalled', {
+      codename: 'Stalled',
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'blocked', plan: 'm2-plan.md' }),
+      ],
+    }),
+  ]).columns[0];
+
+  assert.equal(stalled.headAt, 'depth-2');
+  assert.equal(stalled.liveAt, null, 'a blocked milestone is not in flight, whatever row it sits on');
 });

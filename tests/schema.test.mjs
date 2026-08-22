@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateWorkstream, validateConfig } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, validateWorkstream, validateConfig } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file only — the generator holds no
 // project content of its own (decision 40).
@@ -457,4 +457,96 @@ test('validateConfig: ordinary directory names are still accepted, punctuation i
   });
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.deepEqual(result.value.workstreams, fine);
+});
+
+// --- M2.1, from #780: `gated` becomes `blocked` -------------------------------------------------
+
+test('schema: the closed milestone vocabulary says "blocked", and no longer says "gated"', () => {
+  // #780: "Drop the word 'gated'." It describes a gate the owner holds, which is what the
+  // workstream's own `gate` field is for; on a milestone the fact is simply that it cannot start.
+  // The phone view already had a `blocked` triage state reading "Blocked", so this leaves one word
+  // in the product rather than two that nearly mean the same thing.
+  assert.deepEqual([...MILESTONE_STATUSES], ['done', 'next', 'blocked', 'parked', 'unplanned']);
+});
+
+test('schema: a manifest still saying "gated" is refused by name, not quietly accepted', () => {
+  const manifest = validManifest();
+  manifest.milestones[0].status = 'gated';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'the retired word was accepted');
+
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /"gated"/, 'the failure never quotes the value that is wrong');
+  assert.match(message, /blocked/, 'the failure never names the word to use instead');
+});
+
+test('schema: "blocked" is accepted on a milestone', () => {
+  const manifest = validManifest();
+  manifest.milestones[0].status = 'blocked';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, `blocked was refused: ${JSON.stringify(result.errors)}`);
+  assert.equal(result.value.milestones[0].status, 'blocked');
+});
+
+// --- M2.1, from #780: a milestone carries the days it started and closed ------------------------
+
+test('schema: `started` and `completed` are optional, so every manifest that built still builds', () => {
+  // Additive, which is what keeps state.json at version 1. A project that has not filled these in
+  // yet renders exactly as it did; it simply shows no dates.
+  const result = validateWorkstream(validManifest());
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.milestones[0].started, undefined);
+  assert.equal(result.value.milestones[0].completed, undefined);
+});
+
+test('schema: a milestone may record the day it started and the day it closed', () => {
+  const manifest = validManifest();
+  Object.assign(manifest.milestones[0], { status: 'done', started: '2026-08-09', completed: '2026-08-22' });
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.milestones[0].started, '2026-08-09');
+  assert.equal(result.value.milestones[0].completed, '2026-08-22');
+});
+
+test('schema: null is how a milestone says it has no date, and is accepted', () => {
+  const manifest = validManifest();
+  Object.assign(manifest.milestones[0], { started: null, completed: null });
+  assert.equal(validateWorkstream(manifest).ok, true);
+});
+
+test('schema: a date that is not a stored calendar day fails the build, naming the field', () => {
+  for (const bad of ['9 Aug 2026', '2026-8-9', '2026-02-30', '2026-08-09T00:00:00Z', 20260809, '']) {
+    const manifest = validManifest();
+    manifest.milestones[0].started = bad;
+
+    const result = validateWorkstream(manifest);
+    assert.equal(result.ok, false, `${JSON.stringify(bad)} was accepted as a date`);
+    const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+    assert.match(message, /milestones\[0\]\.started/, `the failure never named the field for ${JSON.stringify(bad)}`);
+    assert.match(message, /YYYY-MM-DD/, 'the failure never said what a date looks like');
+  }
+});
+
+test('schema: a milestone cannot say when it closed without saying when it started', () => {
+  const manifest = validManifest();
+  Object.assign(manifest.milestones[0], { status: 'done', completed: '2026-08-22' });
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'a close date with no start date was accepted');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /started/, 'the failure never named the field that is missing');
+});
+
+test('schema: a milestone cannot have closed before it started', () => {
+  const manifest = validManifest();
+  Object.assign(manifest.milestones[0], { status: 'done', started: '2026-08-22', completed: '2026-08-09' });
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'a milestone that closed before it started was accepted');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /2026-08-09/, 'the failure never quoted the close date');
+  assert.match(message, /2026-08-22/, 'the failure never quoted the start date');
 });

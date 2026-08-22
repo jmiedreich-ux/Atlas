@@ -15,12 +15,21 @@
 // Decision 32: every vocabulary is closed, and an unknown value is rejected by name rather than
 // rendered — or written — as a blank.
 export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'planned', 'shipping']);
-export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'gated', 'parked', 'unplanned']);
 
-// Decision 35's second writable thing. Two values and no third: `waived` and `blocked` are
-// judgements about a milestone's position, which decision 35 assigns to the project's own
-// operations console rather than to Atlas, and a vocabulary that grows to hold them is a status
-// dropdown by another name.
+// `blocked`, not `gated` (#780): the word "gate" belongs to the workstream's own `gate` field —
+// the thing the owner holds — and what a milestone is recording is simply that it cannot start.
+// The phone view's triage vocabulary already said `blocked`, so the product now has one word for
+// this rather than two that nearly mean the same thing.
+//
+// This line is the one the M3 merge is most likely to get wrong. `src/schema.mjs` no longer holds
+// the vocabulary — it re-exports this — so resolving that file in M3's favour, which is correct,
+// leaves the rename to be carried across by hand to here.
+export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'parked', 'unplanned']);
+
+// Decision 35's second writable thing. Two values and no third: `waived`, `blocked` and `done` are
+// judgements about a milestone's POSITION — the last two are literally milestone statuses, three
+// lines above — and decision 35 assigns those to the project's own operations console rather than
+// to Atlas. A vocabulary that grows to hold them is a status dropdown by another name.
 export const ACCEPTANCE_RESULTS = Object.freeze(['pass', 'fail']);
 
 /**
