@@ -123,6 +123,21 @@ function validateMilestone(milestone, path, errors) {
   validateAcceptance(milestone.acceptance, joinPath(path, 'acceptance'), errors);
 }
 
+// Passing named-field validation says nothing about extra, unvalidated properties elsewhere on
+// the object — a function, a Symbol, a circular reference — any of which throws inside
+// structuredClone. The "never throws" contract is unconditional, so the clone itself must never
+// escape as an exception: on failure it becomes an ordinary validation error at the top level.
+function cloneValidated(obj) {
+  try {
+    return { ok: true, value: structuredClone(obj) };
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [{ path: '', message: `could not clone the validated value: ${err.message}` }],
+    };
+  }
+}
+
 /**
  * Validate a workstream manifest (decision 14): the contract for
  * `docs/features/<workstream>/workstream.json`.
@@ -159,7 +174,7 @@ export function validateWorkstream(obj) {
   if (errors.length > 0) {
     return { ok: false, errors };
   }
-  return { ok: true, value: structuredClone(obj) };
+  return cloneValidated(obj);
 }
 
 // A project's repo slug, "owner/name" — exactly one slash, no whitespace on either side.
@@ -204,5 +219,5 @@ export function validateConfig(obj) {
   if (errors.length > 0) {
     return { ok: false, errors };
   }
-  return { ok: true, value: structuredClone(obj) };
+  return cloneValidated(obj);
 }

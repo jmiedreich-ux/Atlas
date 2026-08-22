@@ -8,7 +8,7 @@ Atlas builds the site from it.
 Atlas ships as a versioned composite GitHub Action, consumed in one line:
 
 ```yaml
-uses: jmiedreich-ux/atlas@v1
+uses: jmiedreich-ux/Atlas@v1
 ```
 
 Full convention documentation — the files a consuming project provides and the shape of its

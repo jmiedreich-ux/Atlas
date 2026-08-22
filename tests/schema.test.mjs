@@ -68,6 +68,14 @@ test('validateWorkstream: an unknown milestone status is rejected by name', () =
   assert.match(statusError.message, /wontfix/);
 });
 
+test('validateWorkstream: a milestone with status absent entirely is rejected', () => {
+  const manifest = validManifest();
+  delete manifest.milestones[0].status; // absent, not merely an unrecognised value
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.path === 'milestones[0].status'));
+});
+
 test('validateWorkstream: a milestone missing title is rejected', () => {
   const manifest = validManifest();
   delete manifest.milestones[0].title;
@@ -82,6 +90,14 @@ test('validateWorkstream: a milestone missing depth is rejected', () => {
   const result = validateWorkstream(manifest);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.path === 'milestones[0].depth'));
+});
+
+test('validateWorkstream: a milestone missing plan is rejected', () => {
+  const manifest = validManifest();
+  delete manifest.milestones[0].plan;
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.path === 'milestones[0].plan'));
 });
 
 test('validateWorkstream: id and label are both required and may differ', () => {
@@ -145,6 +161,19 @@ test('validateWorkstream: acceptance missing kind is rejected', () => {
   assert.ok(result.errors.some((e) => e.path === 'milestones[0].acceptance.kind'));
 });
 
+test('validateWorkstream: a design entry missing name or where is rejected', () => {
+  for (const field of ['name', 'where']) {
+    const manifest = validManifest();
+    delete manifest.design[0][field];
+    const result = validateWorkstream(manifest);
+    assert.equal(result.ok, false, `expected a design entry missing "${field}" to fail validation`);
+    assert.ok(
+      result.errors.some((e) => e.path === `design[0].${field}`),
+      `expected an error at path "design[0].${field}", got: ${JSON.stringify(result.errors)}`,
+    );
+  }
+});
+
 test('validateWorkstream: every error names the path that failed', () => {
   const manifest = validManifest();
   delete manifest.codename;
@@ -175,6 +204,20 @@ test('validateWorkstream: a failing result never carries a value', () => {
   const result = validateWorkstream({});
   assert.equal(result.ok, false);
   assert.equal('value' in result, false);
+});
+
+test('validateWorkstream: an otherwise-valid manifest with an uncloneable extra property does not throw', () => {
+  // Passing every named-field check says nothing about an unvalidated extra property. A
+  // function cannot be structured-cloned, so this exercises the clone-on-success path without
+  // going through any of the named checks above.
+  const manifest = validManifest();
+  manifest.extra = () => {};
+  assert.doesNotThrow(() => validateWorkstream(manifest));
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false);
+  assert.equal('value' in result, false);
+  assert.ok(Array.isArray(result.errors));
+  assert.ok(result.errors.length > 0);
 });
 
 test('validateWorkstream: rejects a manifest missing required top-level fields', () => {
@@ -242,6 +285,17 @@ test('validateConfig: never throws on non-object input', () => {
     assert.ok(Array.isArray(result.errors));
     assert.ok(result.errors.length > 0);
   }
+});
+
+test('validateConfig: an otherwise-valid config with an uncloneable extra property does not throw', () => {
+  const config = validConfig();
+  config.extra = () => {};
+  assert.doesNotThrow(() => validateConfig(config));
+  const result = validateConfig(config);
+  assert.equal(result.ok, false);
+  assert.equal('value' in result, false);
+  assert.ok(Array.isArray(result.errors));
+  assert.ok(result.errors.length > 0);
 });
 
 test('validateConfig: a failing result never carries a value', () => {
