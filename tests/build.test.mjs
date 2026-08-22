@@ -8,6 +8,7 @@ import {
   rmSync,
   mkdirSync,
   cpSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -67,6 +68,23 @@ function editManifest(projectRoot, slug, mutate) {
   mutate(manifest);
   writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 }
+
+// Creating a symlink needs a privilege Windows does not grant by default, and fails EPERM over a
+// UNC path. The two tests that need one are about a real defect on the target runtime (Linux), so
+// they skip rather than fail where the filesystem cannot express the shape they test.
+const SYMLINKS_AVAILABLE = (() => {
+  const probe = path.join(TMP_ROOT, 'symlink-probe');
+  try {
+    mkdirSync(TMP_ROOT, { recursive: true });
+    rmSync(probe, { force: true });
+    symlinkSync(REPO_ROOT, probe, 'dir');
+    rmSync(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+const NO_SYMLINKS = SYMLINKS_AVAILABLE ? undefined : 'this filesystem does not allow creating symlinks';
 
 function sha256(file) {
   return createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -441,6 +459,80 @@ test('build: an output directory inside the project but holding nothing it reads
   assert.ok(existsSync(path.join(projectRoot, 'docs', 'reference.html')));
 });
 
+test('build: a case-different spelling of a directory the build reads is refused', async () => {
+  // On APFS and on Windows, `<project>/DOCS` IS `<project>/docs`, and a case-sensitive string
+  // compare does not see it: the whole corpus is read, rendered, then deleted, exit 0, nothing to
+  // warn anyone. The guard asks the filesystem instead, via `dev` + `ino`, which is the only
+  // authority on whether two spellings name one directory.
+  //
+  // This assertion runs everywhere, because it does not need a case-insensitive filesystem to be
+  // meaningful: on a case-SENSITIVE one `<project>/DOCS` is a genuinely different directory, and
+  // what is asserted then is that it is allowed. Either way the rule under test is the same one —
+  // refuse exactly what the filesystem says is the same file. The case-insensitive half was also
+  // run by hand on a case-insensitive volume; see the task report.
+  const projectRoot = fixtureCopy('case-spelling');
+  const shouting = path.join(projectRoot, 'DOCS');
+  const caseInsensitive = existsSync(shouting);
+
+  const error = await build(projectRoot, shouting, { fetchImpl: forbiddenFetch, offline: true, quiet: true })
+    .then(() => null, (err) => err);
+
+  if (caseInsensitive) {
+    assert.ok(error, 'a case-different spelling of the records directory was accepted');
+    assert.match(error.message, /records/, 'the failure never said which read path it collided with');
+  } else {
+    assert.equal(error, null, 'on a case-sensitive filesystem DOCS is a different directory');
+  }
+
+  // Either way, the records are still there.
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'features', 'beacon', 'workstream.json')));
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'design', 'approved', 'lighthouse-decisions.md')));
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'reference.html')));
+});
+
+test('build: two spellings the filesystem calls the same directory are refused, whatever they are', { skip: NO_SYMLINKS }, async () => {
+  // The dev+ino rule stated without needing a case-insensitive volume: a hard-linked directory is
+  // not creatable, but the *project itself* named two ways is — one path through a symlinked
+  // ancestor, one direct — and that is the same comparison.
+  const projectRoot = fixtureCopy('same-inode');
+  const link = path.join(TMP_ROOT, 'same-inode-link');
+  rmSync(link, { force: true });
+  symlinkSync(projectRoot, link, 'dir');
+
+  const error = await build(projectRoot, path.join(link, 'docs'), {
+    fetchImpl: forbiddenFetch,
+    offline: true,
+    quiet: true,
+  }).then(() => null, (err) => err);
+
+  assert.ok(error, 'the records reached through a symlinked ancestor were accepted as an output directory');
+  assert.match(error.message, /records/);
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'features', 'beacon', 'workstream.json')));
+});
+
+test('build: an ancestor symlink does not hide the directory the build reads', { skip: NO_SYMLINKS }, async () => {
+  // `<arena>/plink -> <project>`, then `atlas <project> <arena>/plink/docs`. Lexically those two
+  // paths share nothing at all, so a string compare sees no overlap and the corpus is destroyed
+  // with exit 0. The output path itself usually does not exist yet, so the guard resolves the
+  // deepest ancestor that does and re-appends the rest.
+  //
+  // The mirror shape: a project whose `docs/` is a symlink elsewhere, with the caller naming the
+  // target directly. Same fix, opposite side.
+  const projectRoot = fixtureCopy('symlink-target');
+  const realDocs = path.join(TMP_ROOT, 'symlink-target-docs');
+  rmSync(realDocs, { recursive: true, force: true });
+  cpSync(path.join(projectRoot, 'docs'), realDocs, { recursive: true });
+  rmSync(path.join(projectRoot, 'docs'), { recursive: true, force: true });
+  symlinkSync(realDocs, path.join(projectRoot, 'docs'), 'dir');
+
+  const error = await build(projectRoot, realDocs, { fetchImpl: forbiddenFetch, offline: true, quiet: true })
+    .then(() => null, (err) => err);
+
+  assert.ok(error, "the target of the project's own docs symlink was accepted as an output directory");
+  assert.match(error.message, /records/);
+  assert.ok(existsSync(path.join(realDocs, 'features', 'beacon', 'workstream.json')), 'the corpus was destroyed');
+});
+
 test('build: an output directory containing the project is refused too', async () => {
   const projectRoot = fixtureCopy('outdir-containing');
   const error = await build(projectRoot, path.dirname(projectRoot), {
@@ -574,6 +666,21 @@ test('build: the records index lists every record of both kinds, and every surfa
   // following the other lands on the document its author made.
   assert.match(index, /data-kind="rendered"/);
   assert.match(index, /data-kind="copied"/);
+
+  // And the supporting files are NOT here. Stated against the file, by name, rather than derived
+  // from `isDocument` — every other assertion in this test takes its expectation from that same
+  // flag, so with the flag wrong they all move together and none of them notices. This one does
+  // not move.
+  assert.ok(
+    !index.includes('href="/docs/support.js"'),
+    'the records index offers a reader a link to a script a document loads',
+  );
+  for (const supporting of state.assets.filter((asset) => !asset.isDocument)) {
+    assert.ok(
+      !index.includes(`href="${supporting.url}"`),
+      `the records index links ${supporting.path}, which is not a document a reader opens`,
+    );
+  }
 
   // And it is reachable, not merely findable by URL.
   for (const page of ['index.html', 'mobile/index.html', 'workstream/beacon/index.html', 'ROADMAP/index.html']) {

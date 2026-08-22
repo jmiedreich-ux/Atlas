@@ -29,6 +29,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -135,8 +136,77 @@ function assertRoadmapExists(projectRoot) {
 //     $GITHUB_WORKSPACE/_site`. `_site` holds nothing the build reads, so replacing it costs
 //     nothing. A rule phrased as "the output must not be inside the project" refuses this, which
 //     would make Atlas unusable in the one shape decision 39 says it always runs in.
+//
+// **Two paths that are the same path can be spelled differently, and a lexical compare sees two
+// different strings.** A guard that only compares strings is precise about the spellings it was
+// shown and blind to every other one:
+//
+//   * **Case.** On APFS and on Windows, `<project>/DOCS` IS `<project>/docs`. A case-sensitive
+//     `startsWith` does not see it, and the whole corpus is read, rendered and then deleted with
+//     exit 0. macOS is a normal developer machine; so is Windows.
+//   * **Symlinks in an ancestor position.** `<arena>/plink -> <project>`, then
+//     `atlas <project> <arena>/plink/docs`. Lexically those share nothing. Likewise a project
+//     whose `docs/` is a symlink elsewhere, with the caller naming the target directly.
+//
+// So the comparison asks the filesystem, and only then falls back to comparing strings:
+//
+//   1. `isSameFile` compares `dev` + `ino`, against every existing ancestor of the output path.
+//      **This is the check that does the work.** `statSync` follows symlinks and the filesystem
+//      knows its own case rules, so one comparison closes both families above: on a
+//      case-insensitive volume `<project>/DOCS` has `<project>/docs`'s inode, and through a
+//      symlinked ancestor `<arena>/plink/docs` has it too. Verified by disabling this check alone
+//      and watching every one of those shapes destroy the corpus again.
+//   2. `canonicalise` resolves the deepest ancestor that exists and re-appends the segments that
+//      do not, so the lexical comparison below sees canonical spellings. This is defence in depth,
+//      and it is worth being exact about how much: with (1) in place, disabling (2) did not make
+//      any destructive input reachable, because `dev`/`ino` needs both paths to EXIST and every
+//      path the build reads exists in any project that builds at all. It earns its keep only for a
+//      read path that is missing — where the build is going to fail anyway, and the difference is
+//      which error the caller sees — and as the check that stays correct if the set of read paths
+//      ever grows to include an optional one.
+//
+// One case that looks like it needs defending and does not: when the OUTPUT path is itself a
+// symlink, `rmSync(out, { recursive: true })` unlinks the link rather than following it, so the
+// corpus survives. Confirmed by hand. Only an ancestor being a link is destructive.
+
+// The deepest existing ancestor of `target`, resolved through symlinks, with the not-yet-existing
+// segments re-appended. `realpathSync` on the whole path would throw for an output directory that
+// has not been created yet, which is the normal case.
+function canonicalise(target) {
+  const remainder = [];
+  let current = path.resolve(target);
+
+  for (;;) {
+    try {
+      return path.join(realpathSync(current), ...remainder);
+    } catch {
+      const parent = path.dirname(current);
+      // The filesystem root does not exist as far as realpath is concerned: give up and use what
+      // the caller wrote, which is still better than nothing.
+      if (parent === current) return path.resolve(target);
+      remainder.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+// Whether two paths are the same file or directory as far as the filesystem is concerned —
+// case-folding, hard links and all. A path that does not exist is nothing, and is not the same as
+// anything.
+function isSameFile(a, b) {
+  try {
+    const left = statSync(a);
+    const right = statSync(b);
+    return left.dev === right.dev && left.ino === right.ino;
+  } catch {
+    return false;
+  }
+}
+
 function assertOutputDirIsSafe(projectRoot, outDir) {
   const contains = (parent, child) => child === parent || child.startsWith(`${parent}${path.sep}`);
+
+  const out = canonicalise(outDir);
 
   // Every path the build reads. `atlas.config.json`, `ROADMAP.md` and `docs/` are the project's
   // side of the convention (decision 40); the theme is the generator's own, and is named rather
@@ -149,24 +219,40 @@ function assertOutputDirIsSafe(projectRoot, outDir) {
     [THEME_DIR, "Atlas's own theme"],
   ];
 
-  for (const [source, name] of readsFrom) {
-    if (outDir === source) {
-      throw new Error(
-        `refusing to build into ${outDir}: that is ${name}, and the build replaces its output directory`,
-      );
+  const refuse = (reason) => {
+    throw new Error(`refusing to build into ${path.resolve(outDir)}: ${reason}`);
+  };
+
+  for (const [rawSource, name] of readsFrom) {
+    const source = canonicalise(rawSource);
+
+    // The filesystem's own answer, which is the only one that survives a case-insensitive volume.
+    // Checked against every existing ancestor of the output path, not just the path itself:
+    // `<project>/DOCS/site` is as destructive as `<project>/DOCS`.
+    for (let probe = out; ; probe = path.dirname(probe)) {
+      if (isSameFile(probe, source)) {
+        refuse(
+          probe === out
+            ? `that is ${name} (${rawSource}), and the build replaces its output directory`
+            : `it is inside ${name} (${rawSource}), and the build replaces its output directory — ` +
+              `every file under it would be deleted before it could be read`,
+        );
+      }
+      if (path.dirname(probe) === probe) break;
+    }
+
+    if (out === source) {
+      refuse(`that is ${name} (${rawSource}), and the build replaces its output directory`);
     }
     // `atlas <project> /`, or `atlas <project> <project>` — the output would take the input with it.
-    if (contains(outDir, source)) {
-      throw new Error(
-        `refusing to build into ${outDir}: it contains ${name} (${source}), and the build replaces ` +
-          `its output directory`,
-      );
+    if (contains(out, source)) {
+      refuse(`it contains ${name} (${rawSource}), and the build replaces its output directory`);
     }
     // `atlas <project> <project>/docs` — the records are deleted before they can be read.
-    if (contains(source, outDir)) {
-      throw new Error(
-        `refusing to build into ${outDir}: it is inside ${name} (${source}), and the build replaces ` +
-          `its output directory — every file under it would be deleted before it could be read`,
+    if (contains(source, out)) {
+      refuse(
+        `it is inside ${name} (${rawSource}), and the build replaces its output directory — ` +
+          `every file under it would be deleted before it could be read`,
       );
     }
   }
@@ -226,6 +312,14 @@ function collectAssets(projectRoot) {
         source,
         path: relative,
         url: `/${encodeUrlPath(relative)}`,
+        // Deliberately just HTML. Decision 10 is about the thirty-two `.html` files under `docs/`,
+        // and this is what separates them from the `support.js` files ten of them load.
+        //
+        // KNOWN LIMIT: a standalone document that is not HTML — a PDF, most plausibly — is copied
+        // and served, but is not listed in the records index, which makes it exactly the kind of
+        // orphan the index exists to prevent. Nothing in this project's corpus is one today. If
+        // one appears, this predicate is the single line to widen, and the orphan test will not
+        // catch the omission for you, because it takes its expectation from this same flag.
         isDocument: /\.html?$/i.test(relative),
       };
     });
