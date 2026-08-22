@@ -1,0 +1,77 @@
+{
+  "codename": "Beacon",
+  "what": "A six-milestone workstream invented for the fixture, deep enough to exercise a tall column in the depth chart",
+  "stage": "shipping",
+  "position": "Three milestones shipped, fourth in flight",
+  "gate": "Owner sign-off on the M4 demo before M5 starts",
+  "label": "workstream:beacon",
+  "design": [{ "name": "lighthouse/Beacon Overview v1", "where": "design-project" }],
+  "milestones": [
+    {
+      "id": "M1",
+      "label": "M1",
+      "depth": 1,
+      "title": "Signal contract",
+      "status": "done",
+      "plan": "m1-plan.md",
+      "issue": 101,
+      "pr": 201,
+      "acceptance": { "kind": "demo-script", "record": "docs/features/beacon/m1-demo.md" }
+    },
+    {
+      "id": "M2",
+      "label": "M2",
+      "depth": 2,
+      "title": "Lamp rotation service",
+      "status": "done",
+      "plan": "m2-plan.md",
+      "issue": 102,
+      "pr": 202,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M3",
+      "label": "M3",
+      "depth": 3,
+      "title": "Fog-horn scheduling",
+      "status": "done",
+      "plan": "m3-plan.md",
+      "issue": 103,
+      "pr": 203,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M4",
+      "label": "M4",
+      "depth": 4,
+      "title": "Keeper console",
+      "status": "next",
+      "plan": "m4-plan.md",
+      "issue": 104,
+      "pr": null,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M5",
+      "label": "M5",
+      "depth": 5,
+      "title": "Remote dimming",
+      "status": "gated",
+      "plan": "m5-plan.md",
+      "issue": null,
+      "pr": null,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M6",
+      "label": "M6",
+      "depth": 6,
+      "title": "Weather-linked brightness",
+      "status": "unplanned",
+      "plan": "m6-plan.md",
+      "issue": null,
+      "pr": null,
+      "acceptance": { "kind": "demo-script", "record": null }
+    }
+  ]
+}

@@ -1,0 +1,202 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
+
+// All fixture data below is invented for this test file and for fixture/ only — the generator
+// holds no project content of its own (decision 40).
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE_ROOT = path.resolve(__dirname, '..', 'fixture');
+
+function makeTempProject() {
+  return mkdtempSync(path.join(tmpdir(), 'atlas-config-test-'));
+}
+
+function writeJson(filePath, value) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, JSON.stringify(value, null, 2));
+}
+
+function validManifest(overrides = {}) {
+  return {
+    codename: 'Nova',
+    what: 'A sample workstream used only to exercise config loading',
+    stage: 'planned',
+    position: 'Designed, not approved',
+    gate: 'Owner sign-off before build',
+    label: 'workstream:nova',
+    design: [{ name: 'nova/Overview v1', where: 'design-project' }],
+    milestones: [],
+    ...overrides,
+  };
+}
+
+// --- loadConfig --------------------------------------------------------
+
+test('loadConfig: reads the fixture project and normalises absolute paths', () => {
+  const config = loadConfig(FIXTURE_ROOT);
+  assert.equal(config.project, 'Lighthouse Fixture');
+  assert.equal(config.repo, 'atlas-fixtures/lighthouse');
+  assert.deepEqual(config.workstreams, ['beacon', 'tide', 'harbor']);
+  assert.ok(path.isAbsolute(config.projectRoot));
+  assert.ok(path.isAbsolute(config.workstreamsRoot));
+  assert.ok(path.isAbsolute(config.configPath));
+  assert.equal(config.projectRoot, path.resolve(FIXTURE_ROOT));
+});
+
+test('loadConfig: a missing atlas.config.json fails with the path named, not a stack trace', () => {
+  const root = makeTempProject();
+  try {
+    assert.throws(
+      () => loadConfig(root),
+      (err) => {
+        assert.ok(err instanceof Error);
+        assert.ok(err.message.includes(path.join(root, 'atlas.config.json')));
+        assert.ok(
+          !err.message.includes('at Object.'),
+          'error message should read like a diagnostic, not a raw stack trace',
+        );
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loadConfig: an invalid atlas.config.json fails validation by field name', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), { project: 'Broken', workstreams: ['nova'] }); // no repo
+    assert.throws(() => loadConfig(root), /repo/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('loadConfig: malformed JSON in atlas.config.json fails with the path named', () => {
+  const root = makeTempProject();
+  try {
+    mkdirSync(root, { recursive: true });
+    writeFileSync(path.join(root, 'atlas.config.json'), '{ not valid json');
+    assert.throws(() => loadConfig(root), (err) => {
+      assert.ok(err.message.includes(path.join(root, 'atlas.config.json')));
+      return true;
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("loadConfig: resolves paths relative to the given project root, never the caller's cwd or the generator's own directory", () => {
+  const originalCwd = process.cwd();
+  try {
+    process.chdir(tmpdir());
+    const config = loadConfig(FIXTURE_ROOT);
+    assert.equal(config.projectRoot, path.resolve(FIXTURE_ROOT));
+    assert.ok(config.workstreamsRoot.startsWith(config.projectRoot));
+    assert.ok(!config.workstreamsRoot.startsWith(__dirname));
+  } finally {
+    process.chdir(originalCwd);
+  }
+});
+
+// --- resolveWorkstreams --------------------------------------------------
+
+test("resolveWorkstreams: loads the fixture's workstreams in declaration order", () => {
+  const config = loadConfig(FIXTURE_ROOT);
+  const workstreams = resolveWorkstreams(config);
+  assert.deepEqual(
+    workstreams.map((w) => w.slug),
+    ['beacon', 'tide', 'harbor'],
+  );
+  assert.deepEqual(
+    workstreams.map((w) => w.manifest.codename),
+    ['Beacon', 'Tide', 'Harbor'],
+  );
+});
+
+test('resolveWorkstreams: the fixture exercises workstreams of different milestone depths, including one with none', () => {
+  const config = loadConfig(FIXTURE_ROOT);
+  const workstreams = resolveWorkstreams(config);
+  const bySlug = Object.fromEntries(workstreams.map((w) => [w.slug, w]));
+  assert.equal(bySlug.beacon.manifest.milestones.length, 6);
+  assert.equal(bySlug.tide.manifest.milestones.length, 3);
+  assert.equal(bySlug.harbor.manifest.milestones.length, 0);
+});
+
+test('resolveWorkstreams: a workstream directory that does not exist fails with that path named, not a stack trace', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Broken',
+      repo: 'example-org/broken',
+      workstreams: ['ghost'],
+    });
+    const config = loadConfig(root);
+    const expectedPath = path.join(config.workstreamsRoot, 'ghost');
+    assert.throws(
+      () => resolveWorkstreams(config),
+      (err) => {
+        assert.ok(err instanceof Error);
+        assert.ok(err.message.includes(expectedPath));
+        assert.ok(
+          !err.message.includes('at Object.'),
+          'error message should read like a diagnostic, not a raw stack trace',
+        );
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveWorkstreams: a manifest that fails schema validation aborts the whole load, not just that workstream', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Broken',
+      repo: 'example-org/broken',
+      workstreams: ['good', 'bad'],
+    });
+    writeJson(path.join(root, 'docs', 'features', 'good', 'workstream.json'), validManifest({ codename: 'Good' }));
+    writeJson(
+      path.join(root, 'docs', 'features', 'bad', 'workstream.json'),
+      validManifest({ codename: 'Bad', stage: 'not-a-real-stage' }),
+    );
+    const config = loadConfig(root);
+    assert.throws(() => resolveWorkstreams(config), /stage/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('resolveWorkstreams: a manifest with malformed JSON fails with the path named, not a stack trace', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Broken',
+      repo: 'example-org/broken',
+      workstreams: ['bad-json'],
+    });
+    const manifestPath = path.join(root, 'docs', 'features', 'bad-json', 'workstream.json');
+    mkdirSync(path.dirname(manifestPath), { recursive: true });
+    writeFileSync(manifestPath, '{ this is not json');
+    const config = loadConfig(root);
+    assert.throws(
+      () => resolveWorkstreams(config),
+      (err) => {
+        assert.ok(err.message.includes(manifestPath));
+        return true;
+      },
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
