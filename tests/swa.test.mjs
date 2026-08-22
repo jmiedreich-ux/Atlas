@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ACCESS_ROLE, SWA_CONFIG_FILENAME, serialiseSwaConfig, staticWebAppConfig } from '../src/swa.mjs';
+import {
+  ACCESS_ROLE,
+  API_RUNTIME,
+  SWA_CONFIG_FILENAME,
+  WRITE_ROLE,
+  serialiseSwaConfig,
+  staticWebAppConfig,
+} from '../src/swa.mjs';
+import { AUTHOR_ROLE } from '../api/lib/principal.mjs';
 
 // Decision 7: "Nothing is anonymous. SWA's built-in Microsoft provider with role invitations;
 // every route requires a role."
@@ -74,4 +82,49 @@ test('swa: it holds no project content — the same file suits any project that 
   const text = serialiseSwaConfig();
   assert.ok(!/vennusign|atlas\.|jmiedreich/i.test(text), 'the emitted config names a project');
   assert.equal(SWA_CONFIG_FILENAME, 'staticwebapp.config.json');
+});
+
+// --- M3: the write endpoints' own routes ------------------------------------------------------
+
+test('swa: the write endpoints require `author`, and the rule precedes the catch-all', () => {
+  // The role check that actually refuses a caller without `author` lives in the Function
+  // (`api/lib/principal.mjs`), where a test can reach it. This is the layer in front of it, and
+  // the reason it is emitted rather than written down: the config Atlas emits is REPLACED on every
+  // build, so "hand-edit the file afterwards" was advice about a file that does not persist.
+  const config = staticWebAppConfig();
+
+  const api = config.routes.findIndex((route) => route.route === '/api/*');
+  const catchAll = config.routes.findIndex((route) => route.route === '/*');
+
+  assert.ok(api !== -1, 'the write endpoints are covered only by the catch-all');
+  assert.ok(api < catchAll, 'the /api rule sits after the catch-all, so it never matches');
+  assert.deepEqual(config.routes[api].allowedRoles, [WRITE_ROLE]);
+});
+
+test('swa: `author` is not `reader` — being able to read is not being able to write', () => {
+  assert.notEqual(WRITE_ROLE, ACCESS_ROLE);
+  assert.notEqual(WRITE_ROLE, 'authenticated');
+  assert.notEqual(WRITE_ROLE, 'anonymous');
+});
+
+test('swa: the role the Function checks and the role the route requires are one value', () => {
+  // Two spellings of the same role is a site where the door and the lock disagree: the route lets
+  // somebody through and the Function refuses them, or worse, the other way round.
+  assert.equal(WRITE_ROLE, AUTHOR_ROLE);
+});
+
+test('swa: the managed Function runtime is declared, because SWA will not guess it', () => {
+  // Without `platform.apiRuntime` a Node API is deployed against whatever default the platform
+  // has that week, which is the difference between endpoints that answer and endpoints that 404
+  // or 500 with nothing useful in the log.
+  const config = staticWebAppConfig();
+  assert.ok(config.platform, 'no platform block at all');
+  assert.match(config.platform.apiRuntime, /^node:\d+$/);
+});
+
+test('swa: the emitted runtime is the one constant to change, and it is not the build\'s', () => {
+  // The generator builds on Node 22 — `package.json`, `action.yml` and CI all say so. The managed
+  // Function runs in Azure on whatever Static Web Apps offers, which is a different runtime in a
+  // different place, and this is the one line that says which.
+  assert.equal(staticWebAppConfig().platform.apiRuntime, API_RUNTIME);
 });

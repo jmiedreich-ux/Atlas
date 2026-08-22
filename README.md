@@ -329,6 +329,26 @@ The caller's identity comes from the `x-ms-client-principal` header Static Web A
 from nowhere else. A body field naming a user, or a role, is a value the caller chose; it is
 refused by name, along with every other field Atlas does not expect.
 
+**An invitation sets a person's roles rather than adding to them**, so somebody who is to read and
+write is invited with `reader,author` in one go. Inviting them with `author` alone takes `reader`
+away, and every page then refuses them into a login loop.
+
+**What a refusal looks like from outside is not always the status the Function returned.** The
+emitted config turns a 401 into a `302` to the sign-in page — that is what stops an unauthorised
+visitor seeing a bare 401 they cannot act on — and the `/api/*` rule refuses a caller without
+`author` at the edge, before the Function is reached. So:
+
+| Caller | What comes back |
+| ------ | --------------- |
+| Signed out | `302` to `/.auth/login/aad` |
+| Signed in with `reader` only | `302` — the route rule refuses before the Function sees it |
+| `author`, credential unset | `503`, naming the application settings that are missing |
+| `author`, credential set | `200` and a commit URL |
+
+The Function's own `401` and `403` are what a caller sees only where the route rule is absent —
+a project that overwrote `staticwebapp.config.json` with its own. They are the layer that actually
+decides, and they fail safe either way.
+
 ### Concurrency
 
 `PUT /repos/{owner}/{repo}/contents/{path}` carries the SHA the record had when Atlas read it,
@@ -362,19 +382,25 @@ Answering again replaces that block rather than adding a second — the register
 settled, and git already holds how it got there. Nothing outside the block is touched, and nothing
 in the write path reads the clock.
 
-### The routes, in `staticwebapp.config.json`
+### The routes, and the runtime
 
-The role check that gates a write lives in the Function, and is what actually refuses a caller
-without `author`. The route rules below are defence in depth, and belong in whichever
-`staticwebapp.config.json` the project publishes:
+Both are emitted, not written down. `src/swa.mjs` puts an `/api/*` rule requiring `author` **before**
+the site's `/*` rule requiring `reader` — route rules are first-match-wins, so the order is the
+whole thing — and declares `platform.apiRuntime`. A project that configures nothing gets both.
 
-```json
-{
-  "routes": [
-    { "route": "/api/answer", "methods": ["POST"], "allowedRoles": ["author"] },
-    { "route": "/api/acceptance", "methods": ["POST"], "allowedRoles": ["author"] },
-    { "route": "/api/*", "allowedRoles": ["author"] }
-  ],
-  "platform": { "apiRuntime": "node:20" }
-}
-```
+Nothing here needs hand-editing after a build, and that is deliberate: `staticwebapp.config.json`
+is written into the **output** directory, which every build replaces wholesale, so "add this rule
+afterwards" would be advice about a file that does not persist. A project that needs different
+rules — a different identity provider, a different role name — overwrites the file in its own
+deploy step, after the Atlas step and before the deploy step, exactly as **Who can read the site**
+above describes.
+
+**The runtime is not the build's runtime.** Atlas builds on Node 22: `package.json` says `22.x`,
+`action.yml` installs 22, CI runs 22. That is GitHub Actions. The managed Function runs in Azure,
+on whatever Static Web Apps offers managed Functions, and `API_RUNTIME` in `src/swa.mjs` is the one
+line that says which — currently `node:20`. Raise it to `node:22` when the platform offers it; the
+Function's code is plain ESM and runs unchanged on any of them.
+
+**If the endpoints 404 or 500 after a deploy, check the runtime declaration first.** A missing or
+unsupported `platform.apiRuntime` is the most common reason a managed Function deploys and then
+does not answer, and it fails with nothing useful in the log.

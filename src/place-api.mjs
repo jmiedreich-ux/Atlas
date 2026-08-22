@@ -25,11 +25,17 @@ const API_SOURCE = path.join(GENERATOR_ROOT, 'api');
 /**
  * Copy the write-back Function to `apiDir`, replacing whatever is there.
  *
- * @param {string} projectRoot - the project being built.
+ * @param {string} projectRoot - the project being built, which on a runner is the workspace.
  * @param {string} apiDir - where the Function goes. An empty string places nothing.
  * @param {string} outDir - where the site is being written, so the two cannot be the same place.
- * @returns {string} the absolute path the Function was placed at, or '' when `apiDir` was empty.
- * @throws {Error} naming what the destination would have destroyed.
+ * @returns {string} the path the Function was placed at, **relative to `projectRoot`** and with
+ *   forward slashes, or '' when `apiDir` was empty. Relative because that is what this value is
+ *   for: `Azure/static-web-apps-deploy` runs in a container with the checkout mounted at
+ *   `/github/workspace` and reads `api_location` as repository-relative, so an absolute path from
+ *   the runner does not resolve inside it — and `app_location` beside it is relative too, so the
+ *   two would not even have been in the same frame of reference.
+ * @throws {Error} naming what the destination would have destroyed, or saying that it lies outside
+ *   the workspace and so could never be deployed.
  */
 export function placeApi(projectRoot, apiDir, outDir) {
   if (!apiDir) return '';
@@ -56,11 +62,24 @@ export function placeApi(projectRoot, apiDir, outDir) {
     );
   }
 
+  // The answer this returns has to be usable as an `api_location`, and that is a repository path.
+  // A destination outside the workspace would be placed perfectly well and then be unusable, which
+  // is a failure that surfaces as a deploy quietly shipping no API — so it is refused here, where
+  // the message can say why.
+  const relative = path.relative(root, destination).split(path.sep).join('/');
+  if (relative === '' || relative.startsWith('../')) {
+    throw new Error(
+      `refusing to place the write-back Function at ${destination}: it is outside the project at ` +
+        `${root}, and a Static Web Apps \`api_location\` is a path inside the checkout. Give it a ` +
+        `directory within the project.`,
+    );
+  }
+
   rmSync(destination, { recursive: true, force: true });
   mkdirSync(path.dirname(destination), { recursive: true });
   cpSync(API_SOURCE, destination, { recursive: true });
 
-  return destination;
+  return relative;
 }
 
 async function main(argv) {
@@ -75,7 +94,7 @@ async function main(argv) {
     if (where === '') {
       console.log('atlas: api-dir is empty, so the write-back Function was not placed');
     } else {
-      console.log(`atlas: placed the write-back Function at ${path.relative(process.cwd(), where) || '.'}`);
+      console.log(`atlas: placed the write-back Function at ${where}, relative to the project`);
     }
     // The action reads this to fill its `api-path` output.
     console.log(`::atlas-api-path::${where}`);

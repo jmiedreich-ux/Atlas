@@ -38,7 +38,10 @@ function refusal(root, apiDir, outDir) {
 
 test('place-api: the deployable arrives whole, and is a Function app when it lands', () => {
   const root = project();
-  const where = placeApi(root, path.join(root, '.atlas-api'), path.join(root, '.atlas-out'));
+  // `placeApi` answers with a path relative to the project — see the api_location test below — so
+  // reading the files back means resolving it against the project, exactly as the deploy step does
+  // against the checkout.
+  const where = path.join(root, placeApi(root, path.join(root, '.atlas-api'), path.join(root, '.atlas-out')));
 
   assert.ok(existsSync(path.join(where, 'host.json')));
   assert.ok(existsSync(path.join(where, 'answer', 'function.json')));
@@ -83,4 +86,35 @@ test('place-api: it refuses the filesystem root, which is the one that costs eve
 test('place-api: an empty destination places nothing and says so, rather than guessing one', () => {
   const root = project();
   assert.equal(placeApi(root, '', path.join(root, '.atlas-out')), '');
+});
+
+// --- I7: what the action hands to the deploy step -------------------------------------------------
+
+test('place-api: the path it reports is relative to the workspace, because api_location is', () => {
+  // `Azure/static-web-apps-deploy` runs in a container with the checkout mounted at
+  // /github/workspace and treats `api_location` as repository-relative. An absolute path from the
+  // runner does not resolve inside that container — and `app_location` on the line above it in
+  // every example is relative, so the two would not even have been in the same frame of reference.
+  const root = project();
+  const where = placeApi(root, path.join(root, '.atlas-api'), path.join(root, '.atlas-out'));
+
+  assert.equal(where, '.atlas-api');
+  assert.ok(!path.isAbsolute(where), `the deploy step would be handed ${where}`);
+  assert.ok(existsSync(path.join(root, where, 'host.json')), 'the path does not resolve under the project');
+});
+
+test('place-api: a nested destination is reported with forward slashes, whatever the platform uses', () => {
+  const root = project();
+  const where = placeApi(root, path.join(root, 'build', 'api'), path.join(root, '.atlas-out'));
+  assert.equal(where, 'build/api');
+});
+
+test('place-api: a destination outside the workspace fails loudly rather than at deploy time', () => {
+  // It would place the files perfectly well and then be unusable as an `api_location`, which is a
+  // failure that surfaces as a deploy that quietly ships no API.
+  const root = project();
+  const outside = path.join(ARENA, `outside-${sequence}`);
+  const message = refusal(root, outside, path.join(root, '.atlas-out'));
+  assert.ok(message, 'a destination outside the workspace was allowed');
+  assert.match(message, /outside/i);
 });
