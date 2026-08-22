@@ -146,13 +146,13 @@ export function validateAcceptancePayload(body) {
 
   // Decision 32, and the reason this endpoint has a vocabulary at all: an acceptance result is
   // `pass` or `fail`. Everything else anybody would want to send — `done`, `waived`, `blocked` —
-  // is a judgement about a milestone's position, and decision 35 gives those to Platform
-  // Operations. Rejected by name, so the caller is told what they sent and what is allowed.
+  // is a judgement about a milestone's position, and decision 35 gives those to the project's own
+  // operations console. Rejected by name, so the caller is told what they sent and what is allowed.
   if (typeof value.result !== 'string' || !ACCEPTANCE_RESULTS.includes(value.result)) {
     return fail(
       `"result" must be one of: ${ACCEPTANCE_RESULTS.join(', ')} (got ${JSON.stringify(value.result)}). ` +
-        `A milestone's status is not an acceptance result — that lives in its manifest and is ` +
-        `Platform Operations' to change (decision 35).`,
+        `A milestone's status is not an acceptance result — that lives in its manifest, and ` +
+        `decision 35 keeps it out of Atlas.`,
     );
   }
 

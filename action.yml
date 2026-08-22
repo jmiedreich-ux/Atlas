@@ -39,6 +39,24 @@ inputs:
       with broader access, for a private repository — to authenticate as that run. The README's
       example workflow shows the exact expression to write.
     required: false
+  api-dir:
+    description: >-
+      Where Atlas's write-back Function is placed, so a workflow can name it as an Azure Static Web
+      Apps `api_location` (decisions 35 to 37). Resolved like `output-dir`, and replaced wholesale
+      each run. A consuming workflow cannot point `api_location` at a directory inside this
+      action's own checkout, so the deployable is copied to somewhere the workflow can name; set
+      this to an empty string for a project that publishes the site without the endpoints, and
+      nothing is copied. It must not be the same directory as `output-dir`: the build replaces that
+      one wholesale and the Function would go with it.
+    required: false
+    default: ".atlas-api"
+
+outputs:
+  api-path:
+    description: >-
+      The directory the write-back Function was copied to, or empty when `api-dir` was. Pass it to
+      the Static Web Apps deploy step as `api_location`.
+    value: ${{ steps.atlas-api.outputs.path }}
 
 runs:
   using: "composite"
@@ -66,6 +84,25 @@ runs:
         node "${{ github.action_path }}/src/build.mjs" "${{ inputs.project-path }}" "${{ inputs.output-dir }}"
       env:
         GITHUB_TOKEN: ${{ inputs.github-token }}
+
+    # The write-back Function (decisions 35 to 37). It carries no credential of its own — the
+    # GitHub App's installation lives in the Static Web App's application settings — so copying it
+    # into the workspace exposes nothing. It is copied rather than referenced because a deploy step
+    # names `api_location` relative to the caller's checkout, which the action's own directory is
+    # not part of.
+    #
+    # The destination is removed before it is written, so the decision about whether that is
+    # allowed is `src/outdir.mjs`'s — the same guard the output directory gets, reached through
+    # `src/place-api.mjs` rather than reimplemented here in a place no test can see.
+    - name: Place the write-back Function
+      id: atlas-api
+      shell: bash
+      run: |
+        set -euo pipefail
+        placed=$(node "${{ github.action_path }}/src/place-api.mjs" \
+          "${{ inputs.project-path }}" "${{ inputs.api-dir }}" "${{ inputs.output-dir }}" \
+          | tee /dev/stderr | sed -n 's/^::atlas-api-path:://p')
+        echo "path=${placed}" >> "$GITHUB_OUTPUT"
 
 branding:
   icon: "map"

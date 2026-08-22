@@ -2,8 +2,9 @@
 //
 // Decision 35 is the scope and it is narrower than "write-back" sounds: register answers and
 // acceptance results. Creating an issue, approving a milestone, editing a manifest and triggering
-// work belong to Platform Operations — two consoles that both act is how they diverge. A status
-// dropdown on every milestone is the obvious thing to build here and it is not built.
+// work belong to the project's own operations console — two consoles that both act is how they
+// diverge. A status dropdown on every milestone is the obvious thing to build here, and it is
+// deliberately not built.
 //
 // Every request below goes through a stub standing in for GitHub, holding a tiny repository in
 // memory: an installation-token endpoint, and the contents API with real SHAs that really change
@@ -189,7 +190,7 @@ test('acceptance: the result goes into the record the MANIFEST names, not one a 
   assert.equal(response.body.path, DEMO_PATH);
   assert.match(github.files.get(DEMO_PATH).text, /Acceptance: pass/);
   // The manifest was read to find the record and was not itself written to. Decision 35 gives
-  // editing a manifest to Platform Operations.
+  // editing a manifest to the project's own operations console.
   assert.equal(github.files.get(MANIFEST_PATH).text, MANIFEST);
 });
 

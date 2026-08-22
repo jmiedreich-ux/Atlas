@@ -18,8 +18,9 @@ export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'pla
 export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'gated', 'parked', 'unplanned']);
 
 // Decision 35's second writable thing. Two values and no third: `waived` and `blocked` are
-// judgements about a milestone's position, which decision 35 assigns to Platform Operations, and a
-// vocabulary that grows to hold them is a status dropdown by another name.
+// judgements about a milestone's position, which decision 35 assigns to the project's own
+// operations console rather than to Atlas, and a vocabulary that grows to hold them is a status
+// dropdown by another name.
 export const ACCEPTANCE_RESULTS = Object.freeze(['pass', 'fail']);
 
 /**
