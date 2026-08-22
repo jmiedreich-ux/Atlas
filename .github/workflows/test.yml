@@ -55,7 +55,28 @@ jobs:
       # GitHub, the issue fetch will fail or 404 against the live API, and the build must still
       # succeed with empty issue buckets rather than fail.
       - name: Build the fixture through the packaged action
+        id: packaged
         uses: ./
         with:
           project-path: fixture
           output-dir: .ci-action-out
+
+      # This job is the ONE place the checkout and the project are different directories — the
+      # project is `fixture` and the API lands at `.atlas-api` in the checkout root. A guard that
+      # measured containment against the project instead of the checkout refused exactly this, and
+      # passed everywhere else, so the step above going green is what caught it. These assertions
+      # are so that it stays caught: a regression that placed nothing, or reported a path a
+      # `api_location` cannot name, would otherwise leave this step green and silent.
+      - name: The packaged action placed a usable API directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          placed='${{ steps.packaged.outputs.api-path }}'
+          echo "api-path = ${placed}"
+          [ -n "$placed" ] || { echo "the action reported no api-path" >&2; exit 1; }
+          case "$placed" in
+            /*|../*) echo "api-path is not relative to the checkout: $placed" >&2; exit 1 ;;
+          esac
+          for required in host.json package.json answer/function.json acceptance/function.json lib/handlers.mjs; do
+            [ -f "$placed/$required" ] || { echo "missing $placed/$required" >&2; exit 1; }
+          done
