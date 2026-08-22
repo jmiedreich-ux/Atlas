@@ -57,7 +57,8 @@ function depthOfDepthRowId(rowId) {
  * @returns {{
  *   rows: { id: string, kind: 'stage' | 'milestone', label: string, depth: number | null }[],
  *   columns: { codename: string, stage: string, barTo: string | null, headAt: string,
- *     tipLabel: string, note: string }[],
+ *     tipLabel: string, note: string, completedCount: number, milestoneCount: number,
+ *     covered: boolean[] }[],
  * }}
  */
 export function computeLadder(workstreams) {
@@ -67,7 +68,8 @@ export function computeLadder(workstreams) {
     // Decision 24: both ends come from the manifest. The bar's length is what's already
     // complete; the head sits one position past it — the one rule this task exists to get
     // right.
-    const barRows = preMilestoneCoveredCount(stage) + doneCompletedPrefix(milestones);
+    const completedDepth = doneCompletedPrefix(milestones);
+    const barRows = preMilestoneCoveredCount(stage) + completedDepth;
     const headPosition = barRows + 1;
 
     const barTo = barRows === 0 ? null : rowIdForSequencePosition(barRows);
@@ -90,7 +92,31 @@ export function computeLadder(workstreams) {
       tipLabel = milestone ? milestone.label : `M${depth}`;
     }
 
-    return { codename, stage, barTo, headAt, tipLabel, note: gate };
+    // Decision 24's completion, counted ONCE, here. The phone view (theme/_includes/mobile.njk)
+    // draws the same workstream as a track of segments and needs to know which of them are
+    // complete; it used to count every `done` milestone anywhere and fill that many segments from
+    // the left, which disagreed with this module in both directions — a done M2 behind an un-done
+    // M1 filled M1 and left M2 empty, while the bar here correctly drew nothing. The chart and the
+    // phone now read the same three fields, so neither surface classifies anything of its own.
+    //
+    //   completedCount — how many of this workstream's milestones the bar covers
+    //   milestoneCount — how many are on record at all
+    //   covered        — one flag per milestone, in the order the manifest lists them, because
+    //                    the manifest's order is what a track of segments is drawn in and it is
+    //                    not required to match depth order
+    const covered = milestones.map((m) => m.depth >= 1 && m.depth <= completedDepth);
+
+    return {
+      codename,
+      stage,
+      barTo,
+      headAt,
+      tipLabel,
+      note: gate,
+      completedCount: covered.filter(Boolean).length,
+      milestoneCount: milestones.length,
+      covered,
+    };
   });
 
   // Decision 20: the ladder is the union of every workstream's depth, so a six-milestone stream

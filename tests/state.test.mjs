@@ -232,6 +232,67 @@ test('state: the ladder is the one the chart drew, row for row and column for co
   });
 });
 
+test('state: the completion it reports is the completion the phone view drew (decision 24)', () => {
+  // Completion is computed once, in `computeLadder`. The chart's bar, the phone's track and these
+  // two numbers are three readings of one answer, so this compares the file against the page the
+  // same build emitted rather than against a second derivation from the manifests.
+  const cards = read('mobile/index.html')
+    .split('<article class="card"')
+    .slice(1)
+    .map((chunk) => ({
+      codename: /data-workstream="([^"]*)"/.exec(chunk)?.[1],
+      counts: [...(/<p class="track-count[^"]*"[^>]*>([\s\S]*?)<\/p>/.exec(chunk)?.[1] ?? '').matchAll(
+        /<span class="num">(\d+)<\/span>/g,
+      )].map((m) => Number(m[1])),
+      segments: [...(/<div class="track"[^>]*>([\s\S]*?)<\/div>/.exec(chunk)?.[1] ?? '').matchAll(
+        /<span class="track-seg([^"]*)"><\/span>/g,
+      )].map((m) => m[1].includes('is-filled')),
+    }));
+
+  assert.equal(cards.length, state.workstreams.length, 'expected one card per workstream');
+
+  for (const card of cards) {
+    const entry = state.workstreams.find((w) => w.codename === card.codename);
+    assert.ok(entry, `state.json has no entry for the card "${card.codename}"`);
+
+    if (entry.depth.milestoneCount === 0) {
+      assert.deepEqual(card.counts, [], `${card.codename}: a workstream with no milestones draws no count`);
+      assert.deepEqual(card.segments, [], `${card.codename}: and no track`);
+      continue;
+    }
+
+    assert.deepEqual(
+      card.counts,
+      [entry.depth.completedCount, entry.depth.milestoneCount],
+      `${card.codename}: the phone view and state.json disagree about how much is complete`,
+    );
+    assert.equal(
+      card.segments.length,
+      entry.depth.milestoneCount,
+      `${card.codename}: the track must hold one segment per milestone state.json lists`,
+    );
+    assert.equal(
+      card.segments.filter(Boolean).length,
+      entry.depth.completedCount,
+      `${card.codename}: the track fills a different number of segments than state.json counts`,
+    );
+  }
+});
+
+test('state: completion never exceeds the milestones the same file lists', () => {
+  for (const stream of state.workstreams) {
+    assert.equal(
+      stream.depth.milestoneCount,
+      stream.milestones.length,
+      `${stream.codename}: the milestone count disagrees with the milestones listed beside it`,
+    );
+    assert.ok(
+      stream.depth.completedCount >= 0 && stream.depth.completedCount <= stream.depth.milestoneCount,
+      `${stream.codename}: completedCount is outside the range its own milestone list allows`,
+    );
+  }
+});
+
 // --- documents -------------------------------------------------------------------------------------
 
 test('state: every Markdown record the build rendered is listed, and nothing else is', () => {

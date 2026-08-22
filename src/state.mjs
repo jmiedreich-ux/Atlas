@@ -74,12 +74,21 @@ export function buildState(site) {
         name: reference.name,
         where: reference.where,
       })),
-      // Decision 24: both ends of this workstream's column, as the chart drew them.
+      // Decision 24: both ends of this workstream's column, as the chart drew them, and how much
+      // of it is complete — the same numbers the phone view drew its track from, taken from the
+      // one `computeLadder` call this build made. `covered` itself is not projected: it is a
+      // per-segment drawing detail of one surface, and `milestones[].status` beside it already
+      // tells a reader which milestone is which.
+      //
+      // Not repeated under `ladder.columns` below, which is the shared ladder *as the chart drew
+      // it*, and the chart draws no count. A workstream's own progress belongs to the workstream.
       depth: {
         barTo: stream.column.barTo,
         headAt: stream.column.headAt,
         tipLabel: stream.column.tipLabel,
         note: stream.column.note,
+        completedCount: stream.column.completedCount,
+        milestoneCount: stream.column.milestoneCount,
       },
       milestones: stream.milestones.map((entry) => ({
         // Decision 17: `id` is durable and unchanging, `label` is the display form. Both.

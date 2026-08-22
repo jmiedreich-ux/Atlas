@@ -9,7 +9,10 @@ name: Test
 
 on:
   push:
-    branches: [master]
+    # `main`, which is this repository's default branch. A branch that does not exist here would
+    # leave only `pull_request` firing, so nothing would exercise this workflow on merge — and
+    # `action.yml` would keep its zero real-runner evidence.
+    branches: [main]
   pull_request:
   workflow_dispatch:
 

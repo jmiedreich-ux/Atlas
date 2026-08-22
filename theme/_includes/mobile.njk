@@ -21,7 +21,8 @@
   Data this layout expects:
     triaged — orderByTriage(...)'s output: the workstreams already in card order, each one a
               { slug, manifest, triage, column }, where `triage` is its state and `column` is its
-              own entry from computeLadder's columns
+              own entry from computeLadder's columns — including `covered`, `completedCount` and
+              `milestoneCount`, which are what this page draws the track from
     project, repo, title — see base.njk
 -#}
 {% extends "base.njk" %}
@@ -43,17 +44,16 @@
 </header>
 <p class="card-what">{{ stream.manifest.what }}</p>
 <p class="card-position">{{ stream.manifest.position }}</p>
-{#- How much of the track is filled. A count of what is complete, not a judgement about it: the
-    judgement is `stream.triage`, and it was made before this page was rendered. -#}
-{%- set doneCount = 0 -%}
-{%- for entry in stream.manifest.milestones -%}
-{%- if entry.status == "done" %}{% set doneCount = doneCount + 1 %}{% endif -%}
-{%- endfor %}
-{% if stream.manifest.milestones | length %}
-<div class="track" role="img" aria-label="{{ doneCount }} of {{ stream.manifest.milestones | length }} milestones complete">
-{% for entry in stream.manifest.milestones %}<span class="track-seg{% if loop.index0 < doneCount %} is-filled{% endif %}"></span>{% endfor %}
+{#- How much of the track is filled. Not counted here: `computeLadder` decides what "complete"
+    means for a workstream (decision 24 — the contiguous run from depth 1, so a done M2 behind an
+    un-done M1 completes nothing), and the depth chart draws its bar from the same numbers. This
+    page reads them. A second count here is exactly how these two surfaces came to state
+    contradictory facts about one workstream. -#}
+{% if stream.column.milestoneCount %}
+<div class="track" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
+{% for filled in stream.column.covered %}<span class="track-seg{% if filled %} is-filled{% endif %}"></span>{% endfor %}
 </div>
-<p class="track-count"><span class="num">{{ doneCount }}</span> of <span class="num">{{ stream.manifest.milestones | length }}</span> milestones complete</p>
+<p class="track-count"><span class="num">{{ stream.column.completedCount }}</span> of <span class="num">{{ stream.column.milestoneCount }}</span> milestones complete</p>
 {% else %}
 <p class="track-count empty">No milestones on record yet</p>
 {% endif %}

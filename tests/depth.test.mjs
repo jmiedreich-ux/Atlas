@@ -356,3 +356,63 @@ test('assertLadderResolves: a null barTo is a column with nothing complete yet, 
   assert.equal(ladder.columns[0].barTo, null);
   assert.doesNotThrow(() => assertLadderResolves(ladder));
 });
+
+// --- decision 24, once: completion is counted here and nowhere else --------------------------
+
+test('computeLadder: a column carries its own completion, counted as the contiguous run the bar draws', () => {
+  // The phone view and the depth chart used to answer "how much of this is complete?" separately,
+  // and disagreed: the chart counts the contiguous run from depth 1 (a done M3 behind an un-done
+  // M2 does not extend the bar past M1), the phone counted every `done` milestone anywhere. One
+  // count now, on the column, so the two surfaces cannot drift again.
+  const [column] = computeLadder([
+    entry('gapped', {
+      codename: 'Gapped',
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'parked' }),
+      ],
+    }),
+  ]).columns;
+
+  // The bar still covers the three pre-milestone stages a shipping workstream is past; what it
+  // does NOT cover is any milestone, and that is what the phone view draws.
+  assert.equal(column.barTo, 'planned', 'the bar stops at the last pre-milestone row');
+  assert.equal(column.headAt, 'depth-1', 'the head points at M1, which is not done');
+  assert.equal(column.completedCount, 0, 'a done M2 behind an un-done M1 completes nothing');
+  assert.equal(column.milestoneCount, 3);
+  assert.deepEqual(
+    column.covered,
+    [false, false, false],
+    'no segment may be filled while the bar covers no milestone',
+  );
+});
+
+test('computeLadder: completion covers the run from depth 1, in the order the manifest lists', () => {
+  const [column] = computeLadder([
+    entry('run', {
+      codename: 'Run',
+      stage: 'shipping',
+      milestones: [
+        // Deliberately out of depth order, because the manifest is allowed to be and the
+        // segments are drawn in the order the manifest lists.
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'unplanned' }),
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
+      ],
+    }),
+  ]).columns;
+
+  assert.equal(column.completedCount, 2);
+  assert.equal(column.milestoneCount, 3);
+  assert.deepEqual(column.covered, [false, true, true]);
+  assert.equal(column.headAt, 'depth-3', 'the head sits one past the completed run');
+});
+
+test('computeLadder: a workstream with no milestones completes nothing and has nothing to draw', () => {
+  const [column] = computeLadder([entry('bare', { codename: 'Bare', stage: 'designing' })]).columns;
+  assert.equal(column.completedCount, 0);
+  assert.equal(column.milestoneCount, 0);
+  assert.deepEqual(column.covered, []);
+});

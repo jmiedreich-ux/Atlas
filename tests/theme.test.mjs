@@ -653,6 +653,70 @@ test('mobile: the gate is the last line of every card', () => {
   }
 });
 
+// --- decision 24: the two surfaces agree about what is complete ---------------------------------
+
+// One segment per milestone, in the order the card drew them, and whether each is filled.
+function trackSegments(html) {
+  return [...html.matchAll(/<span class="track-seg([^"]*)"><\/span>/g)].map((m) =>
+    m[1].includes('is-filled'),
+  );
+}
+
+test('mobile: the track fills the milestones the chart covers, never every done one anywhere', () => {
+  // The bug this pins: the phone counted every `done` milestone and filled the FIRST that many
+  // segments, so with M1 `next` and M2 `done` it filled M1 — the one that is not done — and left
+  // M2 — the one that is — empty, while the chart drew nothing complete at all. Both surfaces now
+  // read the same `covered` flags from `computeLadder`, so they cannot disagree again.
+  const gapped = entry('Gapped', {
+    stage: 'shipping',
+    milestones: [
+      milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' }),
+      milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
+      milestone({ id: 'M3', label: 'M3', depth: 3, status: 'parked' }),
+    ],
+  });
+
+  const html = renderMobile([gapped]);
+  const segments = trackSegments(html);
+  assert.equal(segments.length, 3, 'one segment per milestone');
+  assert.deepEqual(
+    segments,
+    [false, false, false],
+    'the chart covers nothing here, so the phone must fill nothing',
+  );
+  assert.ok(
+    html.includes('<span class="num">0</span> of <span class="num">3</span> milestones complete'),
+    'the card must count what the bar covers, not every done milestone',
+  );
+  assert.ok(html.includes('aria-label="0 of 3 milestones complete"'), 'the track label must agree too');
+
+  // And the chart's own answer, so the two are read side by side rather than one at a time.
+  const [column] = computeLadder([gapped]).columns;
+  assert.equal(column.headAt, 'depth-1', 'the chart points its head at M1, so M1 is not complete');
+  assert.equal(column.completedCount, 0);
+});
+
+test('mobile: a completed run fills exactly its own segments, in the order the manifest lists', () => {
+  // Listed out of depth order on purpose. Nothing requires a manifest to list its milestones in
+  // depth order, and a page that fills "the first completedCount segments" instead of reading
+  // `covered` would fill M3 here — the one that is not complete — and leave M2 empty. That is the
+  // same class of bug as counting every done milestone, one step further along.
+  const run = entry('Run', {
+    stage: 'shipping',
+    milestones: [
+      milestone({ id: 'M3', label: 'M3', depth: 3, status: 'next' }),
+      milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+      milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
+    ],
+  });
+
+  const html = renderMobile([run]);
+  assert.deepEqual(trackSegments(html), [false, true, true]);
+  assert.ok(
+    html.includes('<span class="num">2</span> of <span class="num">3</span> milestones complete'),
+  );
+});
+
 // --- status is never colour alone ----------------------------------------------------------------
 
 test('chips: every status chip carries a text label, never colour alone', () => {
@@ -773,6 +837,25 @@ test('document: rendered Markdown is emitted as HTML, not escaped into visible t
   }
   for (const anchor of headingAnchors(decisionsText)) {
     assert.ok(documentHtml.includes(`href="#${anchor.id}"`), `the contents list is missing #${anchor.id}`);
+  }
+});
+
+test('document: the link to the file resolves on any default branch', () => {
+  // Decision 2 rests on this one link: "where this page and that file disagree, the file is
+  // right" is worth nothing if the link 404s. A hardcoded branch name forces a branch model on
+  // every consumer, which decision 43 says Atlas does not do, and nothing in `atlas.config.json`
+  // lets a consumer name theirs. GitHub resolves `HEAD` to whatever the repository's own default
+  // branch is, so one spelling is correct for a `main` consumer and a `master` one alike.
+  const toTheFile = attrValues(documentHtml, 'href').filter((href) =>
+    /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\//.test(href),
+  );
+  assert.ok(toTheFile.length > 0, 'the record page does not link to the file it rendered');
+  for (const href of toTheFile) {
+    assert.match(
+      href,
+      /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/HEAD\//,
+      `a record page must reach its file on any default branch, so the ref is HEAD: ${href}`,
+    );
   }
 });
 
