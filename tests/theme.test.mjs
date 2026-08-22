@@ -1089,10 +1089,11 @@ test('depth: the chart sits inside a horizontally scrolling container', () => {
 test('mobile: workstreams are ordered by what needs the owner, not alphabetically', () => {
   const order = attrValues(mobileHtml, 'data-workstream');
 
-  // Anchor has run out of milestones and needs a decision; Beacon and Tide are moving; Harbor is
-  // still designing. Alphabetically that would be Anchor, Beacon, Harbor, Tide; in declaration
-  // order it would be Beacon, Tide, Harbor, Anchor. Decision 27 wants neither.
-  assert.deepEqual(order, ['Anchor', 'Beacon', 'Tide', 'Harbor']);
+  // Anchor has run out of milestones and needs a decision; Beacon and Tide are moving; Reef is
+  // parked on something outside itself; Harbor is still designing; Shoal has not started.
+  // Alphabetically that would be Anchor, Beacon, Harbor, Reef, Shoal, Tide; in declaration order
+  // it would be Beacon, Tide, Reef, Harbor, Anchor, Shoal. Decision 27 wants neither.
+  assert.deepEqual(order, ['Anchor', 'Beacon', 'Tide', 'Reef', 'Harbor', 'Shoal']);
 
   const alphabetical = [...order].sort();
   assert.notDeepEqual(order, alphabetical, 'the cards came out in alphabetical order');
@@ -1146,11 +1147,15 @@ function trackSegments(html) {
   );
 }
 
-test('mobile: the track fills the milestones the chart covers, never every done one anywhere', () => {
-  // The bug this pins: the phone counted every `done` milestone and filled the FIRST that many
+test('mobile: the track fills exactly the milestones that are finished, never the first N segments', () => {
+  // The bug this pins: the phone counted the done milestones and filled the FIRST that many
   // segments, so with M1 `next` and M2 `done` it filled M1 — the one that is not done — and left
-  // M2 — the one that is — empty, while the chart drew nothing complete at all. Both surfaces now
-  // read the same `covered` flags from `computeLadder`, so they cannot disagree again.
+  // M2 — the one that is — empty. Both surfaces read the same `covered` flags from
+  // `computeLadder`, so they cannot disagree.
+  //
+  // M2.1 moved the numbers under it (#780): the bar no longer stops at the first gap, so this
+  // column reads 1 of 3 rather than 0 of 3. What the test pins is unchanged, and the shape still
+  // separates the two implementations — a fill-the-first-N would light M1, not M2.
   const gapped = entry('Gapped', {
     stage: 'shipping',
     milestones: [
@@ -1165,19 +1170,20 @@ test('mobile: the track fills the milestones the chart covers, never every done 
   assert.equal(segments.length, 3, 'one segment per milestone');
   assert.deepEqual(
     segments,
-    [false, false, false],
-    'the chart covers nothing here, so the phone must fill nothing',
+    [false, true, false],
+    'only the finished milestone may be filled, and it is the second one',
   );
   assert.ok(
-    html.includes('<span class="num">0</span> of <span class="num">3</span> milestones complete'),
-    'the card must count what the bar covers, not every done milestone',
+    html.includes('<span class="num">1</span> of <span class="num">3</span> milestones complete'),
+    'the card must count what is finished, not how far the bar reaches',
   );
-  assert.ok(html.includes('aria-label="0 of 3 milestones complete"'), 'the track label must agree too');
+  assert.ok(html.includes('aria-label="1 of 3 milestones complete"'), 'the track label must agree too');
 
   // And the chart's own answer, so the two are read side by side rather than one at a time.
   const [column] = computeLadder([gapped]).columns;
-  assert.equal(column.headAt, 'depth-1', 'the chart points its head at M1, so M1 is not complete');
-  assert.equal(column.completedCount, 0);
+  assert.equal(column.barTo, 'depth-2', 'the bar reaches the real edge of finished work');
+  assert.equal(column.headAt, 'depth-3');
+  assert.equal(column.completedCount, 1);
 });
 
 test('mobile: a completed run fills exactly its own segments, in the order the manifest lists', () => {

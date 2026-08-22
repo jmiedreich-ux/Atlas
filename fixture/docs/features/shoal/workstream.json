@@ -1,0 +1,10 @@
+{
+  "codename": "Shoal",
+  "what": "A workstream invented for the fixture that has not been started at all, so the one case where a feature has completed nothing — and its ribbon must still be drawn, because progress through the stages is progress — has a home in real fixture shape",
+  "stage": "not-started",
+  "position": "Named in the roadmap, nothing begun",
+  "gate": "Owner decision on whether shoal mapping belongs to this project at all",
+  "label": "workstream:shoal",
+  "design": [],
+  "milestones": []
+}

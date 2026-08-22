@@ -115,7 +115,7 @@ const SUMMARY = await build(FIXTURE_ROOT, OUT, { fetchImpl: stubFetch, quiet: tr
 const read = (rel) => readFileSync(path.join(OUT, rel), 'utf8');
 const state = JSON.parse(read('state.json'));
 
-const FIXTURE_WORKSTREAMS = ['beacon', 'tide', 'harbor', 'anchor'];
+const FIXTURE_WORKSTREAMS = ['beacon', 'tide', 'reef', 'harbor', 'anchor', 'shoal'];
 
 function manifestOf(slug) {
   return JSON.parse(readFileSync(path.join(FIXTURE_ROOT, 'docs', 'features', slug, 'workstream.json'), 'utf8'));
@@ -216,6 +216,11 @@ const EXPECTED_FILES = [
   'docs/features/beacon/m4-plan/index.html',
   'docs/features/beacon/m5-plan/index.html',
   'docs/features/beacon/m6-plan/index.html',
+  'docs/features/reef/m1-plan/index.html',
+  'docs/features/reef/m2-plan/index.html',
+  'docs/features/reef/m3-plan/index.html',
+  'docs/features/reef/m4-plan/index.html',
+  'docs/features/reef/m5-plan/index.html',
   'docs/features/tide/m1-plan/index.html',
   'docs/features/tide/m2-plan/index.html',
   'docs/features/tide/m3-plan/index.html',
@@ -240,6 +245,13 @@ const EXPECTED_FILES = [
   'workstream/beacon/m5/index.html',
   'workstream/beacon/m6/index.html',
   'workstream/harbor/index.html',
+  'workstream/reef/index.html',
+  'workstream/reef/m1/index.html',
+  'workstream/reef/m2/index.html',
+  'workstream/reef/m3/index.html',
+  'workstream/reef/m4/index.html',
+  'workstream/reef/m5/index.html',
+  'workstream/shoal/index.html',
   'workstream/tide/index.html',
   'workstream/tide/m1/index.html',
   'workstream/tide/m2/index.html',

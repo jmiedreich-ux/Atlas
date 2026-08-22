@@ -23,14 +23,43 @@ function preMilestoneCoveredCount(stage) {
   return 3; // shipping
 }
 
-// The longest contiguous run of `done` milestones starting at depth 1. "The bar covers every
-// stage completed" (decision 24) means completion in order, not merely "some milestone somewhere
-// is done" — a done M3 behind an un-done M2 does not extend the bar past M1.
-function doneCompletedPrefix(milestones) {
-  const statusByDepth = new Map(milestones.map((m) => [m.depth, m.status]));
-  let depth = 1;
-  while (statusByDepth.get(depth) === 'done') depth += 1;
-  return depth - 1;
+// The real edge of finished work: the deepest milestone that is `done`, whatever sits above it.
+//
+// M2.1 INVERTED this (#780). M1 counted the longest CONTIGUOUS run from depth 1, so the first
+// milestone that was not `done` stopped the bar dead — the rule was stated here as "a done M3
+// behind an un-done M2 does not extend the bar past M1". The owner ruled that wrong for how the
+// work actually goes: a milestone that is parked while later ones ship is one the work went
+// round, and a column that reports nothing complete while nine milestones are finished is lying
+// about the record it exists to render. A skipped milestone is now NOTED — see `skippedBehind` —
+// rather than treated as a wall.
+function finishedDepth(milestones) {
+  return milestones.reduce((deepest, m) => (m.status === 'done' && m.depth > deepest ? m.depth : deepest), 0);
+}
+
+// The milestones the work went round: on record, behind the edge of finished work, and not
+// finished themselves. Positional, like every other rule on this page — the status is carried as
+// the REASON to print beside the marker, never as the test for whether to draw one.
+//
+// Depth order, not manifest order, because these are drawn at ladder rows.
+function skippedBehind(milestones, edge) {
+  return milestones
+    .filter((m) => m.depth < edge && m.status !== 'done')
+    .sort((a, b) => a.depth - b.depth)
+    .map((m) => ({
+      id: m.id,
+      label: m.label,
+      depth: m.depth,
+      rowId: `depth-${m.depth}`,
+      status: m.status,
+      issue: m.issue,
+    }));
+}
+
+// The deepest milestone on record at all. #780: "the arrow runs from the top of the ladder to the
+// last milestone that has a record" — no expected-depth field, no owner judgement to state, no
+// imagined milestones. A workstream's length is simply how many milestones it has records for.
+function deepestRecordedDepth(milestones) {
+  return milestones.reduce((deepest, m) => (m.depth > deepest ? m.depth : deepest), 0);
 }
 
 function milestoneAtDepth(milestones, depth) {
@@ -58,7 +87,8 @@ function depthOfDepthRowId(rowId) {
  *   rows: { id: string, kind: 'stage' | 'milestone', label: string, depth: number | null }[],
  *   columns: { codename: string, stage: string, barTo: string | null, headAt: string,
  *     tipLabel: string, note: string, completedCount: number, milestoneCount: number,
- *     covered: boolean[] }[],
+ *     covered: boolean[], skipped: object[], recordedTo: string | null,
+ *     liveAt: string | null }[],
  * }}
  */
 export function computeLadder(workstreams) {
@@ -68,7 +98,7 @@ export function computeLadder(workstreams) {
     // Decision 24: both ends come from the manifest. The bar's length is what's already
     // complete; the head sits one position past it — the one rule this task exists to get
     // right.
-    const completedDepth = doneCompletedPrefix(milestones);
+    const completedDepth = finishedDepth(milestones);
     const barRows = preMilestoneCoveredCount(stage) + completedDepth;
     const headPosition = barRows + 1;
 
@@ -95,16 +125,22 @@ export function computeLadder(workstreams) {
     // Decision 24's completion, counted ONCE, here. The phone view (theme/_includes/mobile.njk)
     // draws the same workstream as a track of segments and needs to know which of them are
     // complete; it used to count every `done` milestone anywhere and fill that many segments from
-    // the left, which disagreed with this module in both directions — a done M2 behind an un-done
-    // M1 filled M1 and left M2 empty, while the bar here correctly drew nothing. The chart and the
-    // phone now read the same three fields, so neither surface classifies anything of its own.
+    // the left, which disagreed with this module in both directions. The chart, the phone and
+    // state.json now read the same fields, so no surface classifies anything of its own.
     //
-    //   completedCount — how many of this workstream's milestones the bar covers
+    //   completedCount — how many of this workstream's milestones are finished
     //   milestoneCount — how many are on record at all
     //   covered        — one flag per milestone, in the order the manifest lists them, because
     //                    the manifest's order is what a track of segments is drawn in and it is
     //                    not required to match depth order
-    const covered = milestones.map((m) => m.depth >= 1 && m.depth <= completedDepth);
+    //
+    // A milestone the bar has passed but which is not itself finished — a parked one the work
+    // went round — is NOT covered and is NOT counted: "9 of 10" is the honest reading of nine
+    // finished milestones with a tenth parked, and it is what `skipped` below is for.
+    const covered = milestones.map((m) => m.status === 'done');
+
+    const recordedDepth = deepestRecordedDepth(milestones);
+    const headMilestone = headPosition > 3 ? milestoneAtDepth(milestones, headPosition - 3) : null;
 
     return {
       codename,
@@ -116,6 +152,23 @@ export function computeLadder(workstreams) {
       completedCount: covered.filter(Boolean).length,
       milestoneCount: milestones.length,
       covered,
+
+      // --- M2.1, from #780 -----------------------------------------------------------------
+      //
+      // The milestones the work went round, each carrying the reason and the issue number the
+      // page prints beside its marker. Empty for every column with no gap in it.
+      skipped: skippedBehind(milestones, completedDepth),
+
+      // Where the faint reach ends: the deepest milestone on record, when that is past the bar.
+      // `null` means there is nothing recorded beyond where the work has got, and #780 says such
+      // a feature has one arrow only. This is the only thing that decides the second arrow's
+      // existence — there is no expected-depth field and no guess.
+      recordedTo: recordedDepth > completedDepth ? `depth-${recordedDepth}` : null,
+
+      // Where work is actually under way, as against merely next in line. Tied to the head so
+      // the solid arrow can never jump a gap: the row is live only when the milestone the head
+      // lands on says `next` itself.
+      liveAt: headMilestone?.status === 'next' ? headAt : null,
     };
   });
 
