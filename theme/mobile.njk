@@ -12,12 +12,16 @@
     4. designing
     5. not started
 
-  Ties keep the order the config declared, so two cards in the same state never swap places
-  between builds.
+  This layout classifies nothing and sorts nothing: `src/triage.mjs` decides both, and hands the
+  cards over already in order. That is deliberate. `state.json` (decision 29) is built from the
+  same function, so the machine-readable output and this page cannot disagree about what needs the
+  owner — and a mapping that lives in a template is one no table test can pin and no other surface
+  can reuse.
 
   Data this layout expects:
-    ladder      — { rows, columns } as computeLadder returned it
-    workstreams — the array resolveWorkstreams produced, in the SAME order as ladder.columns
+    triaged — orderByTriage(...)'s output: the workstreams already in card order, each one a
+              { slug, manifest, triage, column }, where `triage` is its state and `column` is its
+              own entry from computeLadder's columns
     project, repo, title — see base.njk
 -#}
 {% extends "base.njk" %}
@@ -30,41 +34,21 @@
 <p class="lede">Ordered by what is waiting on a decision, not by name. Every card ends on the gate that is holding it.</p>
 
 <ul class="card-list">
-{%- for wanted in ["awaiting-decision", "moving", "blocked", "designing", "not-started"] -%}
-{%- for stream in workstreams -%}
-{%- set column = ladder.columns[loop.index0] -%}
-{#- Which of the five states this workstream is in. Stage first, because a workstream that has
-    not started designing yet cannot be moving whatever its milestone list says. -#}
-{%- set hasNext = false -%}
-{%- set hasParked = false -%}
-{%- set doneCount = 0 -%}
-{%- for entry in stream.manifest.milestones -%}
-{%- if entry.status == "next" %}{% set hasNext = true %}{% endif -%}
-{%- if entry.status == "parked" %}{% set hasParked = true %}{% endif -%}
-{%- if entry.status == "done" %}{% set doneCount = doneCount + 1 %}{% endif -%}
-{%- endfor -%}
-{%- set triage = "awaiting-decision" -%}
-{%- if stream.manifest.stage == "not-started" -%}
-{%- set triage = "not-started" -%}
-{%- elif stream.manifest.stage == "designing" -%}
-{%- set triage = "designing" -%}
-{%- elif stream.manifest.stage == "planned" -%}
-{#- Designed, not approved: the approval is the owner's to give. -#}
-{%- set triage = "awaiting-decision" -%}
-{%- elif hasNext -%}
-{%- set triage = "moving" -%}
-{%- elif hasParked -%}
-{%- set triage = "blocked" -%}
-{%- endif -%}
-{% if triage == wanted %}
+{%- for stream in triaged %}
 <li>
-<article class="card" data-workstream="{{ stream.manifest.codename }}" data-triage="{{ triage }}">
+<article class="card" data-workstream="{{ stream.manifest.codename }}" data-triage="{{ stream.triage }}">
 <header class="card-head">
 <h2><a href="/workstream/{{ stream.slug }}/">{{ stream.manifest.codename }}</a></h2>
-{{ ui.chip("triage", triage) }}
+{{ ui.chip("triage", stream.triage) }}
 </header>
 <p class="card-what">{{ stream.manifest.what }}</p>
 <p class="card-position">{{ stream.manifest.position }}</p>
+{#- How much of the track is filled. A count of what is complete, not a judgement about it: the
+    judgement is `stream.triage`, and it was made before this page was rendered. -#}
+{%- set doneCount = 0 -%}
+{%- for entry in stream.manifest.milestones -%}
+{%- if entry.status == "done" %}{% set doneCount = doneCount + 1 %}{% endif -%}
+{%- endfor %}
 {% if stream.manifest.milestones | length %}
 <div class="track" role="img" aria-label="{{ doneCount }} of {{ stream.manifest.milestones | length }} milestones complete">
 {% for entry in stream.manifest.milestones %}<span class="track-seg{% if loop.index0 < doneCount %} is-filled{% endif %}"></span>{% endfor %}
@@ -73,12 +57,10 @@
 {% else %}
 <p class="track-count empty">No milestones on record yet</p>
 {% endif %}
-<p class="card-next">Next: {{ column.tipLabel }}</p>
+<p class="card-next">Next: {{ stream.column.tipLabel }}</p>
 <p class="card-gate"><span class="card-gate-label">Gate</span>{{ stream.manifest.gate }}</p>
 </article>
 </li>
-{% endif -%}
-{%- endfor -%}
-{%- endfor %}
+{% endfor %}
 </ul>
 {% endblock %}

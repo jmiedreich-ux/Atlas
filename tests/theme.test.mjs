@@ -13,6 +13,7 @@ import nunjucks from 'nunjucks';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
+import { orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -96,12 +97,16 @@ function renderDepth(entries) {
   });
 }
 
+// Task 7 moved decision 27's mapping out of `mobile.njk` and into `src/triage.mjs`, so the page
+// is now handed its cards already classified and already in order. The assertions below are
+// unchanged: they still read the rendered HTML, so they pin the same behaviour they always did —
+// only the place that decides it moved.
 function renderMobile(entries) {
+  const ladder = computeLadder(entries);
   return env.render('mobile.njk', {
     ...site,
     title: 'Triage',
-    workstreams: entries,
-    ladder: computeLadder(entries),
+    triaged: orderByTriage(entries.map((stream, i) => ({ ...stream, column: ladder.columns[i] }))),
   });
 }
 
