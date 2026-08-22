@@ -9,5 +9,8 @@
   },
   "scripts": {
     "test": "node --test"
+  },
+  "dependencies": {
+    "markdown-it": "^15.0.0"
   }
 }
