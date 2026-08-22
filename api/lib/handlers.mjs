@@ -5,9 +5,8 @@
 //
 // Creating an issue, approving a milestone, editing a manifest and triggering work belong to the
 // project's own operations console — *"two consoles that both act is how they diverge."* A status
-// dropdown on every milestone is the obvious next thing to build here and it is
-// deliberately absent; a test asserts
-// that this module exports exactly two handlers.
+// dropdown on every milestone is the obvious next thing to build here and it is deliberately
+// absent; a test asserts that this module exports exactly two handlers.
 //
 // Every write is the same five steps, in the same order, and the order is load-bearing:
 //
