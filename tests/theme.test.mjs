@@ -493,6 +493,142 @@ function bareRootDeclarations() {
   return new Map(declarationsIn(rule.body));
 }
 
+// The contract's own dark set — `:root[data-sky-theme="midnight"]` in the locked file — transcribed
+// the same way and for the same reason as CONTRACT_LIGHT above. Half the palette was undefended:
+// the only dark assertions were "a dark block exists" and "it redefines more than ten tokens", so
+// nudging --sky-color-surface off midnight's #111827 in BOTH dark blocks survived green. That is
+// precisely the defect finding I7 was raised about, and it applied to dark as much as to light.
+const CONTRACT_MIDNIGHT = {
+  '--sky-color-surface': '#111827',
+  '--sky-color-surface-raised': '#1e293b',
+  '--sky-color-ink': '#f8fafc',
+  '--sky-color-secondary': '#17344a',
+  '--sky-color-border': '#475569',
+  '--sky-color-text-secondary': '#cbd5e1',
+  '--sky-color-text-muted': '#94a3b8',
+  '--sky-color-live-surface': '#123d2d',
+  '--sky-color-off-surface': '#4a2024',
+  '--sky-color-warning-surface': '#493518',
+  '--sky-positive-text': '#65d99c',
+  '--sky-danger-text': '#ff8a83',
+  '--sky-warning-text': '#f4c15d',
+  '--sky-badge-text': '#f8fafc',
+  '--sky-focus-color': '#38bdf8',
+};
+
+// The tokens midnight does NOT define, which Atlas therefore has to derive. Listed by name so that
+// the derived set cannot grow, shrink, or lose its explanation without a test noticing: a derived
+// colour with no note is one nobody can audit, and deleting the notes used to be free.
+const DERIVED_IN_DARK = {
+  '--sky-color-promotion': '#c3b6ef',
+  '--sky-color-shell': '#0d1523',
+  '--sky-color-fill-subtle': '#182234',
+  '--sky-color-border-control': '#6b7c93',
+  '--sky-action-link-text': '#7dd3fc',
+  '--sky-shadow-card': '0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45)',
+  '--atlas-tone-exploring-bg': '#2a2247',
+};
+
+function darkBlockDeclarations() {
+  const blocks = {};
+  for (const selector of [':root:not([data-theme="light"])', ':root[data-theme="dark"]']) {
+    const rule = DECLARATION_RULES.find((r) => r.selector.trim() === selector);
+    assert.ok(rule, `no ${selector} block`);
+    blocks[selector] = new Map(declarationsIn(rule.body));
+  }
+  return blocks;
+}
+
+test('tokens.css: the dark palette carries the contract\'s own midnight values', () => {
+  for (const [selector, declared] of Object.entries(darkBlockDeclarations())) {
+    for (const [name, expected] of Object.entries(CONTRACT_MIDNIGHT)) {
+      assert.equal(
+        declared.get(name),
+        expected,
+        `${selector}: ${name} does not match the locked contract's midnight set`,
+      );
+    }
+  }
+});
+
+test('tokens.css: the dark palette redefines exactly the contract\'s tokens and the derived ones', () => {
+  // Neither list may quietly grow. A token added to dark that is in neither is either a midnight
+  // value nobody transcribed or a derivation nobody explained.
+  const accountedFor = [...Object.keys(CONTRACT_MIDNIGHT), ...Object.keys(DERIVED_IN_DARK)].sort();
+
+  for (const [selector, declared] of Object.entries(darkBlockDeclarations())) {
+    const redefined = [...declared.keys()].filter((name) => name.startsWith('--')).sort();
+    assert.deepEqual(
+      redefined,
+      accountedFor,
+      `${selector}: the dark palette and these two tables disagree about what dark redefines`,
+    );
+
+    for (const [name, expected] of Object.entries(DERIVED_IN_DARK)) {
+      assert.equal(declared.get(name), expected, `${selector}: the derived value for ${name} moved`);
+    }
+  }
+});
+
+test('tokens.css: every derived dark value says what it was derived from', () => {
+  // Deleting five of the seven DERIVED: notes used to survive green. The note is the only thing
+  // separating an invented colour from a quoted one, so each is checked against the token it
+  // introduces rather than counted in aggregate.
+  // The guarded block's raw text, comments intact — brace-counted rather than matched with a
+  // regex, because a greedy one runs straight past the closing brace into the explicit dark block,
+  // where the same tokens are restated WITHOUT their notes. That is not a hypothetical: it is what
+  // the first draft of this test did, and it reported every note missing.
+  // Anchored at the start of a line, because the file's own header comment DESCRIBES this block in
+  // prose — an unanchored search matches the description, and the brace count then isolates the
+  // light palette instead. That too is what the first draft did.
+  const opensAt = TOKENS_CSS.search(/^@media[^{]*prefers-color-scheme\s*:\s*dark[^{]*\{/m);
+  assert.notEqual(opensAt, -1, 'no (prefers-color-scheme: dark) block in the raw stylesheet');
+  const cursor = TOKENS_CSS.indexOf('{', opensAt);
+  let depth = 0;
+  let closesAt = cursor;
+  for (; closesAt < TOKENS_CSS.length; closesAt += 1) {
+    if (TOKENS_CSS[closesAt] === '{') depth += 1;
+    else if (TOKENS_CSS[closesAt] === '}') {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  const guarded = TOKENS_CSS.slice(cursor + 1, closesAt);
+  assert.ok(guarded.includes('color-scheme: dark'), 'the guarded block was not isolated');
+  assert.ok(
+    !guarded.includes('[data-theme="dark"]'),
+    'the guarded block was not isolated — it ran into the explicit dark block',
+  );
+
+  // Walked line by line over the RAW text: a DERIVED: note opens, and the next token definition is
+  // the one it explains.
+  const noteFor = new Map();
+  let pending = false;
+  for (const line of guarded.split('\n')) {
+    if (line.includes('DERIVED:')) pending = true;
+    const definition = /^\s*(--[\w-]+)\s*:/.exec(line);
+    if (definition) {
+      noteFor.set(definition[1], pending);
+      pending = false;
+    }
+  }
+
+  for (const name of Object.keys(DERIVED_IN_DARK)) {
+    assert.equal(
+      noteFor.get(name),
+      true,
+      `${name} is derived — midnight does not define it — but carries no DERIVED: note saying from what`,
+    );
+  }
+  for (const name of Object.keys(CONTRACT_MIDNIGHT)) {
+    assert.equal(
+      noteFor.get(name),
+      false,
+      `${name} is marked DERIVED, but the contract's midnight set defines it — it should be quoted, not invented`,
+    );
+  }
+});
+
 test('tokens.css: every --sky- token carries the locked contract\'s own light value', () => {
   const declared = bareRootDeclarations();
 
@@ -598,6 +734,141 @@ test('tokens.css: every token the dark set derives is one the contract has no da
   const derivedNote = /DERIVED:/g;
   const notes = TOKENS_CSS.match(derivedNote) ?? [];
   assert.ok(notes.length > 0, 'a derived dark value with no note is an invented colour nobody can audit');
+});
+
+// --- computed contrast, in both themes ------------------------------------------------------------
+//
+// There is no browser here, so this is arithmetic on the hex values in `tokens.css` — WCAG 2.1's
+// relative-luminance formula — not a measurement of a rendered page. It is still the check that
+// would have caught what it caught: six pairings that actually occur in the built markup computed
+// under AA's 4.5, and no test could see any of them.
+//
+// The two halves that CAN drift are both read from the stylesheet: what each token resolves to in
+// each theme, and which token each class takes its colour and its ground from. Only the third —
+// which text class sits on which ground — is written down here, because that lives in the layouts
+// and there is no DOM to ask. It was derived by scanning the built fixture site.
+
+function relativeLuminance(hex) {
+  const compact = hex.replace('#', '');
+  const full = compact.length === 3 ? [...compact].map((c) => c + c).join('') : compact;
+  const channels = [0, 2, 4]
+    .map((i) => parseInt(full.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+}
+
+function contrastRatio(foreground, background) {
+  const [lighter, darker] = [relativeLuminance(foreground), relativeLuminance(background)].sort(
+    (a, b) => b - a,
+  );
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Token -> hex, for one theme, following `var()` aliases as the cascade would.
+function palette(theme) {
+  const bare = bareRootDeclarations();
+  const values = new Map(bare);
+  if (theme === 'dark') {
+    const dark = DECLARATION_RULES.find((r) => /^:root\[data-theme=["']?dark["']?\]$/.test(r.selector.trim()));
+    assert.ok(dark, 'no :root[data-theme="dark"] block');
+    for (const [name, value] of declarationsIn(dark.body)) values.set(name, value);
+  }
+
+  const resolve = (name, seen = new Set()) => {
+    assert.ok(!seen.has(name), `${name} resolves in a circle`);
+    const raw = values.get(name);
+    assert.ok(raw, `${name} is used but defined nowhere`);
+    const alias = /^var\(\s*(--[\w-]+)\s*\)$/.exec(raw.trim());
+    return alias ? resolve(alias[1], new Set([...seen, name])) : raw.trim();
+  };
+  return resolve;
+}
+
+// Which token a class takes its text colour, and its ground, from — read from the component rules
+// so that changing a rule changes what this test measures.
+function tokenFor(selector, property) {
+  const rule = DECLARATION_RULES.find((r) => r.selector.split(',').some((s) => s.trim() === selector));
+  assert.ok(rule, `no rule for ${selector}`);
+  const declarations = new Map(declarationsIn(rule.body));
+  const raw =
+    property === 'color'
+      ? declarations.get('color')
+      : declarations.get('background') ?? declarations.get('background-color');
+  assert.ok(raw, `${selector} sets no ${property}`);
+  const token = /var\(\s*(--[\w-]+)\s*\)/.exec(raw);
+  assert.ok(token, `${selector}'s ${property} is not a token: ${raw}`);
+  return token[1];
+}
+
+// Text class on ground class. Derived by scanning the built fixture site for which text-bearing
+// class actually appears inside which painted container — not by pairing tokens by role, which is
+// how five of the six failures went unnoticed: `--sky-text-muted` is fine on the contract's plain
+// surfaces (4.55, 4.76) and fails on the status tints these labels actually sit on.
+const OCCURRING_PAIRS = [
+  ['.cell-state', '.cell-covered'],
+  ['.cell-state', '.cell-head'],
+  ['.head-next', '.cell-head'],
+  ['.head-mark', '.cell-head'],
+  ['.tip-note', '.cell-head'],
+  ['.meta-label', '.gate-callout'],
+  ['.meta-label', '.contents'],
+  ['.card-what', '.card'],
+  ['.track-count', '.card'],
+  ['.lede', 'body'],
+  ['.breadcrumb', 'body'],
+  ['.depth-chart caption', '.depth-chart'],
+  ['.ladder-cell', '.ladder-cell'],
+  ['.chip-done', '.chip-done'],
+  ['.chip-gated', '.chip-gated'],
+  ['.chip-parked', '.chip-parked'],
+  ['.chip-designing', '.chip-designing'],
+  ['.chip-next', '.chip-next'],
+  ['.chip-unplanned', '.chip-unplanned'],
+];
+
+test('tokens.css: every text-on-ground pairing the site actually renders clears WCAG AA', () => {
+  // 4.5:1. None of this text is WCAG "large" — the smallest of it is 0.7rem uppercase and the
+  // largest 1rem — so the large-text exemption of 3:1 does not apply to any of it.
+  const failures = [];
+
+  for (const theme of ['light', 'dark']) {
+    const resolve = palette(theme);
+    for (const [textSelector, groundSelector] of OCCURRING_PAIRS) {
+      const foreground = resolve(tokenFor(textSelector, 'color'));
+      const background = resolve(tokenFor(groundSelector, 'background'));
+      const ratio = contrastRatio(foreground, background);
+      if (ratio < 4.5) {
+        failures.push(
+          `${theme}: ${textSelector} on ${groundSelector} — ${foreground} on ${background} = ${ratio.toFixed(2)}`,
+        );
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [], `these pairings fall under AA:\n  ${failures.join('\n  ')}`);
+});
+
+test('tokens.css: the contrast check is reading real colours, not agreeing with itself', () => {
+  // The failure mode this whole review has been about. If `palette` or `tokenFor` silently
+  // returned the same value for foreground and ground, every ratio would be 1 and the test above
+  // would fail loudly rather than pass — but if they returned nothing, `assert.ok` inside them
+  // fires. What is checked here is that the arithmetic itself is right, against known answers.
+  assert.equal(contrastRatio('#000000', '#ffffff').toFixed(2), '21.00');
+  assert.equal(contrastRatio('#ffffff', '#ffffff').toFixed(2), '1.00');
+  assert.equal(contrastRatio('#767676', '#ffffff').toFixed(2), '4.54'); // the classic AA boundary
+  assert.equal(contrastRatio('#ffffff', '#000000').toFixed(2), '21.00', 'order must not matter');
+
+  // And the pairings really do resolve to different colours in both themes.
+  for (const theme of ['light', 'dark']) {
+    const resolve = palette(theme);
+    for (const [textSelector, groundSelector] of OCCURRING_PAIRS) {
+      const foreground = resolve(tokenFor(textSelector, 'color'));
+      const background = resolve(tokenFor(groundSelector, 'background'));
+      assert.match(foreground, /^#[0-9a-f]{3,8}$/i, `${theme}: ${textSelector} did not resolve to a colour`);
+      assert.match(background, /^#[0-9a-f]{3,8}$/i, `${theme}: ${groundSelector} did not resolve to a colour`);
+      assert.notEqual(foreground, background, `${theme}: ${textSelector} on ${groundSelector} is invisible`);
+    }
+  }
 });
 
 test('tokens.css: the chart owns both scrolls, so its sticky headers have a scrollport to stick to', () => {
@@ -1264,6 +1535,9 @@ function generatorFiles() {
   walk(path.join(REPO_ROOT, 'src'), 'src/');
   walk(THEME_DIR, 'theme/');
   walk(path.join(REPO_ROOT, '.github'), '.github/');
+  // The fixture too. It is the project the generator ships as its own demo, so a real project's
+  // name reaching it is the same leak by a shorter route — and it is the corpus the tag publishes.
+  walk(path.join(REPO_ROOT, 'fixture'), 'fixture/');
   for (const name of ['action.yml', '.eleventy.js', 'package.json', 'README.md']) {
     files.push({ name, text: readFileSync(path.join(REPO_ROOT, name), 'utf8') });
   }
@@ -1278,6 +1552,7 @@ test('decision 40: nothing the generator ships hard-codes a project name', () =>
   assert.ok(scanned.some((f) => f.name === 'action.yml'));
   assert.ok(scanned.some((f) => f.name.startsWith('src/')));
   assert.ok(scanned.some((f) => f.name.startsWith('.github/')));
+  assert.ok(scanned.some((f) => f.name.startsWith('fixture/')));
 
   for (const file of scanned) {
     const lower = file.text.toLowerCase();

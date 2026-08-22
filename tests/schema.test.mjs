@@ -391,3 +391,70 @@ test('validateWorkstream: distinct milestone ids pass, including ones that share
   );
   assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
+
+// --- decision 40: a workstream entry is a directory NAME, not a path ------------------------
+
+test('validateConfig: a workstream entry that climbs out of docs/features is rejected', () => {
+  // Executed before this rule existed: `["beacon", "../features/beacon"]` built with EXIT 0 and
+  // "built 34 pages". The second entry resolved back onto the first workstream's directory, so one
+  // workstream silently had no page of its own and `state.json` carried the slug
+  // `"../features/beacon"`. That is exactly what the duplicate-slug check exists to prevent,
+  // reached by a different spelling — `path.join` collapses the traversal, so the two entries are
+  // distinct strings naming one directory.
+  const result = validateConfig({
+    project: 'Traversing',
+    repo: 'example-org/traversing',
+    workstreams: ['beacon', '../features/beacon'],
+  });
+
+  assert.equal(result.ok, false);
+  const failure = result.errors.find((e) => e.path === 'workstreams[1]');
+  assert.ok(failure, JSON.stringify(result.errors));
+  assert.match(failure.message, /not a path/i, failure.message);
+  assert.ok(failure.message.includes('"../features/beacon"'), failure.message);
+});
+
+test('validateConfig: every shape that is a path rather than a name is rejected', () => {
+  // Each of these was executed against the real CLI before the rule existed. None of them failed
+  // in a way decision 32 would recognise: one built, and the other three surfaced a raw Eleventy
+  // or Node error naming an absolute path on this machine — which is also I8's convention broken.
+  const shapes = [
+    ['../features/beacon', 'climbs out and lands back inside — built at exit 0'],
+    ['./beacon', 'raw Eleventy "Output conflict:" naming an absolute staging path'],
+    ['../../outside-ws', 'raw ENOENT, and the output guard cannot protect where it points'],
+    ['tide/../beacon', 'raw ENOENT naming a path inside the generator\'s own theme directory'],
+    ['nested/slug', 'a path, not a name'],
+    ['..', 'the parent directory'],
+    ['.', 'the workstreams directory itself'],
+    ['.hidden', 'a dot-directory, which the records walk skips — its records would never render'],
+    ['back\\slash', 'a Windows path separator'],
+    ['/absolute', 'an absolute path'],
+  ];
+
+  for (const [slug, why] of shapes) {
+    const result = validateConfig({
+      project: 'Shapes',
+      repo: 'example-org/shapes',
+      workstreams: [slug],
+    });
+    assert.equal(result.ok, false, `${JSON.stringify(slug)} was accepted, and it is ${why}`);
+    const failure = result.errors.find((e) => e.path === 'workstreams[0]');
+    assert.ok(failure, `${JSON.stringify(slug)}: rejected, but not at its own position`);
+    assert.ok(
+      failure.message.includes(JSON.stringify(slug)),
+      `${JSON.stringify(slug)}: the failure does not quote the entry — ${failure.message}`,
+    );
+  }
+});
+
+test('validateConfig: ordinary directory names are still accepted, punctuation included', () => {
+  // The rule must not be so tight that it refuses names a project may legitimately have chosen.
+  const fine = ['beacon', 'har-bor', 'har bor', 'tide_2', 'M1', 'a.b', 'workstream.v2', '2024-q3'];
+  const result = validateConfig({
+    project: 'Fine',
+    repo: 'example-org/fine',
+    workstreams: fine,
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.deepEqual(result.value.workstreams, fine);
+});

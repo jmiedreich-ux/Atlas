@@ -16,6 +16,10 @@ uses: jmiedreich-ux/atlas@v1
 A consuming project's own workflow checks itself out, then hands its checkout to Atlas:
 
 ```yaml
+concurrency:
+  group: atlas-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -29,6 +33,12 @@ jobs:
         with:
           github-token: ${{ github.token }}
 ```
+
+The `concurrency:` group is not decoration either. Decision 30 puts this workflow on a six-hourly
+schedule, and a push during a scheduled run gives you two builds writing to one output directory.
+Atlas refuses the second rather than publishing a mixture of the two — it claims its staging
+directory with an atomic `mkdir` — so the failure is loud rather than silent, but a cancelled run is
+better than a failed one.
 
 The `permissions:` block is not optional decoration. Where an organisation defaults the workflow
 token to a restricted set, the issue fetch 403s — and `src/github.mjs` correctly degrades to empty
@@ -121,6 +131,13 @@ projects them, so the site and this file cannot disagree.
   "assets": [ { "path": "…", "url": "…", "isDocument": true } ]
 }
 ```
+
+**The compatibility rule, stated out loud, because agents are the audience for this file:**
+`version` is bumped only when a change would break a reader that understood the previous version.
+**Adding a key does not bump it.** So a consumer must read `state.json` by the keys it needs and
+ignore the ones it does not — a strict-shape parser that rejects unknown keys will break on a
+release that breaks nothing. `version` going from 1 to 2 is the signal to re-read this section;
+nothing else is.
 
 Two properties it is safe to rely on: **every path in it is repository-relative** — an agent reads
 it to find out which file to open, and an absolute path from a CI runner is no use to anyone — and

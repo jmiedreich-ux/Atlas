@@ -220,6 +220,48 @@ function assertNoDuplicates(values, key, path, what, consequence, errors) {
 const REPO_SLUG_PATTERN = /^[^\s/]+\/[^\s/]+$/;
 
 /**
+ * Why an `atlas.config.json` workstream entry is not a plain directory name, or `''` if it is.
+ *
+ * `src/config.mjs` joins each entry onto `docs/features/`, and until this existed it joined
+ * whatever string it was given. Every one of these was executed against the real command line:
+ *
+ *   * `["beacon", "../features/beacon"]` — **exit 0, "built 34 pages"**. The traversal collapses
+ *     back onto the first workstream's own directory, so one workstream silently has no page and
+ *     `state.json` carries the slug `"../features/beacon"`. That is the failure the duplicate-slug
+ *     check exists to prevent, reached by a spelling it cannot see.
+ *   * `["beacon", "./beacon"]` — a raw Eleventy `Output conflict:` naming an absolute staging path
+ *     on the build machine, which is decision 32's "name what is broken" and I8's one convention
+ *     both missed at once.
+ *   * `["../../outside-ws"]` — a raw `ENOENT`, and worse: `src/outdir.mjs` protects
+ *     `<project>/docs`, so a workstream resolved to `<project>/outside-ws` is a path the build
+ *     READS that the output guard's stated contract does not cover. The rule below is what makes
+ *     that contract true rather than nearly true.
+ *   * `["tide/../beacon"]` — a raw `ENOENT` naming a path inside the GENERATOR's theme directory.
+ *
+ * A dot-directory is rejected for a different reason: `filesUnder` in `src/build.mjs` skips
+ * anything beginning with `.`, so a workstream living in one would validate, resolve, and then
+ * have none of its records rendered.
+ *
+ * This tightens what `atlas.config.json` accepts, which is why it lands before the first tag: a
+ * config that builds today must go on building, and every string this refuses is one that does not
+ * build correctly now.
+ *
+ * @param {string} entry - already known to be a non-empty string.
+ * @returns {string} a fragment completing "…, and it <reason>", or '' when the entry is fine.
+ */
+function whyNotADirectoryName(entry) {
+  if (entry === '.' || entry === '..') return 'is a relative-path segment, not a directory name';
+  if (/[/\\]/.test(entry)) return 'contains a path separator';
+  if (entry.startsWith('.')) {
+    return 'begins with a dot, and the records walk skips dot-directories — none of its records would render';
+  }
+  if (entry.trim() !== entry) return 'has leading or trailing whitespace';
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f]/.test(entry)) return 'contains a control character';
+  return '';
+}
+
+/**
  * Validate a project's `atlas.config.json` (decision 40): the project's identity, its GitHub
  * repository, and the ordered list of workstream directories under `docs/features/`.
  *
@@ -250,6 +292,16 @@ export function validateConfig(obj) {
         errors.push({
           path: `workstreams[${index}]`,
           message: `a workstream directory name must be a non-empty string (got ${JSON.stringify(entry)})`,
+        });
+        return;
+      }
+      const wrong = whyNotADirectoryName(entry);
+      if (wrong) {
+        errors.push({
+          path: `workstreams[${index}]`,
+          message:
+            `a workstream entry names ONE directory under docs/features/, not a path — ` +
+            `${JSON.stringify(entry)} ${wrong} (decision 40)`,
         });
       }
     });

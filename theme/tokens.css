@@ -1,7 +1,7 @@
 /* Atlas — the theme (decision 28: the product's own locked palette, Segoe UI typography,
  * three-state dark mode).
  *
- * The generator holds no project content (decision 40): nothing below names a project, a
+ * The generator holds no project content (decision 39): nothing below names a project, a
  * workstream or a milestone. It styles the vocabulary the manifest schema closes — five milestone
  * statuses, four workstream stages — and the three surfaces decision 22 asks for.
  *
@@ -22,7 +22,7 @@
  *
  * Two consequences worth stating rather than leaving implicit:
  *
- *   * **This puts a product's design contract into a generator decision 40 says holds no project
+ *   * **This puts a product's design contract into a generator decision 39 says holds no project
  *     content.** Token names and hex values are not project names — nothing here says who the
  *     product is, and the generator still renders any project's repository — but the tension is
  *     real, and decision 28 is what resolves it: Atlas is asked to look like a sibling, and a
@@ -149,8 +149,12 @@
   --atlas-ladder-width: 7rem;
 
   /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
-   * surface beside it, and the `designing`/`planned` chips need one. */
-  --atlas-tone-exploring-bg: #efeafa;
+   * surface beside it, and the `designing`/`planned` chips need one.
+   *
+   * The value is set BY the contrast requirement rather than picked and then checked: at #efeafa
+   * the contract's #7c5cbf computes 4.30:1, under AA's 4.5 for text this size, and this is the one
+   * colour in the file Atlas owns outright — so it is the one that moves. #f5f2fc computes 4.59. */
+  --atlas-tone-exploring-bg: #f5f2fc;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -557,8 +561,12 @@ h3 {
   margin-right: var(--sky-space-2);
 }
 
+/* On a tinted ground, not the page — so the SECONDARY ink, not the muted one. The contract's
+ * muted #64748b is built to sit on its plain surfaces, where it computes 4.55 and 4.76; on the
+ * status tints under these cells it computes 4.14 and 4.15, under AA's 4.5. Measured against the
+ * pairings that actually occur in the built markup, not against the tokens in the abstract. */
 .cell-state {
-  color: var(--sky-text-muted);
+  color: var(--sky-text-secondary);
   font-size: 0.75rem;
 }
 
@@ -570,8 +578,9 @@ h3 {
   line-height: 1;
 }
 
+/* Also on a tinted ground — the arrowhead's own cell. See .cell-state above. */
 .head-next {
-  color: var(--sky-text-muted);
+  color: var(--sky-text-secondary);
   display: block;
   font-size: 0.7rem;
   letter-spacing: 0.08em;
@@ -666,9 +675,12 @@ h3 {
   padding-top: var(--sky-space-3);
 }
 
+/* `.meta-label` appears on the plain card AND inside the gate callout and the contents box, both
+ * of which are tinted, where the muted ink computes 4.26 and 4.43. One colour for both, and it is
+ * the one that clears AA on the tinted ground. */
 .card-gate-label,
 .meta-label {
-  color: var(--sky-text-muted);
+  color: var(--sky-text-secondary);
   display: block;
   font-size: 0.7rem;
   letter-spacing: 0.08em;

@@ -66,7 +66,7 @@
 // Each of the three has a test aimed at a shape only it refuses. Delete any one and that test
 // goes red.
 
-import { realpathSync, statSync } from 'node:fs';
+import { lstatSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -178,9 +178,19 @@ export function stagingDirFor(outDir) {
  * `node_modules/` are all read by a build, and a guard whose contract says "every path the build
  * reads" while omitting the generator's own code is not keeping it.
  *
- * `tests/` and `fixture/` are deliberately absent. Neither is read by a build — when `fixture/` is
- * the project being built it is covered by the project's own three entries — and adding them would
- * be the "whole repository" rule this list exists instead of.
+ * **What is deliberately NOT here, stated plainly because finding I2's body named two of them and a
+ * later reader will expect them to be covered.** Measured, at exit 0, against a copy of this
+ * checkout: `<generator>/tests`, `<generator>/fixture`, `<generator>/.git`, `<generator>/.github`,
+ * `<generator>/README.md` and `<generator>/package-lock.json` can all still be built into and are
+ * all replaced wholesale. That is consistent with the rule this list states — a build reads none of
+ * them — and the thing at risk is the generator's own checkout, recoverable with `git checkout`,
+ * rather than a user's records, which are what this guard exists for. `fixture/` is covered by the
+ * project's own three entries whenever it IS the project being built.
+ *
+ * The alternative is naming the whole repository, and that is the rule this list exists instead
+ * of: it would refuse `<generator>/.out`, the ordinary local invocation and this suite's own
+ * scratch directory. If that trade is ever revisited, revisit it here — do not add paths one at a
+ * time until the list is the repository by accident.
  *
  * @param {string} projectRoot - already absolute.
  * @param {string} generatorRoot - already absolute.
@@ -225,9 +235,29 @@ export function assertOutputDirIsSafe(projectRoot, outDir, generatorRoot) {
     const target = path.resolve(outDir);
     const canonicalTarget = canonicalise(target);
 
+    // Absolute, deliberately, and this is the ONE documented exception to the rule that every
+    // failure in this generator names a repository-relative path. The output directory is the one
+    // path a caller supplies that need not be inside the repository at all — `/var/www/current` is
+    // a perfectly ordinary answer — and relativising it against the project root would produce a
+    // string of `../` that is harder to act on, not easier. `tests/build.test.mjs` pins the
+    // exception so it stays an exception.
     const refuse = (reason) => {
       throw new Error(`refusing to build into ${path.resolve(outDir)}: ${reason}`);
     };
+
+    // The output directory is REPLACED, not written through: `rmSync` unlinks a symlink rather
+    // than following it, and `renameSync` then puts a real directory where the link was. Nothing
+    // is lost — the link's target is untouched — but a deliberate indirection like
+    // `site -> /var/www/current` is silently destroyed, and the real location it pointed at goes
+    // stale forever with nobody told. Refusing costs a caller one `--out` argument; the silent
+    // version costs them a site that stopped updating and no way to see why.
+    if (isSymbolicLink(target)) {
+      refuse(
+        `that is a symbolic link. The build REPLACES its output directory — it would unlink the ` +
+          `link and put a real directory in its place, leaving whatever it pointed at stale and ` +
+          `nothing pointing there. Name the location itself, or remove the link first.`,
+      );
+    }
 
     for (const [rawSource, name] of sources) {
       const canonicalSource = canonicalise(rawSource);
@@ -284,14 +314,85 @@ function insideMessage(name, rawSource) {
  *   at a path the guard would refuse for a different reason.
  * @throws {Error} naming the staging directory.
  */
-export function assertStagingDirIsFree(outDir, exists) {
+export function assertStagingDirIsFree(outDir) {
   const staging = stagingDirFor(outDir);
-  if (!exists(staging)) return;
+  if (!somethingIsAt(staging)) return;
+  throw stagingCollision(outDir, staging);
+}
 
-  throw new Error(
+/**
+ * Whether anything at all occupies `target` — `lstat`, not `exists`.
+ *
+ * `existsSync` follows symlinks, so it answers false for a DANGLING one. That is the wrong answer
+ * for a path we are about to create: the link is there, `mkdirSync` fails with `EEXIST`, and the
+ * caller gets a raw errno for a path this guard has just declared free. What matters here is
+ * whether the name is taken, not whether it leads anywhere.
+ */
+/**
+ * Whether `target` is itself a symbolic link — asked with `lstat`, so the answer is about the name
+ * and not about whatever it leads to.
+ */
+function isSymbolicLink(target) {
+  try {
+    return lstatSync(target).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+function somethingIsAt(target) {
+  try {
+    lstatSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function stagingCollision(outDir, staging) {
+  return new Error(
     `refusing to build into ${path.resolve(outDir)}: ${staging} is already there. That is either ` +
       `a build into this same output directory running right now — two of them would overwrite ` +
       `each other's pages and swap a mixture into place — or what a build killed part-way through ` +
       `left behind. Remove it and run again.`,
   );
+}
+
+/**
+ * Create the staging directory, claiming it against any other build at the same instant.
+ *
+ * `assertStagingDirIsFree` above runs before the project is read, so a caller who left a staging
+ * directory behind is told so immediately rather than after a full render. But it is check-then-act
+ * with the ENTIRE build as its race window, and `mkdirSync(staging, { recursive: true })` succeeds
+ * silently when the directory already exists — so two builds could both check, both find it free,
+ * both create it, and both write into it.
+ *
+ * Executed, before this function existed: two builds of DIFFERENT projects into one output
+ * directory both reported **exit 0 and success**, while only one project's pages survived the
+ * swap. A build that says it published something it did not is worse than one that fails.
+ *
+ * `mkdir` without `recursive` is the fix, because it is the filesystem's own atomic test-and-set:
+ * exactly one caller creates the directory and every other gets `EEXIST`. The parent is created
+ * separately, where `recursive` is harmless and wanted.
+ *
+ * A caller that loses this race throws from here — BEFORE the build's `try`/`finally` — so it
+ * removes nothing and the winner's staging directory is untouched.
+ *
+ * @param {string} outDir
+ * @returns {string} the staging directory, now owned by this build.
+ * @throws {Error} naming the staging directory, when another build already holds it.
+ */
+export function createStagingDir(outDir) {
+  const staging = stagingDirFor(outDir);
+  mkdirSync(path.dirname(staging), { recursive: true });
+
+  try {
+    // Deliberately NOT `{ recursive: true }`: that is what made this silent.
+    mkdirSync(staging);
+  } catch (error) {
+    if (error.code === 'EEXIST') throw stagingCollision(outDir, staging);
+    throw error;
+  }
+
+  return staging;
 }

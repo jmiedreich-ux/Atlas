@@ -392,6 +392,43 @@ test('build: every failure names a repository-relative path, and never an absolu
       },
     },
     {
+      what: 'a manifest naming a plan that is a directory, not a file',
+      names: 'is a directory, not a Markdown file',
+      make: (root) => {
+        mkdirSync(path.join(root, 'docs', 'features', 'nova', 'm1-plan.md'), { recursive: true });
+        writeFileSync(path.join(root, 'ROADMAP.md'), '# R\n');
+        writeFileSync(
+          path.join(root, 'docs', 'features', 'nova', 'workstream.json'),
+          JSON.stringify({
+            codename: 'Nova',
+            what: 'Invented for this test',
+            stage: 'shipping',
+            position: 'Invented for this test',
+            gate: 'Nothing but this test',
+            label: 'workstream:nova',
+            design: [{ name: 'nova/Overview v1', where: 'design-project' }],
+            milestones: [
+              {
+                id: 'M1',
+                label: 'M1',
+                depth: 1,
+                title: 'Invented',
+                status: 'next',
+                plan: 'm1-plan.md',
+                issue: null,
+                pr: null,
+                acceptance: { kind: 'demo-script', record: null },
+              },
+            ],
+          }),
+        );
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: ['nova'] }),
+        );
+      },
+    },
+    {
       what: 'a manifest naming a plan file that does not exist',
       names: 'docs/features/nova/workstream.json',
       make: (root) => {
@@ -459,6 +496,43 @@ test('build: every failure names a repository-relative path, and never an absolu
   }
 });
 
+test('build: the output guard is the ONE exception to that rule, and it is an exception on purpose', async () => {
+  // Every other failure names a repository-relative path. `src/outdir.mjs` names an absolute one,
+  // and the enforcement list above had no output-guard case — so the exception was real,
+  // undocumented, and untested, which is how an exception becomes a second convention.
+  //
+  // It is the right exception: the output directory is the one path a caller supplies that need
+  // not be inside the repository at all (`/var/www/current` is an ordinary answer), and
+  // relativising it against the project root would produce a string of `../` that is harder to act
+  // on rather than easier.
+  const root = path.join(TMP_ROOT, 'guard-message');
+  const out = path.join(root, 'docs');
+  rmSync(root, { recursive: true, force: true });
+  cpSync(FIXTURE_ROOT, root, { recursive: true });
+
+  const error = await build(root, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true })
+    .then(() => null)
+    .catch((err) => err);
+
+  assert.ok(error, 'building into the records was allowed');
+  assert.match(error.message, /^refusing to build into /, error.message);
+  // The exception, asserted rather than assumed: this message DOES carry the absolute output path.
+  assert.ok(
+    error.message.includes(path.resolve(out)),
+    `the guard must name the output directory in full, so the caller can see which path it means — ${error.message}`,
+  );
+  // And it names what it collided with repository-relative-ish — by role, not by machine path
+  // alone, so the reader knows what they would have destroyed.
+  assert.match(error.message, /the project's records/, error.message);
+
+  // The exception is confined to the guard: nothing else in the generator does this. Every other
+  // failure path is covered by the test above.
+  assert.ok(
+    !/atlas: build failed/.test(error.message),
+    'this is the thrown error, before the CLI wraps it',
+  );
+});
+
 test('build: the CLI prefixes everything it says with atlas:', async () => {
   // Three console.error calls in `main`, and one of them used to go out bare. A caller filtering
   // a workflow log on the generator's name would have missed it.
@@ -477,6 +551,29 @@ test('build: the CLI prefixes everything it says with atlas:', async () => {
       assert.match(line, /^atlas: /, `an unprefixed line for "${argv.join(' ')}": ${line}`);
     }
   }
+});
+
+test('package.json: decision 9\'s two runtime dependencies, and nunjucks declared for the tests', () => {
+  // Two separate regressions, and the suite noticed neither. Adding a THIRD runtime dependency
+  // left it at 228/228; so did deleting `nunjucks` from devDependencies, because Eleventy hoists
+  // its own copy — so the import in this repository keeps resolving and breaks only on a
+  // consumer's pnpm, Yarn PnP or `--install-strategy=nested` install, which is exactly how it
+  // shipped the first time.
+  const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+
+  assert.deepEqual(
+    Object.keys(manifest.dependencies ?? {}).sort(),
+    ['@11ty/eleventy', 'markdown-it'],
+    'decision 9 names these two and no others; a third runtime dependency is a decision, not a patch',
+  );
+
+  assert.ok(
+    manifest.devDependencies?.nunjucks,
+    'nunjucks is imported by tests/theme.test.mjs and must be declared, not borrowed from Eleventy\'s hoisting',
+  );
+
+  // And it is a devDependency, not a runtime one — the whole point of declaring it.
+  assert.ok(!('nunjucks' in (manifest.dependencies ?? {})), 'nunjucks is a test dependency, not a runtime one');
 });
 
 // --- the README, checked against the code it describes ---------------------------------------------
@@ -574,6 +671,40 @@ test('README: it describes state.json, and every key it shows is one the build e
   for (const key of ['dir', 'manifestPath']) {
     assert.ok(!path.isAbsolute(stream[key]), `${key} is absolute, which the README says it never is`);
   }
+});
+
+test('README: it states the state.json compatibility rule, which agents are the audience for', () => {
+  // The rule lived only in a comment at src/state.mjs. A consumer that parses state.json strictly
+  // — rejecting unknown keys — breaks on a release that, by this rule, broke nothing. `v1.0.0` is
+  // the first published version of the contract, so this is the moment to say it.
+  const section = README.slice(README.indexOf('## `state.json`'));
+  assert.ok(section.length > 200, 'no state.json section in the README');
+  assert.match(
+    section,
+    /adding a key does not bump it/i,
+    'the README does not say that additive keys leave `version` alone',
+  );
+
+  // And the module it describes still says the same thing, so the two cannot drift.
+  const state = readFileSync(path.join(REPO_ROOT, 'src', 'state.mjs'), 'utf8');
+  assert.match(
+    state,
+    /a new optional key does not/i,
+    'src/state.mjs no longer states the rule the README quotes',
+  );
+});
+
+test('README: the documented workflow guards against two builds of one project at once', () => {
+  // Decision 30's six-hourly schedule plus a push is two builds into one output directory. Atlas
+  // refuses the second rather than publishing a mixture, so this is not a correctness hole — but a
+  // cancelled run is a better answer than a failed one, and the consumer is the only one who can
+  // ask for it.
+  const consuming = [...README.matchAll(/```yaml\n([\s\S]*?)```/g)]
+    .map((m) => m[1])
+    .find((example) => example.includes('runs-on:'));
+  assert.ok(consuming, 'the README shows no consuming workflow');
+  assert.match(consuming, /concurrency:/, 'the documented workflow has no concurrency group');
+  assert.match(consuming, /group:/, 'a concurrency block with no group is not one');
 });
 
 test('README: the consuming workflow it documents grants the token what the build needs', () => {
@@ -675,6 +806,116 @@ test('build: every URL it emits is encoded, on the pages and in state.json alike
   assert.ok(!chart.includes('href="/workstream/har bor/"'), 'the chart links to an unencoded URL');
   assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'index.html')), 'no page was written');
   assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'm1', 'index.html')));
+});
+
+test('build: a workstream entry that is a path, not a name, is refused before anything is written', async () => {
+  // Executed before the rule existed: `["beacon", "../features/beacon"]` built at EXIT 0, reporting
+  // "built 34 pages", with one workstream silently having no page and `state.json` carrying the
+  // slug `"../features/beacon"`. The other spellings surfaced raw Eleventy and Node errors naming
+  // absolute paths on the build machine — one of them inside the GENERATOR's own theme directory.
+  //
+  // The third shape is the one that matters most for `src/outdir.mjs`: a workstream resolved to
+  // `<project>/outside-ws` is a path the build READS which the output guard does not protect, so
+  // its stated contract — "every path the build reads" — was not actually held. This rule is what
+  // makes it true.
+  const shapes = ['../features/beacon', './beacon', '../../outside-ws', 'tide/../beacon', '.hidden'];
+
+  let index = 0;
+  for (const slug of shapes) {
+    index += 1;
+    const root = path.join(TMP_ROOT, `slug-${index}`);
+    const out = path.join(TMP_ROOT, `slug-${index}-out`);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+    cpSync(FIXTURE_ROOT, root, { recursive: true });
+    writeFileSync(
+      path.join(root, 'atlas.config.json'),
+      JSON.stringify({ project: 'P', repo: 'o/n', workstreams: ['beacon', slug] }),
+    );
+
+    const error = await build(root, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true })
+      .then(() => null)
+      .catch((err) => err);
+
+    assert.ok(error, `${slug}: the build did not fail — it used to build this at exit 0`);
+    assert.ok(
+      error.message.includes(JSON.stringify(slug)),
+      `${slug}: the failure does not quote the entry — ${error.message}`,
+    );
+    // I8's one convention, which every one of these used to break by surfacing a raw Eleventy or
+    // Node error carrying an absolute path.
+    assert.ok(
+      !error.message.includes(path.resolve(root)) && !error.message.includes(REPO_ROOT),
+      `${slug}: the failure carries a machine path — ${error.message}`,
+    );
+    assert.ok(!existsSync(out), `${slug}: something was written before the refusal`);
+  }
+});
+
+test('build: two builds into one output directory — at most one may report success', async () => {
+  // Executed before the staging claim was made atomic: two builds of DIFFERENT projects into one
+  // output directory BOTH reported exit 0 and success, while only one project's pages survived the
+  // swap — and the winner could publish a mixture whose `state.json` did not parse, which is
+  // decision 29's whole agent-facing contract. A build that says it published something it did not
+  // is worse than one that fails.
+  //
+  // This is deterministic despite being about a race: whichever build wins, the assertions are the
+  // same. Exactly one succeeds, the loser touched nothing, and what is published is one project
+  // whole.
+  const a = path.join(TMP_ROOT, 'race-a');
+  const b = path.join(TMP_ROOT, 'race-b');
+  const out = path.join(TMP_ROOT, 'race-out');
+  for (const dir of [a, b, out, `${out}.atlas-staging`]) rmSync(dir, { recursive: true, force: true });
+
+  function project(root, name, workstreams) {
+    cpSync(FIXTURE_ROOT, root, { recursive: true });
+    const config = JSON.parse(readFileSync(path.join(root, 'atlas.config.json'), 'utf8'));
+    writeFileSync(
+      path.join(root, 'atlas.config.json'),
+      JSON.stringify({ ...config, project: name, workstreams }),
+    );
+  }
+  project(a, 'Alpha Project', ['beacon']);
+  project(b, 'Bravo Project', ['tide', 'harbor', 'anchor']);
+
+  const settled = await Promise.allSettled([
+    build(a, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true }),
+    build(b, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true }),
+  ]);
+
+  const won = settled.filter((r) => r.status === 'fulfilled');
+  const lost = settled.filter((r) => r.status === 'rejected');
+  assert.equal(won.length, 1, 'both builds reported success into one output directory');
+  assert.equal(lost.length, 1);
+  assert.match(
+    lost[0].reason.message,
+    /^refusing to build into /,
+    `the losing build failed for the wrong reason: ${lost[0].reason.message}`,
+  );
+  assert.ok(lost[0].reason.message.includes('.atlas-staging'), lost[0].reason.message);
+
+  // The loser threw before the build's own try/finally, so it removed nothing — including the
+  // winner's staging directory, which the winner then renamed into place.
+  assert.ok(!existsSync(`${out}.atlas-staging`), 'a staging directory was left behind');
+
+  // And what was published is ONE project, whole. This is the assertion that fails loudest on a
+  // mixture: `state.json` must parse, and every workstream it lists must have a page.
+  const state = JSON.parse(readFileSync(path.join(out, 'state.json'), 'utf8'));
+  const published = readdirSync(path.join(out, 'workstream')).sort();
+  assert.deepEqual(
+    published,
+    state.workstreams.map((w) => w.slug).sort(),
+    'the published pages and state.json describe different projects',
+  );
+  assert.ok(
+    ['Alpha Project', 'Bravo Project'].includes(state.project),
+    `state.json names a project neither build was building: ${state.project}`,
+  );
+  assert.equal(
+    state.project === 'Alpha Project' ? 1 : 3,
+    state.workstreams.length,
+    'the published site carries a mixture of both projects',
+  );
 });
 
 test('build: the theme stylesheet is served where every page links to it', () => {

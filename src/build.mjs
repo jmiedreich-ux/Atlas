@@ -38,7 +38,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
-import { assertOutputDirIsSafe, assertStagingDirIsFree, stagingDirFor } from './outdir.mjs';
+import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
@@ -117,13 +117,24 @@ function assertPlansExist(projectRoot, workstreams) {
   for (const stream of workstreams) {
     for (const milestone of stream.manifest.milestones) {
       const absolute = path.join(stream.dir, milestone.plan);
+      const where = relPath(projectRoot, absolute);
+      const named =
+        `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" ` +
+        `milestone ${milestone.id} names plan "${milestone.plan}", but `;
 
-      if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+      // "Missing" and "there, but not a file" are different things to have got wrong and lead to
+      // different fixes, so they are diagnosed separately — the same distinction
+      // `assertRoadmapExists` makes fifteen lines below.
+      if (!existsSync(absolute)) {
         throw new Error(
-          `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" ` +
-            `milestone ${milestone.id} names plan "${milestone.plan}", but there is no file at ` +
-            `${relPath(projectRoot, absolute)}. Either the plan was moved and the manifest was not ` +
-            `updated, or the manifest is ahead of the record (decisions 1, 32).`,
+          `${named}there is no file at ${where}. Either the plan was moved and the manifest was ` +
+            `not updated, or the manifest is ahead of the record (decisions 1, 32).`,
+        );
+      }
+      if (!statSync(absolute).isFile()) {
+        throw new Error(
+          `${named}${where} is a directory, not a Markdown file. Decision 14 makes "plan" a ` +
+            `filename resolved against the workstream's own directory.`,
         );
       }
     }
@@ -520,7 +531,7 @@ export async function build(projectRoot, outDir, options = {}) {
   // Both destructive paths, before anything is read: the output directory and the staging
   // directory beside it. See src/outdir.mjs — this is the only call site.
   assertOutputDirIsSafe(root, out, GENERATOR_ROOT);
-  assertStagingDirIsFree(out, existsSync);
+  assertStagingDirIsFree(out);
 
   // Everything the project can get wrong, fails here — before a single byte is written anywhere.
   const site = await assembleSite(root, { fetchImpl, token, offline });
@@ -528,10 +539,12 @@ export async function build(projectRoot, outDir, options = {}) {
   const state = buildState(site);
 
   // A sibling of the output directory, so the swap below is a rename within one filesystem rather
-  // than a copy across two. Named by src/outdir.mjs, which is also what checked it above: a second
-  // path the build removes is a second path the guard has to have seen.
-  const staging = stagingDirFor(out);
-  mkdirSync(staging, { recursive: true });
+  // than a copy across two. Created by src/outdir.mjs, which claims it with a non-recursive
+  // `mkdir` — the filesystem's own atomic test-and-set. The check above runs before the project is
+  // read, so a leftover staging directory is reported immediately; this is what makes the answer
+  // still correct when a second build arrives in the meantime. Throwing here happens BEFORE the
+  // `try` below, so a build that loses the race removes nothing.
+  const staging = createStagingDir(out);
 
   try {
     // Decision 10, and the reason it cannot break: copyFileSync, from a list Eleventy never sees.

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   existsSync,
   linkSync,
+  lstatSync,
+  realpathSync,
   mkdirSync,
   readdirSync,
   rmSync,
@@ -15,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import {
   assertOutputDirIsSafe,
   assertStagingDirIsFree,
+  createStagingDir,
   canonicalise,
   containsByInode,
   containsLexically,
@@ -286,7 +289,7 @@ test('guard: a staging directory that is already there stops the build rather th
   mkdirSync(staging, { recursive: true });
 
   assert.throws(
-    () => assertStagingDirIsFree(outDir, existsSync),
+    () => assertStagingDirIsFree(outDir),
     (error) => {
       assert.match(error.message, /^refusing to build into /);
       assert.ok(error.message.includes(staging), 'the message must name the directory to remove');
@@ -300,7 +303,7 @@ test('guard: a staging directory that is already there stops the build rather th
 
 test('guard: a clear staging path is not an obstacle', () => {
   const { project } = arena();
-  assert.doesNotThrow(() => assertStagingDirIsFree(path.join(project, '_site'), existsSync));
+  assert.doesNotThrow(() => assertStagingDirIsFree(path.join(project, '_site')));
 });
 
 // --- the corpus survives ------------------------------------------------------------------------------
@@ -321,4 +324,88 @@ test('guard: refusing costs the project nothing — no path is created or remove
   assert.deepEqual(readdirSync(path.join(project, 'docs')).sort(), before);
   assert.ok(existsSync(path.join(project, 'ROADMAP.md')));
   assert.ok(existsSync(path.join(generator, 'src', 'a-file.txt')));
+});
+
+test('guard: claiming the staging directory is an atomic test-and-set, not a check then an act', () => {
+  // `assertStagingDirIsFree` runs before the project is read, which is check-then-act with the
+  // ENTIRE build as its race window — and `mkdirSync(staging, { recursive: true })` succeeds
+  // silently when the directory is already there, so two builds could both check, both find it
+  // free, and both write into one directory. `mkdir` WITHOUT `recursive` is the filesystem's own
+  // atomic claim: exactly one caller creates it, every other gets EEXIST.
+  const { project } = arena();
+  const outDir = path.join(project, '_site');
+
+  const staging = createStagingDir(outDir);
+  assert.equal(staging, stagingDirFor(outDir));
+  assert.ok(existsSync(staging), 'the winner must actually own a directory');
+
+  assert.throws(
+    () => createStagingDir(outDir),
+    (error) => {
+      assert.match(error.message, /^refusing to build into /);
+      assert.ok(error.message.includes(staging), 'the message must name the directory to remove');
+      return true;
+    },
+    'a second build claimed a staging directory another build already holds',
+  );
+
+  // And the loser took nothing with it: it throws before the build's own try/finally is entered,
+  // so the winner's directory is still there and still its own.
+  assert.ok(existsSync(staging), 'the losing build removed the winner\'s staging directory');
+});
+
+test('guard: the staging claim creates the parent, but never a directory that is already there', () => {
+  const { project } = arena();
+  const outDir = path.join(project, 'nested', 'deeper', '_site');
+
+  const staging = createStagingDir(outDir);
+  assert.ok(existsSync(staging), 'a missing parent must not stop the claim');
+  assert.equal(path.dirname(staging), path.join(project, 'nested', 'deeper'));
+});
+
+test('guard: a dangling symlink at the staging path is seen, not looked through', () => {
+  // `existsSync` follows symlinks, so it answers FALSE for a dangling one — and the guard would
+  // declare the path free, only for `mkdirSync` to fail with a raw EEXIST for a name that is very
+  // much taken. `lstat` asks the question that is actually being asked: is this name in use?
+  const { project } = arena();
+  const outDir = path.join(project, '_site');
+  const staging = stagingDirFor(outDir);
+  symlinkSync(path.join(project, 'nothing-is-here'), staging);
+
+  assert.equal(existsSync(staging), false, 'the premise: existsSync looks through the dangling link');
+  assert.throws(
+    () => assertStagingDirIsFree(outDir),
+    (error) => {
+      assert.ok(error.message.includes(staging), error.message);
+      return true;
+    },
+    'a dangling symlink occupies the staging path and must be reported as such',
+  );
+  assert.throws(() => createStagingDir(outDir), /refusing to build into /);
+});
+
+test('guard: an output directory that is itself a symbolic link is refused, not quietly replaced', () => {
+  // `rmSync` unlinks a symlink rather than following it, and `renameSync` then puts a real
+  // directory where the link was. No data is lost — the target survives — but a deliberate
+  // indirection like `site -> /var/www/current` is destroyed silently, and the location it pointed
+  // at goes stale forever with nobody told. That is the quietest possible failure and it used to
+  // be the behaviour.
+  const { project, generator } = arena();
+  const real = path.join(project, 'published');
+  mkdirSync(real, { recursive: true });
+  const link = path.join(project, 'site');
+  symlinkSync(real, link);
+
+  const message = refuses(project, link, generator, 'is a symbolic link the build would replace');
+  assert.match(message, /symbolic link/i, message);
+
+  // Nothing was touched on the way to refusing: the link is still a link, still pointing there.
+  assert.equal(lstatSync(link).isSymbolicLink(), true);
+  assert.equal(realpathSync(link), realpathSync(real));
+
+  // And the same path, as a real directory, is fine — the refusal is about the indirection, not
+  // about the name.
+  rmSync(link, { force: true });
+  mkdirSync(link, { recursive: true });
+  allows(project, link, generator, 'is an ordinary directory');
 });
