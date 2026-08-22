@@ -1,0 +1,691 @@
+/* Atlas — the theme (decision 28: Sky UI tokens, Segoe UI typography, three-state dark mode).
+ *
+ * The generator holds no project content (decision 40): nothing below names a project, a
+ * workstream or a milestone. It styles the vocabulary the manifest schema closes — five milestone
+ * statuses, four workstream stages — and the three surfaces decision 22 asks for.
+ *
+ * THREE STATES, NOT TWO. A viewer is in one of three states, and the third is the one that gets
+ * forgotten:
+ *
+ *   1. explicit light   — the root carries data-theme="light"
+ *   2. explicit dark    — the root carries data-theme="dark"
+ *   3. system (default) — the root carries NOTHING, and prefers-color-scheme decides
+ *
+ * So the complete palette is defined on a bare `:root`, which is the only selector that applies
+ * in state 3 and in state 1. The dark palette is then written twice: once inside
+ * `@media (prefers-color-scheme: dark)`, guarded as `:root:not([data-theme="light"])` so an
+ * explicit light choice still wins over the system setting, and once as `:root[data-theme="dark"]`
+ * so an explicit dark choice wins over a light system setting. Nothing in CSS keeps those two
+ * copies in step, so a test does.
+ *
+ * A colour whose only definition sits inside one of those blocks resolves to nothing in the
+ * default state — the classic unreadable page. Every component rule below therefore takes its
+ * colour from a token, never a literal, and a test asserts both halves of that.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Type. Segoe needs no webfont on the machines this is read on (decision 28). */
+  --sky-font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  --sky-font-mono: "Cascadia Mono", Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Space and shape. */
+  --sky-space-1: 0.25rem;
+  --sky-space-2: 0.5rem;
+  --sky-space-3: 0.75rem;
+  --sky-space-4: 1rem;
+  --sky-space-5: 1.5rem;
+  --sky-space-6: 2.5rem;
+  --sky-radius-sm: 4px;
+  --sky-radius-md: 8px;
+  --sky-measure: 42rem;
+  --sky-column-width: 11.5rem;
+  --sky-ladder-width: 7rem;
+
+  /* Ground and ink. */
+  --sky-canvas: #f3f6fa;
+  --sky-surface: #ffffff;
+  --sky-sunken: #e8eef6;
+  --sky-raised: #ffffff;
+  --sky-border: #d5dee9;
+  --sky-border-strong: #b3c1d1;
+  --sky-ink: #15202e;
+  --sky-ink-muted: #48596d;
+  --sky-ink-subtle: #6a7b90;
+  --sky-accent: #1c6ca8;
+  --sky-accent-ink: #ffffff;
+  --sky-accent-soft: #e4eefa;
+  --sky-focus: #1c6ca8;
+  --sky-shadow: rgba(21, 32, 46, 0.10);
+
+  /* The depth chart's own three grounds: the completed bar, the arrowhead, the empty track. */
+  --sky-bar: #cfe3f5;
+  --sky-bar-ink: #123a5c;
+  --sky-head: #1c6ca8;
+  --sky-track: #eaeff6;
+
+  /* Chip tones. Six tones carry every value in both closed vocabularies, so a milestone status
+   * and the stage or triage state that means the same thing read the same. */
+  --sky-tone-positive-bg: #dff1e5;
+  --sky-tone-positive-ink: #1a5533;
+  --sky-tone-active-bg: #dfeafb;
+  --sky-tone-active-ink: #144a78;
+  --sky-tone-waiting-bg: #fbeeda;
+  --sky-tone-waiting-ink: #74490f;
+  --sky-tone-halted-bg: #fae3e3;
+  --sky-tone-halted-ink: #7d2727;
+  --sky-tone-idle-bg: #e9edf3;
+  --sky-tone-idle-ink: #4b5c70;
+  --sky-tone-exploring-bg: #ece8f8;
+  --sky-tone-exploring-ink: #4b3d7c;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Guarded: without :not([data-theme="light"]) an explicit light choice would lose to the
+   * system setting. Only tokens are redefined here — never a component rule. */
+  :root:not([data-theme="light"]) {
+    --sky-canvas: #0e141c;
+    --sky-surface: #161e29;
+    --sky-sunken: #111823;
+    --sky-raised: #1b2632;
+    --sky-border: #2a3644;
+    --sky-border-strong: #3e4d5f;
+    --sky-ink: #e7eef6;
+    --sky-ink-muted: #a9b8c8;
+    --sky-ink-subtle: #8597aa;
+    --sky-accent: #6db3e8;
+    --sky-accent-ink: #0e141c;
+    --sky-accent-soft: #17293a;
+    --sky-focus: #6db3e8;
+    --sky-shadow: rgba(0, 0, 0, 0.45);
+    --sky-bar: #1e3d57;
+    --sky-bar-ink: #d7e8f7;
+    --sky-head: #6db3e8;
+    --sky-track: #141d27;
+    --sky-tone-positive-bg: #16331f;
+    --sky-tone-positive-ink: #a9dfbc;
+    --sky-tone-active-bg: #142c44;
+    --sky-tone-active-ink: #a8cff2;
+    --sky-tone-waiting-bg: #3a2c11;
+    --sky-tone-waiting-ink: #ecc888;
+    --sky-tone-halted-bg: #3a1c1c;
+    --sky-tone-halted-ink: #eeaaaa;
+    --sky-tone-idle-bg: #1c2531;
+    --sky-tone-idle-ink: #adbccc;
+    --sky-tone-exploring-bg: #241f3d;
+    --sky-tone-exploring-ink: #c3b6ef;
+  }
+}
+
+:root[data-theme="dark"] {
+  --sky-canvas: #0e141c;
+  --sky-surface: #161e29;
+  --sky-sunken: #111823;
+  --sky-raised: #1b2632;
+  --sky-border: #2a3644;
+  --sky-border-strong: #3e4d5f;
+  --sky-ink: #e7eef6;
+  --sky-ink-muted: #a9b8c8;
+  --sky-ink-subtle: #8597aa;
+  --sky-accent: #6db3e8;
+  --sky-accent-ink: #0e141c;
+  --sky-accent-soft: #17293a;
+  --sky-focus: #6db3e8;
+  --sky-shadow: rgba(0, 0, 0, 0.45);
+  --sky-bar: #1e3d57;
+  --sky-bar-ink: #d7e8f7;
+  --sky-head: #6db3e8;
+  --sky-track: #141d27;
+  --sky-tone-positive-bg: #16331f;
+  --sky-tone-positive-ink: #a9dfbc;
+  --sky-tone-active-bg: #142c44;
+  --sky-tone-active-ink: #a8cff2;
+  --sky-tone-waiting-bg: #3a2c11;
+  --sky-tone-waiting-ink: #ecc888;
+  --sky-tone-halted-bg: #3a1c1c;
+  --sky-tone-halted-ink: #eeaaaa;
+  --sky-tone-idle-bg: #1c2531;
+  --sky-tone-idle-ink: #adbccc;
+  --sky-tone-exploring-bg: #241f3d;
+  --sky-tone-exploring-ink: #c3b6ef;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Everything below is a component rule. From here down, no literal colour ever appears.
+ * ------------------------------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* An explicit ground: a transparent body silently borrows whatever the host paints behind it. */
+  background: var(--sky-canvas);
+  color: var(--sky-ink);
+  font-family: var(--sky-font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  /* Wide content scrolls inside its own container; the page itself never scrolls sideways. */
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--sky-accent);
+}
+
+a:hover {
+  color: var(--sky-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--sky-focus);
+  outline-offset: 2px;
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--sky-font-mono);
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--sky-sunken);
+  border: 1px solid var(--sky-border);
+  border-radius: var(--sky-radius-md);
+  overflow-x: auto;
+  padding: var(--sky-space-3);
+}
+
+/* Digits that line up in a column — milestone numbers, issue numbers, depth counts. */
+.num,
+td.num,
+th.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.skip-link {
+  background: var(--sky-surface);
+  border: 1px solid var(--sky-border);
+  border-radius: var(--sky-radius-sm);
+  left: var(--sky-space-2);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  position: absolute;
+  top: calc(-1 * var(--sky-space-6));
+}
+
+.skip-link:focus {
+  top: var(--sky-space-2);
+  z-index: 2;
+}
+
+/* --- shell ------------------------------------------------------------------------------------ */
+
+.site-head {
+  align-items: baseline;
+  background: var(--sky-surface);
+  border-bottom: 1px solid var(--sky-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-4);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.site-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.site-nav {
+  display: flex;
+  gap: var(--sky-space-4);
+}
+
+.site-nav a {
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  text-decoration: underline;
+}
+
+.theme-toggle {
+  background: var(--sky-surface);
+  border: 1px solid var(--sky-border);
+  border-radius: var(--sky-radius-sm);
+  color: var(--sky-ink-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  margin-left: auto;
+  padding: var(--sky-space-1) var(--sky-space-3);
+}
+
+.site-main {
+  padding: var(--sky-space-5) var(--sky-space-4);
+}
+
+.site-foot {
+  border-top: 1px solid var(--sky-border);
+  color: var(--sky-ink-subtle);
+  font-size: 0.85rem;
+  margin-top: var(--sky-space-6);
+  padding: var(--sky-space-4);
+}
+
+h1 {
+  font-size: 1.55rem;
+  line-height: 1.25;
+  margin: 0 0 var(--sky-space-2);
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: var(--sky-space-6) 0 var(--sky-space-3);
+}
+
+h3 {
+  font-size: 1rem;
+  margin: var(--sky-space-5) 0 var(--sky-space-2);
+}
+
+.lede {
+  color: var(--sky-ink-muted);
+  margin: 0 0 var(--sky-space-5);
+  max-width: var(--sky-measure);
+}
+
+/* --- chips: status is never colour alone ------------------------------------------------------- */
+
+.chip {
+  background: var(--sky-tone-idle-bg);
+  border-radius: 999px;
+  color: var(--sky-tone-idle-ink);
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.1rem var(--sky-space-2);
+  white-space: nowrap;
+}
+
+.chip-done {
+  background: var(--sky-tone-positive-bg);
+  color: var(--sky-tone-positive-ink);
+}
+
+.chip-next,
+.chip-shipping,
+.chip-moving {
+  background: var(--sky-tone-active-bg);
+  color: var(--sky-tone-active-ink);
+}
+
+.chip-gated,
+.chip-awaiting-decision {
+  background: var(--sky-tone-waiting-bg);
+  color: var(--sky-tone-waiting-ink);
+}
+
+.chip-parked,
+.chip-blocked {
+  background: var(--sky-tone-halted-bg);
+  color: var(--sky-tone-halted-ink);
+}
+
+.chip-designing,
+.chip-planned {
+  background: var(--sky-tone-exploring-bg);
+  color: var(--sky-tone-exploring-ink);
+}
+
+.chip-unplanned,
+.chip-not-started {
+  background: var(--sky-tone-idle-bg);
+  color: var(--sky-tone-idle-ink);
+}
+
+/* --- surface one: the desktop depth chart ------------------------------------------------------ */
+
+.chart-scroll {
+  border: 1px solid var(--sky-border);
+  border-radius: var(--sky-radius-md);
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.depth-chart {
+  background: var(--sky-surface);
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  text-align: left;
+}
+
+.depth-chart caption {
+  caption-side: top;
+  color: var(--sky-ink-subtle);
+  font-size: 0.85rem;
+  padding: var(--sky-space-3) var(--sky-space-4);
+  text-align: left;
+}
+
+.depth-chart th,
+.depth-chart td {
+  border-bottom: 1px solid var(--sky-border);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  vertical-align: top;
+}
+
+.column-head {
+  background: var(--sky-surface);
+  border-bottom: 2px solid var(--sky-border-strong);
+  min-width: var(--sky-column-width);
+  position: sticky;
+  top: 0;
+}
+
+.column-head a {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: var(--sky-space-1);
+  text-decoration: none;
+}
+
+.ladder-head,
+.ladder-cell {
+  background: var(--sky-sunken);
+  color: var(--sky-ink-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  left: 0;
+  min-width: var(--sky-ladder-width);
+  position: sticky;
+  white-space: nowrap;
+}
+
+.cell {
+  min-width: var(--sky-column-width);
+}
+
+.cell-covered {
+  background: var(--sky-bar);
+  color: var(--sky-bar-ink);
+}
+
+.cell-beyond {
+  background: var(--sky-track);
+}
+
+.cell-head {
+  background: var(--sky-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--sky-head);
+}
+
+.cell-label {
+  display: inline-block;
+  font-weight: 600;
+  margin-right: var(--sky-space-2);
+}
+
+.cell-state {
+  color: var(--sky-ink-subtle);
+  font-size: 0.75rem;
+}
+
+.head-mark {
+  color: var(--sky-head);
+  display: block;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.head-next {
+  color: var(--sky-ink-subtle);
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tip-note {
+  color: var(--sky-ink-muted);
+  font-size: 0.8rem;
+  margin: var(--sky-space-2) 0 0;
+  white-space: normal;
+}
+
+/* --- surface two: the mobile triage view -------------------------------------------------------- */
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sky-space-4);
+  list-style: none;
+  margin: 0;
+  max-width: 34rem;
+  padding: 0;
+}
+
+.card {
+  background: var(--sky-surface);
+  border: 1px solid var(--sky-border);
+  border-radius: var(--sky-radius-md);
+  box-shadow: 0 1px 2px var(--sky-shadow);
+  padding: var(--sky-space-4);
+}
+
+.card-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+  justify-content: space-between;
+}
+
+.card-head h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.card-head a {
+  text-decoration: none;
+}
+
+.card p {
+  margin: var(--sky-space-2) 0 0;
+}
+
+.card-what {
+  color: var(--sky-ink-muted);
+  font-size: 0.9rem;
+}
+
+.card-position {
+  font-size: 0.9rem;
+}
+
+.track {
+  display: flex;
+  gap: 3px;
+  margin-top: var(--sky-space-3);
+}
+
+.track-seg {
+  background: var(--sky-track);
+  border-radius: 2px;
+  flex: 1 1 0;
+  height: 8px;
+}
+
+.track-seg.is-filled {
+  background: var(--sky-head);
+}
+
+.track-count {
+  color: var(--sky-ink-subtle);
+  font-size: 0.8rem;
+}
+
+.card-gate {
+  border-top: 1px solid var(--sky-border);
+  color: var(--sky-ink-muted);
+  font-size: 0.9rem;
+  margin-top: var(--sky-space-3);
+  padding-top: var(--sky-space-3);
+}
+
+.card-gate-label,
+.meta-label {
+  color: var(--sky-ink-subtle);
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- surface three: the document pages ---------------------------------------------------------- */
+
+.doc {
+  max-width: var(--sky-measure);
+}
+
+.doc img {
+  max-width: 100%;
+}
+
+.doc blockquote {
+  border-left: 3px solid var(--sky-border-strong);
+  color: var(--sky-ink-muted);
+  margin-left: 0;
+  padding-left: var(--sky-space-4);
+}
+
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.md-table-scroll table,
+.records table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.md-table-scroll th,
+.md-table-scroll td,
+.records th,
+.records td {
+  border-bottom: 1px solid var(--sky-border);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.contents {
+  background: var(--sky-sunken);
+  border-radius: var(--sky-radius-md);
+  font-size: 0.9rem;
+  margin-bottom: var(--sky-space-5);
+  max-width: var(--sky-measure);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.contents ul {
+  list-style: none;
+  margin: var(--sky-space-2) 0 0;
+  padding: 0;
+}
+
+.contents li {
+  margin: var(--sky-space-1) 0;
+}
+
+.contents .level-3 {
+  padding-left: var(--sky-space-4);
+}
+
+.contents .level-4,
+.contents .level-5,
+.contents .level-6 {
+  padding-left: var(--sky-space-5);
+}
+
+.gate-callout {
+  background: var(--sky-tone-waiting-bg);
+  border-radius: var(--sky-radius-md);
+  color: var(--sky-tone-waiting-ink);
+  margin: var(--sky-space-4) 0;
+  max-width: var(--sky-measure);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-5);
+  list-style: none;
+  margin: var(--sky-space-4) 0;
+  padding: 0;
+}
+
+.named-refs,
+.issue-list {
+  list-style: none;
+  margin: 0;
+  max-width: var(--sky-measure);
+  padding: 0;
+}
+
+.named-refs li,
+.issue-list li {
+  border-bottom: 1px solid var(--sky-border);
+  padding: var(--sky-space-2) 0;
+}
+
+.named-refs .where {
+  color: var(--sky-ink-subtle);
+  font-size: 0.8rem;
+}
+
+.empty {
+  color: var(--sky-ink-subtle);
+  font-style: italic;
+}
+
+.breadcrumb {
+  color: var(--sky-ink-subtle);
+  font-size: 0.85rem;
+  margin: 0 0 var(--sky-space-2);
+}
+
+/* On a narrow screen the depth chart is not the surface to reach for — decision 22 gives the
+ * phone its own view — but the document pages must still read, so they lose their outer padding
+ * rather than their width. */
+@media (max-width: 30rem) {
+  .site-main {
+    padding: var(--sky-space-4) var(--sky-space-3);
+  }
+
+  .site-head {
+    padding: var(--sky-space-3);
+  }
+}

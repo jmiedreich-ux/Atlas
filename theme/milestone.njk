@@ -1,0 +1,44 @@
+{#- Atlas — one milestone, and its plan (decisions 15, 18, 19).
+
+  Markdown is the authority for content, so the plan renders as the file it already is. The
+  manifest supplies only where the milestone stands.
+
+  Data this layout expects:
+    workstream — the { slug, manifest } this milestone belongs to
+    milestone  — one entry from that manifest's milestones
+    content    — the plan, already rendered by renderMarkdown
+    anchors    — headingAnchors(plan), for the contents list
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-milestone{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Project depth</a> · <a href="/workstream/{{ workstream.slug }}/">{{ workstream.manifest.codename }}</a></p>
+<h1>Milestone <span class="num">{{ milestone.label | replace("M", "", 1) }}</span> · {{ milestone.title }} {{ ui.chip("status", milestone.status) }}</h1>
+
+<ul class="meta-list">
+<li><span class="meta-label">Recorded as</span><code>{{ milestone.id }}</code></li>
+<li><span class="meta-label">Depth</span><span class="num">{{ milestone.depth }}</span></li>
+<li><span class="meta-label">Acceptance</span>{{ milestone.acceptance.kind }}</li>
+<li><span class="meta-label">Issue</span>{% if milestone.issue %}<a class="num" href="https://github.com/{{ repo }}/issues/{{ milestone.issue }}">#{{ milestone.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</li>
+<li><span class="meta-label">Pull request</span>{% if milestone.pr %}<a class="num" href="https://github.com/{{ repo }}/pull/{{ milestone.pr }}">#{{ milestone.pr }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</li>
+</ul>
+
+{% if anchors | length %}
+<nav class="contents" aria-label="Contents">
+<span class="meta-label">In this plan</span>
+<ul>
+{% for heading in anchors %}
+<li class="level-{{ heading.level }}"><a href="#{{ heading.id }}">{{ heading.text }}</a></li>
+{% endfor %}
+</ul>
+</nav>
+{% endif %}
+
+<article class="doc">
+{{ content | safe }}
+</article>
+{% endblock %}

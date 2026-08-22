@@ -1,0 +1,83 @@
+{#- Atlas — surface one: project depth on a desk (decisions 22, 23, 24, 25).
+
+  Workstreams are columns; one shared ladder runs down (decision 20). Three pre-milestone stages
+  sit above the first milestone (decision 23). For each column the bar covers what is complete and
+  the arrowhead points at what is next (decision 24), and the tip carries the reason the column
+  stopped there (decision 25).
+
+  Both ends of every column come from `computeLadder`. This template positions nothing of its own:
+  it looks up which ladder row `barTo` and `headAt` name and paints those. The arrowhead sits one
+  row past the bar and never on it — an off-by-one that was a real bug in the mockups — and
+  `computeLadder` is what guarantees it.
+
+  Data this layout expects:
+    ladder      — { rows, columns } exactly as computeLadder returned it
+    workstreams — the array resolveWorkstreams produced, in the SAME order as ladder.columns, so
+                  ladder.columns[i] describes workstreams[i]
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-depth{% endblock %}
+
+{% block content %}
+<h1>Project depth</h1>
+<p class="lede">One ladder down, a column for each workstream. The bar covers what is complete; the head points at what is next, and says why the column stopped there.</p>
+
+<div class="chart-scroll" role="region" aria-labelledby="depth-caption" tabindex="0">
+<table class="depth-chart">
+<caption id="depth-caption">Every workstream against one shared ladder. Rows above the numbers are the stages a workstream passes through before its first milestone.</caption>
+<thead>
+<tr>
+<th scope="col" class="ladder-head">Ladder</th>
+{% for column in ladder.columns %}
+<th scope="col" class="column-head" data-column="{{ column.codename }}">
+<a href="/workstream/{{ workstreams[loop.index0].slug }}/">{{ column.codename }}</a>
+{{ ui.chip("stage", column.stage) }}
+</th>
+{% endfor %}
+</tr>
+</thead>
+<tbody>
+{% for row in ladder.rows %}
+{%- set rowIndex = loop.index0 %}
+<tr data-rowkind="{{ row.kind }}">
+<th scope="row" class="ladder-cell">{% if row.kind == "milestone" %}<span class="num">{{ row.label }}</span>{% else %}{{ row.label }}{% endif %}</th>
+{% for column in ladder.columns -%}
+{%- set stream = workstreams[loop.index0] -%}
+{#- Where this column's bar ends and where its head sits, looked up by the row ids computeLadder
+    named. Nothing here recomputes a position. -#}
+{%- set barIndex = -1 -%}
+{%- set headIndex = -1 -%}
+{%- for candidate in ladder.rows -%}
+{%- if candidate.id == column.barTo %}{% set barIndex = loop.index0 %}{% endif -%}
+{%- if candidate.id == column.headAt %}{% set headIndex = loop.index0 %}{% endif -%}
+{%- endfor -%}
+{%- set state = "beyond" -%}
+{%- if rowIndex == headIndex %}{% set state = "head" %}{% elif rowIndex <= barIndex %}{% set state = "covered" %}{% endif -%}
+{#- This column's own milestone at this depth, if it has one: decision 20 means each column shows
+    its own ids rather than the ladder's row number. -#}
+{%- set cellLabel = "" -%}
+{%- set cellStatus = "" -%}
+{%- if row.depth -%}
+{%- for entry in stream.manifest.milestones -%}
+{%- if entry.depth == row.depth %}{% set cellLabel = entry.label %}{% set cellStatus = entry.status %}{% endif -%}
+{%- endfor -%}
+{%- endif %}
+<td class="cell cell-{{ state }}" data-row="{{ row.id }}" data-column="{{ column.codename }}" data-state="{{ state }}">
+{%- if state == "head" -%}
+<span class="head-mark" aria-hidden="true">&#9660;</span><span class="head-next">Next up</span><span class="cell-label num">{{ column.tipLabel }}</span>{% if cellStatus %}{{ ui.chip("status", cellStatus) }}{% else %}<span class="cell-state">Not on record yet</span>{% endif %}<p class="tip-note">{{ column.note }}</p>
+{%- elif cellLabel -%}
+<span class="cell-label num">{{ cellLabel }}</span>{{ ui.chip("status", cellStatus) }}
+{%- elif state == "covered" -%}
+<span class="cell-state">Passed</span>
+{%- endif -%}
+</td>
+{% endfor %}
+</tr>
+{%- endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}
