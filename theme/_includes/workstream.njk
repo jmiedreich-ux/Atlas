@@ -32,20 +32,23 @@
 <p class="gate-callout"><span class="meta-label">Gate</span>{{ workstream.manifest.gate }}</p>
 
 <h2>Milestones</h2>
-{% if workstream.manifest.milestones | length %}
+{% if workstream.milestones | length %}
 <div class="md-table-scroll">
 <table class="records">
 <thead>
 <tr><th scope="col">Milestone</th><th scope="col">Title</th><th scope="col">Status</th><th scope="col">Issue</th><th scope="col">Pull request</th></tr>
 </thead>
 <tbody>
-{% for entry in workstream.manifest.milestones %}
+{#- The enriched milestones, not `manifest.milestones`: each carries the URL the build already
+    computed for its page, correctly encoded. A link rebuilt here from the slug would be a second
+    URL convention, and it was — the records and assets were encoded and these were not. -#}
+{% for entry in workstream.milestones %}
 <tr>
-<th scope="row" class="num"><a href="/workstream/{{ workstream.slug }}/{{ entry.id | lower }}/">{{ entry.label }}</a></th>
-<td>{{ entry.title }}</td>
-<td>{{ ui.chip("status", entry.status) }}</td>
-<td class="num">{% if entry.issue %}<a href="https://github.com/{{ repo }}/issues/{{ entry.issue }}">#{{ entry.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
-<td class="num">{% if entry.pr %}<a href="https://github.com/{{ repo }}/pull/{{ entry.pr }}">#{{ entry.pr }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
+<th scope="row" class="num"><a href="{{ entry.url }}">{{ entry.manifest.label }}</a></th>
+<td>{{ entry.manifest.title }}</td>
+<td>{{ ui.chip("status", entry.manifest.status) }}</td>
+<td class="num">{% if entry.manifest.issue %}<a href="https://github.com/{{ repo }}/issues/{{ entry.manifest.issue }}">#{{ entry.manifest.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
+<td class="num">{% if entry.manifest.pr %}<a href="https://github.com/{{ repo }}/pull/{{ entry.manifest.pr }}">#{{ entry.manifest.pr }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
 </tr>
 {% endfor %}
 </tbody>

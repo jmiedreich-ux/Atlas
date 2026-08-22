@@ -39,7 +39,7 @@
 <li>
 <article class="card" data-workstream="{{ stream.manifest.codename }}" data-triage="{{ stream.triage }}">
 <header class="card-head">
-<h2><a href="/workstream/{{ stream.slug }}/">{{ stream.manifest.codename }}</a></h2>
+<h2><a href="{{ stream.url }}">{{ stream.manifest.codename }}</a></h2>
 {{ ui.chip("triage", stream.triage) }}
 </header>
 <p class="card-what">{{ stream.manifest.what }}</p>

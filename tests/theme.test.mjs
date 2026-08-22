@@ -14,10 +14,11 @@ import { fileURLToPath } from 'node:url';
 import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
+import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
-import { MILESTONE_STATUSES, WORKSTREAM_STAGES } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -74,13 +75,26 @@ function milestone(overrides = {}) {
   };
 }
 
+// Every manifest this file builds goes through the real schema before a layout renders it. Four
+// test files carried their own manifest builder and not one ran through `validateWorkstream`, so a
+// field the schema requires could be renamed, or a vocabulary tightened, and these doubles would
+// go on rendering a shape the generator no longer accepts.
+function validated(candidate) {
+  const result = validateWorkstream(candidate);
+  assert.ok(
+    result.ok,
+    `this test's own manifest is not one the generator would accept: ${JSON.stringify(result.errors)}`,
+  );
+  return result.value;
+}
+
 function entry(codename, overrides = {}) {
   const slug = codename.toLowerCase();
   return {
     slug,
     dir: `/fake/${slug}`,
     manifestPath: `/fake/${slug}/workstream.json`,
-    manifest: {
+    manifest: validated({
       codename,
       what: `${codename}, a workstream invented for this test`,
       stage: 'shipping',
@@ -90,15 +104,35 @@ function entry(codename, overrides = {}) {
       design: [{ name: `${slug}/Overview v1`, where: 'design-project' }],
       milestones: [],
       ...overrides,
-    },
+    }),
   };
+}
+
+// The shape `src/build.mjs` hands the layouts: each workstream carrying its own ladder column, its
+// own URL, and its milestones already enriched with theirs. Built here rather than hand-made, so a
+// layout is rendered against what the build actually produces — and the URLs come from build.mjs's
+// own exported helpers, so this cannot become a second URL convention.
+function assemble(entries) {
+  const ladder = computeLadder(entries);
+  return entries.map((stream, index) => ({
+    ...stream,
+    url: workstreamUrl(stream.slug),
+    column: ladder.columns[index],
+    milestones: stream.manifest.milestones.map((entry) => ({
+      manifest: entry,
+      url: milestoneUrl(stream.slug, entry.id),
+      planUrl: null,
+      recordUrl: null,
+      hrefBase: `docs/features/${stream.slug}`,
+    })),
+  }));
 }
 
 function renderDepth(entries) {
   return env.render('depth.njk', {
     ...site,
     title: 'Project depth',
-    workstreams: entries,
+    workstreams: assemble(entries),
     ladder: computeLadder(entries),
   });
 }
@@ -108,11 +142,19 @@ function renderDepth(entries) {
 // unchanged: they still read the rendered HTML, so they pin the same behaviour they always did —
 // only the place that decides it moved.
 function renderMobile(entries) {
-  const ladder = computeLadder(entries);
   return env.render('mobile.njk', {
     ...site,
     title: 'Triage',
-    triaged: orderByTriage(entries.map((stream, i) => ({ ...stream, column: ladder.columns[i] }))),
+    triaged: orderByTriage(assemble(entries)),
+  });
+}
+
+function renderWorkstream(stream, issues = []) {
+  return env.render('workstream.njk', {
+    ...site,
+    title: stream.manifest.codename,
+    workstream: assemble([stream])[0],
+    issues,
   });
 }
 
@@ -122,17 +164,12 @@ const mobileHtml = renderMobile(workstreams);
 const beacon = workstreams.find((w) => w.slug === 'beacon');
 const beaconPlan = readFileSync(path.join(beacon.dir, 'm1-plan.md'), 'utf8');
 
-const workstreamHtml = env.render('workstream.njk', {
-  ...site,
-  title: beacon.manifest.codename,
-  workstream: beacon,
-  issues: issuesLabelled(beacon.manifest.label),
-});
+const workstreamHtml = renderWorkstream(beacon, issuesLabelled(beacon.manifest.label));
 
 const milestoneHtml = env.render('milestone.njk', {
   ...site,
   title: 'Milestone 1',
-  workstream: beacon,
+  workstream: assemble([beacon])[0],
   milestone: beacon.manifest.milestones[0],
   record: renderMarkdown(beaconPlan, { hrefBase: 'docs/features/beacon' }),
   anchors: headingAnchors(beaconPlan),
@@ -895,16 +932,49 @@ test('mobile: a completed run fills exactly its own segments, in the order the m
 // --- status is never colour alone ----------------------------------------------------------------
 
 test('chips: every status chip carries a text label, never colour alone', () => {
-  let seen = 0;
+  // Per page, not a total across all of them. The floor used to be `seen >= 10` over every page at
+  // once, which stayed true with the triage chip removed from the phone view entirely — the other
+  // pages carried the count on their own. A page that stopped rendering chips is exactly what this
+  // is for.
+  const expected = {
+    'depth.njk': 'a stage chip per column, plus a status chip per labelled cell',
+    'mobile.njk': 'a triage chip per card',
+    'workstream.njk': 'a stage chip, plus a status chip per milestone row',
+    'milestone.njk': 'this milestone\'s own status',
+    'document.njk': null, // a record page renders a record; it has no vocabulary to chip
+  };
+  assert.deepEqual(
+    Object.keys(expected).sort(),
+    Object.keys(ALL_PAGES).sort(),
+    'a layout was added or removed and this table was not updated',
+  );
+
   for (const [name, html] of Object.entries(ALL_PAGES)) {
     const chips = [...html.matchAll(/<span\b[^>]*class="[^"]*\bchip\b[^"]*"[^>]*>([\s\S]*?)<\/span>/g)];
+
+    if (expected[name] === null) {
+      assert.equal(chips.length, 0, `${name}: renders chips, and this table says it has none to render`);
+      continue;
+    }
+
+    assert.ok(chips.length > 0, `${name}: no chips at all, but it should carry ${expected[name]}`);
     for (const [, inner] of chips) {
-      const text = stripTags(inner);
-      assert.notEqual(text, '', `${name}: a chip rendered with no text — colour would be its only signal`);
-      seen += 1;
+      assert.notEqual(
+        stripTags(inner),
+        '',
+        `${name}: a chip rendered with no text — colour would be its only signal`,
+      );
     }
   }
-  assert.ok(seen >= 10, `expected chips across the pages, saw ${seen}`);
+
+  // And the counts follow the data, so a page cannot pass by rendering one chip and stopping.
+  const cards = [...mobileHtml.matchAll(/<article class="card"/g)];
+  const triageChips = [...mobileHtml.matchAll(/<span\b[^>]*data-triage="/g)];
+  assert.equal(triageChips.length, cards.length, 'every card on the phone view carries its own chip');
+  assert.equal(cards.length, workstreams.length, 'a card per workstream');
+
+  const stageChips = [...depthHtml.matchAll(/<span\b[^>]*data-stage="/g)];
+  assert.equal(stageChips.length, workstreams.length, 'every column on the chart carries its stage');
 });
 
 test('chips: every triage state renders its own human label, decision 27\'s headline included', () => {
@@ -985,7 +1055,7 @@ test('chips: every value in the closed vocabularies renders its own human label'
       milestone({ id: `M${i + 1}`, label: `M${i + 1}`, depth: i + 1, status, plan: `m${i + 1}-plan.md` }),
     ),
   });
-  const html = env.render('workstream.njk', { ...site, title: 'Vector', workstream: everyStatus, issues: [] });
+  const html = renderWorkstream(everyStatus);
 
   for (const status of MILESTONE_STATUSES) {
     const re = new RegExp(`<span\\b[^>]*data-status="${status}"[^>]*>([\\s\\S]*?)</span>`);
@@ -1041,7 +1111,7 @@ test('milestone: the heading spells out "Milestone" and never mangles a label th
     const html = env.render('milestone.njk', {
       ...site,
       title: label,
-      workstream: beacon,
+      workstream: assemble([beacon])[0],
       milestone: { ...beacon.manifest.milestones[0], label },
       content: '',
       anchors: [],
@@ -1169,15 +1239,59 @@ function themeFiles() {
   ];
 }
 
-// Names from a real project. None may appear in the generator, and none may reach a page built
-// from a project that never mentioned them.
+// Names from a real project. None may appear anywhere in the generator, and none may reach a page
+// built from a project that never mentioned them.
 const REAL_PROJECT_NAMES = ['vennusign', 'keystone', 'menus', 'murphy', 'platform operations'];
 
-test('decision 40: no theme file hard-codes a project name', () => {
-  for (const file of themeFiles()) {
+// The owner's own handle is different in kind. `action.yml` and the README legitimately carry
+// `jmiedreich-ux/atlas`, because that IS the action's published coordinate (decision 46) — but a
+// LAYOUT naming a person is project content by another route, and so is a rendered page.
+const PERSONAL_NAMES = ['jmiedreich'];
+
+// Every file the generator ships, not just the theme. The guard used to read as though it covered
+// the repository while scanning `theme/` alone, so `src/`, `action.yml` and the workflow were
+// never looked at.
+function generatorFiles() {
+  const files = [];
+  const walk = (dir, prefix) => {
+    for (const name of readdirSync(dir).sort()) {
+      if (name === 'node_modules' || name === '.git') continue;
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full, `${prefix}${name}/`);
+      else files.push({ name: `${prefix}${name}`, text: readFileSync(full, 'utf8') });
+    }
+  };
+  walk(path.join(REPO_ROOT, 'src'), 'src/');
+  walk(THEME_DIR, 'theme/');
+  walk(path.join(REPO_ROOT, '.github'), '.github/');
+  for (const name of ['action.yml', '.eleventy.js', 'package.json', 'README.md']) {
+    files.push({ name, text: readFileSync(path.join(REPO_ROOT, name), 'utf8') });
+  }
+  return files;
+}
+
+test('decision 40: nothing the generator ships hard-codes a project name', () => {
+  const scanned = generatorFiles();
+  // A guard that scanned an empty list would pass silently, which is the failure mode this whole
+  // section exists to catch elsewhere.
+  assert.ok(scanned.length > 15, `expected to scan the generator, saw ${scanned.length} files`);
+  assert.ok(scanned.some((f) => f.name === 'action.yml'));
+  assert.ok(scanned.some((f) => f.name.startsWith('src/')));
+  assert.ok(scanned.some((f) => f.name.startsWith('.github/')));
+
+  for (const file of scanned) {
     const lower = file.text.toLowerCase();
     for (const name of REAL_PROJECT_NAMES) {
-      assert.ok(!lower.includes(name), `theme/${file.name} names the project "${name}"`);
+      assert.ok(!lower.includes(name), `${file.name} names the project "${name}"`);
+    }
+  }
+});
+
+test('decision 40: no layout names a person, whatever the action.yml may have to say', () => {
+  for (const file of themeFiles()) {
+    const lower = file.text.toLowerCase();
+    for (const name of [...REAL_PROJECT_NAMES, ...PERSONAL_NAMES]) {
+      assert.ok(!lower.includes(name), `theme/${file.name} names "${name}"`);
     }
   }
 });
@@ -1200,7 +1314,7 @@ test("decision 40: no theme file hard-codes the fixture's own content either", (
 test('decision 40: no generated page carries a project name its data never supplied', () => {
   for (const [name, html] of Object.entries(ALL_PAGES)) {
     const lower = html.toLowerCase();
-    for (const projectName of REAL_PROJECT_NAMES) {
+    for (const projectName of [...REAL_PROJECT_NAMES, ...PERSONAL_NAMES]) {
       assert.ok(!lower.includes(projectName), `${name} rendered the name "${projectName}"`);
     }
   }

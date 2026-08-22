@@ -55,7 +55,12 @@ test('state: it says which version of its own shape it is, first (decision 29)',
   // Decision 29 makes this a contract other tools consume. A consumer that cannot tell which
   // shape it is holding cannot be told the shape changed, and by the time one exists it is too
   // late to add cheaply.
-  assert.equal(state.version, STATE_VERSION);
+  // NOT `state.version === STATE_VERSION`, which was the assertion here and cannot fail: both
+  // sides come from the same import, so it holds for any value including undefined. The version
+  // is asserted as the literal a consumer would code against, and STATE_VERSION is checked to be
+  // that same literal separately — so bumping one without the other is what goes red.
+  assert.equal(state.version, 1, 'state.json no longer says it is version 1');
+  assert.equal(STATE_VERSION, 1, 'the exported constant and the emitted version have drifted apart');
   assert.equal(typeof state.version, 'number');
   assert.equal(Object.keys(state)[0], 'version', 'the version is not the first thing a reader meets');
 });

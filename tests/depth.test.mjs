@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { computeLadder, assertLadderResolves } from '../src/depth.mjs';
+import { validateWorkstream } from '../src/schema.mjs';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +32,21 @@ function milestone(overrides = {}) {
   };
 }
 
+// Every manifest this file builds goes through the real schema before a test uses it. Four test
+// files carried their own manifest builder and not one ran through `validateWorkstream`, so a
+// field the schema requires could be renamed, or a vocabulary tightened, and these doubles would
+// go on testing a shape the generator no longer accepts.
+function validated(candidate) {
+  const result = validateWorkstream(candidate);
+  assert.ok(
+    result.ok,
+    `this test's own manifest is not one the generator would accept: ${JSON.stringify(result.errors)}`,
+  );
+  return result.value;
+}
+
 function manifest(overrides = {}) {
-  return {
+  return validated({
     codename: 'Nova',
     what: 'A workstream invented for this test',
     stage: 'planned',
@@ -42,7 +56,7 @@ function manifest(overrides = {}) {
     design: [{ name: 'nova/Overview v1', where: 'design-project' }],
     milestones: [],
     ...overrides,
-  };
+  });
 }
 
 function entry(slug, manifestOverrides = {}) {

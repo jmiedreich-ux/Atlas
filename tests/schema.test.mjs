@@ -303,3 +303,91 @@ test('validateConfig: a failing result never carries a value', () => {
   assert.equal(result.ok, false);
   assert.equal('value' in result, false);
 });
+
+// Small builders over the two factories above, so the uniqueness cases below say only what makes
+// them different from a valid manifest.
+function ms(overrides) {
+  return { ...validManifest().milestones[0], ...overrides };
+}
+
+function withMilestones(overrides) {
+  return { ...validManifest(), ...overrides };
+}
+
+// --- decision 32: a name that collides is a record somebody has to fix ----------------------
+
+test('validateConfig: the same workstream declared twice fails, naming both positions', () => {
+  // `triageBySlug` in src/build.mjs keys the ordered cards by slug, so a duplicate collapses into
+  // one card: the workstream is classified twice, ordered twice, and then one of them silently
+  // disappears from the surface built to say what needs the owner.
+  const result = validateConfig({
+    project: 'Duplicated',
+    repo: 'example-org/duplicated',
+    workstreams: ['nova', 'pulsar', 'nova'],
+  });
+
+  assert.equal(result.ok, false);
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+  assert.match(message, /workstreams\[2\]/, message);
+  assert.match(message, /workstreams\[0\]/, message);
+  assert.match(message, /nova/, message);
+});
+
+test('validateConfig: distinct workstreams that merely look alike are fine', () => {
+  const result = validateConfig({
+    project: 'Fine',
+    repo: 'example-org/fine',
+    workstreams: ['nova', 'nova-2', 'supernova'],
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
+test('validateWorkstream: two milestone ids that differ only in case fail', () => {
+  // A milestone page is written at `<slug>/<id lowercased>/`, so `M1` and `m1` are one directory
+  // and one URL: whichever renders second overwrites the first, and the site shows one milestone
+  // where the record has two.
+  const result = validateWorkstream(
+    withMilestones({
+      milestones: [
+        ms({ id: 'M1', label: 'M1', depth: 1 }),
+        ms({ id: 'm1', label: 'm1', depth: 2 }),
+      ],
+    }),
+  );
+
+  assert.equal(result.ok, false);
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+  assert.match(message, /milestones\[1\]/, message);
+  assert.match(message, /milestones\[0\]/, message);
+  assert.match(message, /case/i, message);
+});
+
+test('validateWorkstream: the same milestone id twice fails, whatever else differs', () => {
+  const result = validateWorkstream(
+    withMilestones({
+      milestones: [
+        ms({ id: 'M1', label: 'M1', depth: 1, title: 'One' }),
+        ms({ id: 'M1', label: 'M1 again', depth: 2, title: 'Another' }),
+      ],
+    }),
+  );
+  assert.equal(result.ok, false);
+  assert.match(
+    result.errors.map((e) => e.message).join('; '),
+    /same page|already used/i,
+    JSON.stringify(result.errors),
+  );
+});
+
+test('validateWorkstream: distinct milestone ids pass, including ones that share a prefix', () => {
+  const result = validateWorkstream(
+    withMilestones({
+      milestones: [
+        ms({ id: 'M1', label: 'M1', depth: 1 }),
+        ms({ id: 'M1.1', label: 'M1.1', depth: 2 }),
+        ms({ id: 'M10', label: 'M10', depth: 3 }),
+      ],
+    }),
+  );
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});

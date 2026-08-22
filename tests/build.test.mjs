@@ -18,8 +18,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from '../src/build.mjs';
 
 // Everything here runs against `fixture/`, the invented nautical project, and writes into
-// `.tmp-tests/` — deliberately beside the repository rather than in `os.tmpdir()`, which on this
-// machine sits on a different filesystem root and degrades `path.relative()` to an absolute path.
+// `.tmp-tests/` — deliberately beside the repository rather than in `os.tmpdir()`. Where the two
+// sit on different filesystem roots, `path.relative()` between them degrades to returning the
+// absolute path unchanged, which silently makes every relative-path assertion below unfalsifiable.
 //
 // There is no network. Every build below is handed a `fetchImpl` that answers from
 // `tests/fixtures/issues.json`, so nothing reaches out and the issue buckets are the same on
@@ -588,6 +589,92 @@ test('README: the consuming workflow it documents grants the token what the buil
   assert.match(consuming, /permissions:/, 'the documented workflow grants no permissions at all');
   assert.match(consuming, /issues:\s*read/, 'without issues: read every backlog on the site is empty');
   assert.match(consuming, /contents:\s*read/, 'without contents: read the checkout cannot run');
+});
+
+test('build: every URL it emits is encoded, on the pages and in state.json alike', async () => {
+  // Two conventions used to coexist: records and assets went through `encodeUrlPath`, while
+  // workstream and milestone URLs were raw interpolation. A workstream directory named `har bor`
+  // produced `href="/workstream/har bor/"` on the site AND in `state.json` — an invalid URL in a
+  // v1 contract — next to a correctly encoded `/docs/field%20notes.html`.
+  const root = path.join(TMP_ROOT, 'spacey-project');
+  const out = path.join(TMP_ROOT, 'spacey-out');
+  rmSync(root, { recursive: true, force: true });
+  rmSync(out, { recursive: true, force: true });
+
+  const slug = 'har bor';
+  const streamDir = path.join(root, 'docs', 'features', slug);
+  mkdirSync(streamDir, { recursive: true });
+  writeFileSync(path.join(root, 'ROADMAP.md'), '# Roadmap\n');
+  writeFileSync(path.join(root, 'docs', 'field notes.md'), '# Field notes\n');
+  writeFileSync(path.join(streamDir, 'm1-plan.md'), '# Plan\n');
+  writeFileSync(
+    path.join(root, 'atlas.config.json'),
+    JSON.stringify({ project: 'Spacey', repo: 'example-org/spacey', workstreams: [slug] }),
+  );
+  writeFileSync(
+    path.join(streamDir, 'workstream.json'),
+    JSON.stringify({
+      codename: 'Spacey',
+      what: 'Invented for this test',
+      stage: 'shipping',
+      position: 'Invented for this test',
+      gate: 'Nothing but this test',
+      label: 'workstream:spacey',
+      design: [{ name: 'spacey/Overview v1', where: 'design-project' }],
+      milestones: [
+        {
+          id: 'M1',
+          label: 'M1',
+          depth: 1,
+          title: 'Invented',
+          status: 'next',
+          plan: 'm1-plan.md',
+          issue: null,
+          pr: null,
+          acceptance: { kind: 'demo-script', record: null },
+        },
+      ],
+    }),
+  );
+
+  await build(root, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+  const state = JSON.parse(readFileSync(path.join(out, 'state.json'), 'utf8'));
+
+  // Every URL in state.json, wherever it appears, survives being parsed as one.
+  const urls = [];
+  const walk = (node) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (node && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) {
+        if (key === 'url' && typeof value === 'string' && value.startsWith('/')) urls.push(value);
+        else walk(value);
+      }
+    }
+  };
+  walk(state);
+  assert.ok(urls.length > 3, `expected state.json to carry URLs, saw ${urls.length}`);
+
+  for (const url of urls) {
+    assert.ok(!/[ "<>\\^`{|}]/.test(url), `state.json carries an unencoded URL: ${url}`);
+    assert.equal(new URL(url, 'https://example.invalid').pathname, url, `not a stable URL: ${url}`);
+  }
+
+  // Specifically: the workstream whose directory has a space in it, and its milestone.
+  const stream = state.workstreams[0];
+  assert.equal(stream.url, '/workstream/har%20bor/');
+  assert.equal(stream.milestones[0].url, '/workstream/har%20bor/m1/');
+  // And the sibling convention it used to disagree with.
+  assert.ok(
+    state.documents.some((doc) => doc.url === '/docs/field%20notes/'),
+    `the records were encoded differently: ${state.documents.map((d) => d.url).join(', ')}`,
+  );
+
+  // The pages agree, and the files are actually there under their real names.
+  const chart = readFileSync(path.join(out, 'index.html'), 'utf8');
+  assert.ok(chart.includes('href="/workstream/har%20bor/"'), 'the chart links to an unencoded URL');
+  assert.ok(!chart.includes('href="/workstream/har bor/"'), 'the chart links to an unencoded URL');
+  assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'index.html')), 'no page was written');
+  assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'm1', 'index.html')));
 });
 
 test('build: the theme stylesheet is served where every page links to it', () => {

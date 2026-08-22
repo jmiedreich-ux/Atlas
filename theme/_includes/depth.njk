@@ -11,10 +11,16 @@
   `computeLadder` is what guarantees it.
 
   Data this layout expects:
-    ladder      — { rows, columns } exactly as computeLadder returned it
-    workstreams — the array resolveWorkstreams produced, in the SAME order as ladder.columns, so
-                  ladder.columns[i] describes workstreams[i]
-    project, repo, title — see base.njk
+    ladder      — { rows, columns } exactly as computeLadder returned it. Only `ladder.rows` is
+                  read here: the rows are the shared ladder every column is measured against
+    workstreams — the workstreams the build assembled, each carrying its own `column` (its entry
+                  from computeLadder) and its own `url`
+
+  This layout reads a column through `stream.column`, never `ladder.columns[i]`. Both were true
+  until now, and the positional one was documented in prose only: reorder the workstreams for
+  display and `depth.njk` would silently mislabel every column while `mobile.njk` and
+  `src/state.mjs`, which already used the reference, stayed right. One interface, one way to
+  consume it.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -31,10 +37,10 @@
 <thead>
 <tr>
 <th scope="col" class="ladder-head">Ladder</th>
-{% for column in ladder.columns %}
-<th scope="col" class="column-head" data-column="{{ column.codename }}">
-<a href="/workstream/{{ workstreams[loop.index0].slug }}/">{{ column.codename }}</a>
-{{ ui.chip("stage", column.stage) }}
+{% for stream in workstreams %}
+<th scope="col" class="column-head" data-column="{{ stream.column.codename }}">
+<a href="{{ stream.url }}">{{ stream.column.codename }}</a>
+{{ ui.chip("stage", stream.column.stage) }}
 </th>
 {% endfor %}
 </tr>
@@ -44,8 +50,8 @@
 {%- set rowIndex = loop.index0 %}
 <tr data-rowkind="{{ row.kind }}">
 <th scope="row" class="ladder-cell">{% if row.kind == "milestone" %}<span class="num">{{ row.label }}</span>{% else %}{{ row.label }}{% endif %}</th>
-{% for column in ladder.columns -%}
-{%- set stream = workstreams[loop.index0] -%}
+{% for stream in workstreams -%}
+{%- set column = stream.column -%}
 {#- Where this column's bar ends and where its head sits, looked up by the row ids computeLadder
     named. Nothing here recomputes a position. -#}
 {%- set barIndex = -1 -%}

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { TRIAGE_ORDER, classifyTriage, orderByTriage } from '../src/triage.mjs';
-import { MILESTONE_STATUSES, WORKSTREAM_STAGES } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 
 // Decision 27's mapping used to live inside `theme/mobile.njk`. It moved here so the phone view
 // and `state.json` are fed by one function rather than two derivations that can drift — the
@@ -13,7 +13,27 @@ import { MILESTONE_STATUSES, WORKSTREAM_STAGES } from '../src/schema.mjs';
 // and one table and the diff shows exactly which cells moved. A test here failing after a
 // deliberate semantic change is the point; a test here failing by accident is a regression.
 
-function manifest({ stage, statuses = [] }) {
+// Every manifest this file builds goes through the real schema before a test uses it. Four test
+// files carried their own manifest builder and not one ran through `validateWorkstream`, so a
+// field the schema requires could be renamed, or a vocabulary tightened, and these doubles would
+// go on testing a shape the generator no longer accepts.
+function validated(candidate) {
+  const result = validateWorkstream(candidate);
+  assert.ok(
+    result.ok,
+    `this test's own manifest is not one the generator would accept: ${JSON.stringify(result.errors)}`,
+  );
+  return result.value;
+}
+
+function manifest(shape) {
+  return validated(unvalidatedManifest(shape));
+}
+
+// The one caller that must NOT go through the schema: the fallback test below feeds a stage the
+// closed vocabulary rejects on purpose, to pin what `classifyTriage` does with one. Separated
+// rather than made a flag, so it is impossible to reach by accident.
+function unvalidatedManifest({ stage, statuses = [] }) {
   return {
     codename: 'Invented',
     what: 'A workstream invented for this test',
@@ -123,11 +143,19 @@ test('triage: a workstream that has run out of milestones is waiting on the owne
 
 test('triage: an unrecognised stage falls through to the same fallback, and never throws', () => {
   // The manifest schema closes the stage vocabulary, so this cannot arrive from a validated
-  // manifest — but the mapping's own fallback is pinned here anyway, because the owner has
-  // deferred ruling on it and a silent change to it is exactly what must not happen.
-  assert.equal(classifyTriage(manifest({ stage: 'brand-new-stage', statuses: [] })), 'awaiting-decision');
-  assert.equal(classifyTriage(manifest({ stage: 'brand-new-stage', statuses: ['next'] })), 'moving');
-  assert.equal(classifyTriage(manifest({ stage: 'brand-new-stage', statuses: ['parked'] })), 'blocked');
+  // manifest — which is why it is the one test here that builds an unvalidated one. The mapping's
+  // own fallback is pinned anyway, because the owner has deferred ruling on it and a silent change
+  // to it is exactly what must not happen.
+  assert.equal(
+    validateWorkstream(unvalidatedManifest({ stage: 'brand-new-stage' })).ok,
+    false,
+    'the schema must still reject this stage, or this test is about nothing',
+  );
+
+  const odd = (statuses) => unvalidatedManifest({ stage: 'brand-new-stage', statuses });
+  assert.equal(classifyTriage(odd([])), 'awaiting-decision');
+  assert.equal(classifyTriage(odd(['next'])), 'moving');
+  assert.equal(classifyTriage(odd(['parked'])), 'blocked');
 });
 
 // --- ordering -----------------------------------------------------------------------------------

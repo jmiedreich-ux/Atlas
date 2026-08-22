@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
+import { validateWorkstream } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file and for fixture/ only — the generator
 // holds no project content of its own (decision 40).
@@ -22,7 +23,23 @@ function writeJson(filePath, value) {
   writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
+// `validManifest` says valid, so it is — checked against the real schema rather than by eye. Four
+// test files carried their own manifest builder and not one ran through `validateWorkstream`; a
+// double that has quietly stopped being valid tests nothing, and says so to nobody.
+//
+// Tests that deliberately build an INVALID manifest pass overrides to `invalidManifest` instead,
+// which is the same shape without the check.
 function validManifest(overrides = {}) {
+  const candidate = invalidManifest(overrides);
+  const result = validateWorkstream(candidate);
+  assert.ok(
+    result.ok,
+    `this test's own manifest is not one the generator would accept: ${JSON.stringify(result.errors)}`,
+  );
+  return candidate;
+}
+
+function invalidManifest(overrides = {}) {
   return {
     codename: 'Nova',
     what: 'A sample workstream used only to exercise config loading',
@@ -106,12 +123,10 @@ test('loadConfig: malformed JSON in atlas.config.json fails with the path named'
 
 test("loadConfig: resolves paths relative to the given project root, never the caller's cwd or the generator's own directory", () => {
   const originalCwd = process.cwd();
-  // A directory that shares FIXTURE_ROOT's filesystem root, not os.tmpdir(): on this
-  // environment's Windows Node reaching into WSL over a UNC path, os.tmpdir() lives on a
-  // different root (C:\...\Temp) than the fixture (\\wsl.localhost\...), so path.relative()
-  // between them degrades to returning the absolute path unchanged — which would make the
-  // relative-path assertion below unfalsifiable again, for a different reason. A sibling of
-  // FIXTURE_ROOT keeps the relative path genuinely relative.
+  // A directory that shares FIXTURE_ROOT's filesystem root, not os.tmpdir(). Where the two sit on
+  // different roots — which happens on more setups than it looks like it should — path.relative()
+  // between them degrades to returning the absolute path unchanged, and the assertion below stops
+  // being able to fail. A sibling of FIXTURE_ROOT keeps the relative path genuinely relative.
   const cwdDir = mkdtempSync(path.join(path.dirname(FIXTURE_ROOT), 'atlas-cwd-test-'));
   try {
     process.chdir(cwdDir);
@@ -222,7 +237,9 @@ test('resolveWorkstreams: a manifest that fails schema validation aborts the who
     writeJson(path.join(root, 'docs', 'features', 'good', 'workstream.json'), validManifest({ codename: 'Good' }));
     writeJson(
       path.join(root, 'docs', 'features', 'bad', 'workstream.json'),
-      validManifest({ codename: 'Bad', stage: 'not-a-real-stage' }),
+      // Deliberately not valid — that is the whole test — so it skips the check `validManifest`
+      // applies.
+      invalidManifest({ codename: 'Bad', stage: 'not-a-real-stage' }),
     );
     const config = loadConfig(root);
     assert.throws(() => resolveWorkstreams(config), /stage/);

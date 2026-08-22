@@ -40,7 +40,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, stagingDirFor } from './outdir.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
-import { fetchProjectIssues } from './github.mjs';
+import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { orderByTriage } from './triage.mjs';
@@ -70,6 +70,26 @@ const relPath = repoRelative;
 // A site URL for a repository-relative path, with each segment encoded but the slashes left alone.
 function encodeUrlPath(relative) {
   return relative.split('/').map(encodeURIComponent).join('/');
+}
+
+/**
+ * The site URL of a workstream's page, and of one of its milestone pages.
+ *
+ * Exported because the layouts and the tests must not build these a second way: until this
+ * existed, records and assets went through `encodeUrlPath` while workstream and milestone URLs
+ * were raw interpolation, so a workstream directory named `har bor` produced
+ * `href="/workstream/har bor/"` on the site AND in `state.json` — an invalid URL in a v1 contract —
+ * beside a correctly encoded `/docs/field%20notes.html`.
+ *
+ * The matching `permalink` is deliberately NOT encoded: that one is a filesystem path Eleventy
+ * writes to, and it has to be the directory name the project actually chose.
+ */
+export function workstreamUrl(slug) {
+  return `/workstream/${encodeUrlPath(slug)}/`;
+}
+
+export function milestoneUrl(slug, milestoneId) {
+  return `${workstreamUrl(slug)}${encodeUrlPath(milestoneId.toLowerCase())}/`;
 }
 
 // Every file under `dir`, sorted, as absolute paths. Dot-directories and dot-files are skipped:
@@ -134,6 +154,17 @@ function assertRoadmapExists(projectRoot) {
 }
 
 // --- the project's records --------------------------------------------------------------------------
+//
+// NAMING, because "document" means two things in this file and an inheritor will trip on it once:
+//
+//   * `collectDocuments` returns the MARKDOWN RECORDS Atlas renders (decision 15) — the roadmap and
+//     every `.md` under `docs/`.
+//   * `isDocument`, on an entry from `collectAssets`, marks a COPIED HTML FILE (decision 10) — one
+//     a reader opens, as against a `support.js` such a file loads.
+//
+// They are separate lists, they reach `state.json` under separate keys (`documents` and `assets`),
+// and neither is ever the other. Recorded rather than renamed: both names are in the v1 `state.json`
+// contract.
 
 // The Markdown records: the roadmap, and everything under `docs/` (decision 40). A record renders
 // at the URL its own path implies — `docs/x/y.md` becomes `/docs/x/y/` — because that is precisely
@@ -226,7 +257,7 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   // does not tolerate a failure — it declines to make the request at all, which is what a test,
   // and a build of a project with no GitHub, both want.
   const issues = offline
-    ? { byLabel: new Map(), unlabelled: [], prs: [] }
+    ? emptyBuckets()
     : await fetchProjectIssues({ repo: config.repo, token, fetchImpl });
 
   // The records first, so a milestone can link its plan and its acceptance record to the pages
@@ -241,15 +272,16 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       ...stream,
       relDir,
       relManifestPath: relPath(config.projectRoot, stream.manifestPath),
-      url: `/workstream/${stream.slug}/`,
+      url: workstreamUrl(stream.slug),
       column: ladder.columns[index],
       issues: issues.byLabel.get(stream.manifest.label) ?? [],
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
+        const segment = milestone.id.toLowerCase();
         return {
           manifest: milestone,
-          url: `/workstream/${stream.slug}/${milestone.id.toLowerCase()}/`,
-          permalink: `/workstream/${stream.slug}/${milestone.id.toLowerCase()}/index.html`,
+          url: milestoneUrl(stream.slug, milestone.id),
+          permalink: `/workstream/${stream.slug}/${segment}/index.html`,
           planPath,
           planSource: path.join(stream.dir, milestone.plan),
           // The plan's own record page. `assertPlansExist` has already proved the file is there,

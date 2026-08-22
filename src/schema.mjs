@@ -169,12 +169,51 @@ export function validateWorkstream(obj) {
     errors.push({ path: 'milestones', message: '"milestones" is required and must be an array' });
   } else {
     obj.milestones.forEach((milestone, index) => validateMilestone(milestone, `milestones[${index}]`, errors));
+    // A milestone's page is written at `<slug>/<id lowercased>/`, so `M1` and `m1` in one manifest
+    // are the same URL and the same directory: whichever renders second silently overwrites the
+    // first and the site shows one milestone where the record has two. Decision 32 says loudly.
+    assertNoDuplicates(
+      obj.milestones.map((milestone) => milestone?.id),
+      (id) => (typeof id === 'string' ? id.toLowerCase() : id),
+      'milestones',
+      'milestone id',
+      'two milestones would be written to the same page',
+      errors,
+    );
   }
 
   if (errors.length > 0) {
     return { ok: false, errors };
   }
   return cloneValidated(obj);
+}
+
+/**
+ * Push an error for any value that appears twice under `key`.
+ *
+ * Nothing in this generator dedupes silently: a name that collides is a record somebody has to
+ * fix, and the alternative is a page, a bucket or a card that quietly stands for two things.
+ */
+function assertNoDuplicates(values, key, path, what, consequence, errors) {
+  const seen = new Map();
+  values.forEach((value, index) => {
+    if (value === undefined || value === null) return;
+    const normalised = key(value);
+    const first = seen.get(normalised);
+    if (first) {
+      // Named against the FIRST spelling, not this one: "m1 is already used by M1" is the sentence
+      // that tells a reader what to change, and "differ only in case" is invisible otherwise.
+      errors.push({
+        path: `${path}[${index}]`,
+        message:
+          `${what} ${JSON.stringify(value)} is already used by ${path}[${first.index}] ` +
+          `(${JSON.stringify(first.value)})` +
+          `${first.value !== value ? ', which differs only in case' : ''} — ${consequence}`,
+      });
+      return;
+    }
+    seen.set(normalised, { index, value });
+  });
 }
 
 // A project's repo slug, "owner/name" — exactly one slash, no whitespace on either side.
@@ -214,6 +253,17 @@ export function validateConfig(obj) {
         });
       }
     });
+    // Two entries naming the same directory would be classified twice, ordered twice, and then
+    // collapse into one card when the triage result is keyed by slug — a workstream silently
+    // disappearing from the surface built to say what needs the owner.
+    assertNoDuplicates(
+      obj.workstreams,
+      (slug) => slug,
+      'workstreams',
+      'workstream',
+      'one of them would silently disappear from the site',
+      errors,
+    );
   }
 
   if (errors.length > 0) {

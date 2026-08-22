@@ -11,7 +11,16 @@ const GITHUB_API_ROOT = 'https://api.github.com';
 const PER_PAGE = 100;
 const WORKSTREAM_LABEL_PREFIX = 'workstream:';
 
-function emptyBuckets() {
+/**
+ * The shape every caller of this module gets, empty.
+ *
+ * Exported because `src/build.mjs` needs exactly this when `--offline` declines to make the request
+ * at all, and it used to carry its own copy of the literal — so a fifth bucket added here would
+ * simply have been missing from the offline path, with nothing to notice.
+ *
+ * @returns {{ byLabel: Map<string, object[]>, unlabelled: object[], prs: object[] }}
+ */
+export function emptyBuckets() {
   return { byLabel: new Map(), unlabelled: [], prs: [] };
 }
 

@@ -18,6 +18,19 @@
 //     machines.
 //   * Nothing is dated. A build stamp would make every rebuild differ from the last, which would
 //     destroy the only property that lets a reader trust the file is current.
+//
+// THREE NAMES IN HERE MEAN MORE THAN ONE THING, and an inheritor will meet all three. Recorded
+// rather than renamed, because this is a v1 contract (`version: 1` below) and renaming a key after
+// a consumer exists is the change this file's version number is for:
+//
+//   * `label` is three concepts. On a milestone it is decision 17's display form of `id` ("M1");
+//     on a workstream it is the GitHub label issues are bucketed by ("workstream:beacon"); on a
+//     ladder row it is the row's caption ("3", or "Designing").
+//   * `depth` is two shapes. On a milestone it is an integer — decision 20's position on the
+//     shared ladder. On a workstream it is an object: where its column's bar and head landed.
+//   * `gate` and `depth.note` are the SAME string, emitted twice under two names. `gate` is the
+//     manifest's own field; `note` is what the chart prints at the column's tip, and the chart
+//     prints the gate. A consumer should read `gate`.
 
 // The shape of this document. Bumped only when a change would break a reader that understood the
 // previous version — a new optional key does not.
