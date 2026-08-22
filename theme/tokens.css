@@ -28,11 +28,16 @@
  *     real, and decision 28 is what resolves it: Atlas is asked to look like a sibling, and a
  *     sibling shares the palette or it does not.
  *   * **The contract has rules of its own, and they are honoured here.** "Sky is a fill/focus
- *     accent, never text on light" — so `--sky-color-primary` appears only as a fill (the
- *     arrowhead's ring, a filled track segment) and never as a text colour; link text uses the
- *     contract's own `--sky-action-link-text` and the arrowhead glyph uses `--sky-focus-color`.
+ *     accent, never text on light" — so `--sky-color-primary` appears only as a fill (the spine on
+ *     a feature's header, a filled track segment) and never as a text colour; link text uses the
+ *     contract's own `--sky-action-link-text`.
  *     "Always pair these with a label or icon" for the status colours — every chip carries a text
- *     label, and every coloured chart cell carries either a milestone id or the word "Passed".
+ *     label. It does NOT govern the feature planning drawing: #780 corrected that reading
+ *     explicitly, ruling that the rule governs status chips and that the drawing's ribbons carry
+ *     fill alone, with the milestone identifiers in the ladder column and nowhere else. The
+ *     drawing still never leans on colour by itself — the ribbons differ in shape and width as
+ *     well as tone, the dates and the balloon say the same things in words, and a text key sits
+ *     under the whole picture.
  *
  * **The one deliberate divergence: typography.** The contract's `--sky-font-family` leads with
  * Inter. Atlas does not adopt it. Decision 28 names **Segoe UI**, says it needs no webfont on the
@@ -445,152 +450,311 @@ h3 {
   color: var(--sky-text-secondary);
 }
 
-/* --- surface one: the desktop depth chart ------------------------------------------------------ */
+/* --- surface one: the feature planning drawing -------------------------------------------------
+ *
+ * #780 rebuilt this surface from an HTML table into drawn SVG paths, and every rule below is a
+ * rule about a drawing rather than about cells. There are no cells, so there is nothing here that
+ * gives one a border, a label or equal weight — which is what M1's table did, and which is what
+ * turned the arrow into a glyph in a box.
+ *
+ * COLOUR CARRIES STATE, and it does so THREE ways so it never carries it alone: the tone classes
+ * below, the shape (a solid ribbon, a narrower faint one, a crossed marker), and a text key under
+ * the drawing. The dates and the balloon say the same things in words.
+ */
 
-/* `overflow-x: auto` alone already makes this a scroll container on BOTH axes — CSS Overflow 3
- * computes a `visible` sibling axis to `auto` — but with no height bound the vertical scrollport
- * can never move, and `position: sticky; top: 0` on the column headers inside it would silently
- * do nothing. The ladder can grow without bound, because decision 20 makes it the union of every
- * workstream's depth, so the fix is to bound the box rather than give up the sticky headers: the
- * chart owns both scrolls, and the ladder column and the column headers both stay in view. The
- * bound only engages when the chart is taller than the space left under the page furniture. */
+/* The chart owns its own sideways scroll; the page never scrolls sideways. The ladder gutter is a
+ * separate drawing inside this box, stuck to its left edge, so the row it names stays readable
+ * however far the lanes are scrolled. `left: 0` and not `top: 0`: the drawing is as tall as it
+ * needs to be and the page scrolls it vertically, so there is no vertical scrollport to stick to
+ * and pretending otherwise is how M1's sticky headers came to resolve against a box that could
+ * never move. */
 .chart-scroll {
+  align-items: flex-start;
+  background: var(--sky-card-background);
   border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-md);
-  max-height: calc(100vh - 12rem);
+  display: flex;
   max-width: 100%;
   overflow-x: auto;
-  overflow-y: auto;
 }
 
-.depth-chart {
-  background: var(--sky-card-background);
-  border-collapse: separate;
-  border-spacing: 0;
-  min-width: 100%;
-  text-align: left;
-}
-
-.depth-chart caption {
-  caption-side: top;
-  color: var(--sky-text-muted);
-  font-size: 0.85rem;
-  padding: var(--sky-space-3) var(--sky-space-4);
-  text-align: left;
-}
-
-.depth-chart th,
-.depth-chart td {
-  border-bottom: 1px solid var(--sky-color-border);
-  padding: var(--sky-space-2) var(--sky-space-3);
-  vertical-align: top;
-}
-
-.column-head {
-  background: var(--sky-card-background);
-  border-bottom: 2px solid var(--sky-color-border-control);
-  min-width: var(--atlas-column-width);
-  position: sticky;
-  top: 0;
-}
-
-.column-head a {
-  display: block;
-  font-size: 1rem;
-  margin-bottom: var(--sky-space-1);
-  text-decoration: none;
-}
-
-.ladder-head,
-.ladder-cell {
-  background: var(--sky-color-shell);
-  color: var(--sky-text-secondary);
-  font-size: 0.85rem;
-  font-weight: 600;
+.planning-ladder {
+  flex: 0 0 auto;
   left: 0;
-  min-width: var(--atlas-ladder-width);
   position: sticky;
-  white-space: nowrap;
-}
-
-/* Three sticky things overlap inside that scrollport, and at `z-index: auto` they would paint in
- * DOM order — which puts the column headers over the corner cell they are supposed to slide
- * under. The order is stated rather than inherited: the corner is stuck on both axes and sits
- * above everything, the column headers above the ladder column, the ladder column above the
- * ordinary cells. Each of the three already paints on an opaque token ground, which is what stops
- * the content underneath showing through as it passes. */
-.ladder-head {
-  top: 0;
-  z-index: 3;
-}
-
-.column-head {
   z-index: 2;
 }
 
-.ladder-cell {
-  z-index: 1;
-}
-
-.cell {
-  min-width: var(--atlas-column-width);
-}
-
-/* Complete. The contract's positive pair, and the cell always carries a milestone id or the word
- * "Passed" beside it — the contract's own rule for its status colours. */
-.cell-covered {
-  background: var(--sky-color-live-surface);
-  color: var(--sky-positive-text);
-}
-
-.cell-beyond {
-  background: var(--sky-color-fill-subtle);
-}
-
-/* The arrowhead's cell. The ring is --sky-color-primary because a ring is a fill; the glyph
- * inside it is text, and takes the focus colour instead. */
-.cell-head {
-  background: var(--sky-color-secondary);
-  box-shadow: inset 0 0 0 2px var(--sky-color-primary);
-}
-
-.cell-label {
-  display: inline-block;
-  font-weight: 600;
-  margin-right: var(--sky-space-2);
-}
-
-/* On a tinted ground, not the page — so the SECONDARY ink, not the muted one. The contract's
- * muted #64748b is built to sit on its plain surfaces, where it computes 4.55 and 4.76; on the
- * status tints under these cells it computes 4.14 and 4.15, under AA's 4.5. Measured against the
- * pairings that actually occur in the built markup, not against the tokens in the abstract. */
-.cell-state {
-  color: var(--sky-text-secondary);
-  font-size: 0.75rem;
-}
-
-.head-mark {
-  /* Text on a light ground, so NOT --sky-color-primary. */
-  color: var(--sky-focus-color);
+.planning-chart {
   display: block;
-  font-size: 1rem;
-  line-height: 1;
+  flex: 0 0 auto;
 }
 
-/* Also on a tinted ground — the arrowhead's own cell. See .cell-state above. */
-.head-next {
-  color: var(--sky-text-secondary);
-  display: block;
+/* An opaque ground under the ladder, or the lanes show through it as they pass beneath. */
+.ladder-ground {
+  fill: var(--sky-card-background);
+}
+
+.ladder-edge {
+  stroke: var(--sky-color-border);
+  stroke-width: 1;
+}
+
+.lad-stage {
+  fill: var(--sky-text-secondary);
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.tip-note {
-  color: var(--sky-text-secondary);
+.lad-num {
+  fill: var(--sky-text-secondary);
   font-size: 0.8rem;
-  margin: var(--sky-space-2) 0 0;
-  white-space: normal;
+  font-weight: 600;
+}
+
+.band-name {
+  fill: var(--sky-text-muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The four bands. Faint enough that the ribbons stay the subject (#780), and taken from the
+ * contract's own surfaces rather than invented. The execution band is by far the tallest, so its
+ * tint is the palest of the four: what reads as a whisper across one row reads as a wash down
+ * twenty. */
+.band-not-started {
+  fill: var(--sky-color-fill-subtle);
+}
+
+.band-designing {
+  fill: var(--sky-color-secondary);
+}
+
+.band-planned {
+  fill: var(--atlas-tone-exploring-bg);
+}
+
+.band-execution {
+  fill: var(--sky-color-live-surface);
+}
+
+.rule {
+  stroke: var(--sky-color-border);
+  stroke-width: 1;
+}
+
+/* --- a lane, and its header ---------------------------------------------------------------- */
+
+.lane-head-box {
+  fill: var(--sky-card-background);
+  stroke: var(--sky-color-border-control);
+  stroke-width: 1;
+}
+
+.lane-head:hover .lane-head-box,
+.lane-head:focus-visible .lane-head-box {
+  fill: var(--sky-color-fill-subtle);
+}
+
+/* The Sky accent as a FILL, which is the only thing the contract permits it to be: a spine down
+ * the left edge of every feature's header, which is also where the drag grip sits. */
+.lane-head-accent {
+  fill: var(--sky-color-primary);
+}
+
+.col-h {
+  fill: var(--sky-action-link-text);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.chip-box {
+  fill: var(--sky-color-fill-subtle);
+}
+
+.chip-text {
+  fill: var(--sky-text-secondary);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* --- the ribbons ---------------------------------------------------------------------------- */
+
+.tone-done .dot,
+.ribbon-body.tone-done,
+.ribbon-head.tone-done,
+.key-swatch.tone-done {
+  fill: var(--sky-action-link-text);
+}
+
+.tone-live .dot,
+.ribbon-body.tone-live,
+.ribbon-head.tone-live,
+.key-swatch.tone-live {
+  fill: var(--sky-positive-text);
+}
+
+.ribbon-body.tone-ahead,
+.ribbon-head.tone-ahead,
+.key-swatch.tone-ahead {
+  fill: var(--sky-color-border-control);
+}
+
+/* The ribbon leaving its lane and rejoining below: the same weight as the body it bridges, dashed
+ * so it reads as a way round rather than as more of the same work. */
+.ribbon-detour {
+  stroke: var(--sky-action-link-text);
+  stroke-dasharray: 9 7;
+  stroke-linecap: round;
+  stroke-width: 10;
+}
+
+.dot {
+  stroke: var(--sky-card-background);
+  stroke-width: 3;
+}
+
+/* The milestone in flight: the same dot, opened out, so "under way" is a shape as well as a
+ * colour. */
+.dot-hollow {
+  fill: var(--sky-card-background);
+  stroke: var(--sky-positive-text);
+}
+
+.dt {
+  fill: var(--sky-text-secondary);
+  font-size: 0.66rem;
+}
+
+.dt-b {
+  fill: var(--sky-text-primary);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* --- the skipped milestone ------------------------------------------------------------------- */
+
+.skip-ring {
+  fill: var(--sky-color-off-surface);
+  stroke: var(--sky-danger-text);
+  stroke-width: 3;
+}
+
+.skip-cross {
+  stroke: var(--sky-danger-text);
+  stroke-linecap: round;
+  stroke-width: 2.6;
+}
+
+.skip-t {
+  fill: var(--sky-danger-text);
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+/* --- the balloon ------------------------------------------------------------------------------
+ *
+ * #780: "a rounded rectangle with a triangle is the boring answer." The body and its curved horn
+ * of a tail are one path, so there is no seam where a separate triangle would meet the edge it is
+ * supposed to grow out of, and the edge and the kicker are coloured by state. */
+.balloon-body {
+  fill: var(--sky-card-background);
+  stroke: var(--sky-color-border-control);
+  stroke-width: 1.5;
+}
+
+.balloon-line {
+  stroke: var(--sky-color-border-control);
+  stroke-linecap: round;
+  stroke-width: 1.8;
+}
+
+.balloon-pin {
+  fill: var(--sky-color-border-control);
+}
+
+.balloon.tone-live .balloon-body,
+.balloon.tone-live .balloon-line {
+  stroke: var(--sky-positive-text);
+}
+
+.balloon.tone-live .balloon-pin {
+  fill: var(--sky-positive-text);
+}
+
+.balloon.tone-next .balloon-body,
+.balloon.tone-next .balloon-line {
+  stroke: var(--sky-focus-color);
+}
+
+.balloon.tone-next .balloon-pin {
+  fill: var(--sky-focus-color);
+}
+
+.bl-k {
+  fill: var(--sky-focus-color);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.balloon.tone-live .bl-k {
+  fill: var(--sky-positive-text);
+}
+
+.bl-t {
+  fill: var(--sky-text-primary);
+  font-size: 0.7rem;
+}
+
+/* --- the key --------------------------------------------------------------------------------- */
+
+.chart-key {
+  color: var(--sky-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  gap: var(--sky-space-2) var(--sky-space-5);
+  list-style: none;
+  margin: var(--sky-space-4) 0 0;
+  padding: 0;
+}
+
+.chart-key li {
+  align-items: center;
+  display: flex;
+  gap: var(--sky-space-2);
+}
+
+.key-swatch {
+  border-radius: 3px;
+  display: inline-block;
+  height: 0.7rem;
+  width: 1.1rem;
+}
+
+.key-swatch.tone-done {
+  background: var(--sky-action-link-text);
+}
+
+.key-swatch.tone-live {
+  background: var(--sky-positive-text);
+}
+
+.key-swatch.tone-ahead {
+  background: var(--sky-color-border-control);
+}
+
+.key-skip {
+  background: var(--sky-color-off-surface);
+  border: 2px solid var(--sky-danger-text);
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.8rem;
+  width: 0.8rem;
 }
 
 /* --- surface two: the mobile triage view -------------------------------------------------------- */

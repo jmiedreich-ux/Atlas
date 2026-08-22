@@ -1,89 +1,155 @@
-{#- Atlas — surface one: project depth on a desk (decisions 22, 23, 24, 25).
+{#- Atlas — surface one: feature planning on a desk (decisions 22, 23, 24, 25, and #780).
 
-  Workstreams are columns; one shared ladder runs down (decision 20). Three pre-milestone stages
-  sit above the first milestone (decision 23). For each column the bar covers what is complete and
-  the arrowhead points at what is next (decision 24), and the tip carries the reason the column
-  stopped there (decision 25).
+  NOT A TABLE. M1 built this page as an HTML table — features as columns, ladder rows as `<tr>`,
+  every intersection a `<td>` — and every visual complaint in #780 followed from that. Cells want
+  borders and labels and equal weight, so the arrow became a glyph in a box, finished work became a
+  fill with the word "Passed" in it, and future work needed something in it because a cell looks
+  broken when it is empty. The owner's framing, and it sat above everything else on the list: it is
+  not a chart and they are not grid cells.
 
-  Both ends of every column come from `computeLadder`. This template positions nothing of its own:
-  it looks up which ladder row `barTo` and `headAt` name and paints those. The arrowhead sits one
-  row past the bar and never on it — an off-by-one that was a real bug in the mockups — and
-  `computeLadder` is what guarantees it.
+  What it is instead: one ribbon per feature descending a shared ladder. The ladder supplies the
+  vertical scale; the ribbons are the drawing. Nothing occupies a cell, because there are no cells.
+
+  THIS LAYOUT POSITIONS NOTHING. Every coordinate and every path comes from `src/chart.mjs`, which
+  is pure and unit-tested; this file interpolates them. That is the same rule M1's version followed
+  for the two ends of a column, applied to the whole picture — a layout that computes a position is
+  a layout no test without a browser can check, and there is no browser here.
+
+  Two drawings, side by side inside one horizontal scroller:
+
+    * the LADDER gutter, which is `position: sticky; left: 0` so it stays put while
+    * the LANES scroll sideways under it.
+
+  A lane is drawn about its own origin and placed with a single `transform`, so `theme/order.js`
+  can move a whole feature — ribbon, dots, dates, skip marker and balloon together — by rewriting
+  one number, with no geometry on the client at all.
 
   Data this layout expects:
-    ladder      — { rows, columns } exactly as computeLadder returned it. Only `ladder.rows` is
-                  read here: the rows are the shared ladder every column is measured against
-    workstreams — the workstreams the build assembled, each carrying its own `column` (its entry
-                  from computeLadder) and its own `url`
-
-  This layout reads a column through `stream.column`, never `ladder.columns[i]`. Both were true
-  until now, and the positional one was documented in prose only: reorder the workstreams for
-  display and `depth.njk` would silently mislabel every column while `mobile.njk` and
-  `src/state.mjs`, which already used the reference, stayed right. One interface, one way to
-  consume it.
+    chart — computeChart(ladder, workstreams)'s output: rows, bands, rules and lanes
+    project, repo, title — see base.njk
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
 
-{% block bodyClass %}page page-depth{% endblock %}
+{% block bodyClass %}page page-planning{% endblock %}
 
 {% block content %}
 <h1>Feature planning</h1>
-<p class="lede">One ladder down, a column for each workstream. The bar covers what is complete; the head points at what is next, and says why the column stopped there.</p>
+<p class="lede">One ribbon per feature, from the top of the ladder through the stages and on into the milestones. A solid arrow covers what has begun; where more is on record than has been started, a second, fainter arrow reaches as far as the records go. Both end in their own head.</p>
 
-<div class="chart-scroll" role="region" aria-labelledby="depth-caption" tabindex="0">
-<table class="depth-chart">
-<caption id="depth-caption">Every workstream against one shared ladder. Rows above the numbers are the stages a workstream passes through before its first milestone.</caption>
-<thead>
-<tr>
-<th scope="col" class="ladder-head">Ladder</th>
-{% for stream in workstreams %}
-<th scope="col" class="column-head" data-column="{{ stream.column.codename }}">
-<a href="{{ stream.url }}">{{ stream.column.codename }}</a>
-{{ ui.chip("stage", stream.column.stage) }}
-</th>
-{% endfor %}
-</tr>
-</thead>
-<tbody>
-{% for row in ladder.rows %}
-{%- set rowIndex = loop.index0 %}
-<tr data-rowkind="{{ row.kind }}">
-<th scope="row" class="ladder-cell">{% if row.kind == "milestone" %}<span class="num">{{ row.label }}</span>{% else %}{{ row.label }}{% endif %}</th>
-{% for stream in workstreams -%}
-{%- set column = stream.column -%}
-{#- Where this column's bar ends and where its head sits, looked up by the row ids computeLadder
-    named. Nothing here recomputes a position. -#}
-{%- set barIndex = -1 -%}
-{%- set headIndex = -1 -%}
-{%- for candidate in ladder.rows -%}
-{%- if candidate.id == column.barTo %}{% set barIndex = loop.index0 %}{% endif -%}
-{%- if candidate.id == column.headAt %}{% set headIndex = loop.index0 %}{% endif -%}
-{%- endfor -%}
-{%- set state = "beyond" -%}
-{%- if rowIndex == headIndex %}{% set state = "head" %}{% elif rowIndex <= barIndex %}{% set state = "covered" %}{% endif -%}
-{#- This column's own milestone at this depth, if it has one: decision 20 means each column shows
-    its own ids rather than the ladder's row number. -#}
-{%- set cellLabel = "" -%}
-{%- set cellStatus = "" -%}
-{%- if row.depth -%}
-{%- for entry in stream.manifest.milestones -%}
-{%- if entry.depth == row.depth %}{% set cellLabel = entry.label %}{% set cellStatus = entry.status %}{% endif -%}
-{%- endfor -%}
-{%- endif %}
-<td class="cell cell-{{ state }}" data-row="{{ row.id }}" data-column="{{ column.codename }}" data-state="{{ state }}">
-{%- if state == "head" -%}
-<span class="head-mark" aria-hidden="true">&#9660;</span><span class="head-next">Next up</span><span class="cell-label num">{{ column.tipLabel }}</span>{% if cellStatus %}{{ ui.chip("status", cellStatus) }}{% else %}<span class="cell-state">Not on record yet</span>{% endif %}<p class="tip-note">{{ column.note }}</p>
-{%- elif cellLabel -%}
-<span class="cell-label num">{{ cellLabel }}</span>{{ ui.chip("status", cellStatus) }}
-{%- elif state == "covered" -%}
-<span class="cell-state">Passed</span>
-{%- endif -%}
-</td>
-{% endfor %}
-</tr>
+<div class="chart-scroll" data-planning-scroll>
+<svg class="planning-ladder" width="{{ chart.ladderWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.ladderWidth }} {{ chart.height }}" aria-hidden="true" focusable="false">
+<rect class="ladder-ground" x="0" y="0" width="{{ chart.ladderWidth }}" height="{{ chart.height }}"/>
+{%- for band in chart.bands %}{% if band.id == "execution" %}
+{%- set mid = (band.y + band.height / 2) | round -%}
+<text class="band-name" x="18" y="{{ mid }}" transform="rotate(-90 18 {{ mid }})" text-anchor="middle">{{ band.label }}</text>
+{%- endif %}{% endfor %}
+{%- for row in chart.rows %}
+<text class="{% if row.kind == "stage" %}lad-stage{% else %}lad-num num{% endif %}" x="{{ chart.ladderWidth - 14 }}" y="{{ row.centre + 4 }}" text-anchor="end">{{ row.caption }}</text>
 {%- endfor %}
-</tbody>
-</table>
+<line class="ladder-edge" x1="{{ chart.ladderWidth }}" y1="0" x2="{{ chart.ladderWidth }}" y2="{{ chart.ladderBottom }}"/>
+</svg>
+
+<svg class="planning-chart" width="{{ chart.lanesWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.lanesWidth }} {{ chart.height }}" data-planning-chart data-column-pitch="{{ chart.columnPitch }}" role="group" aria-label="One ribbon per feature down a shared ladder of stages and milestones. Every feature is also listed in full on the triage view.">
+<defs>
+<filter id="balloon-shadow" x="-30%" y="-40%" width="160%" height="200%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.16"/></filter>
+</defs>
+
+{#- The four bands (#780). They belong to the ladder rather than to any feature, so the phase reads
+    horizontally across every feature at once — the horizontal reading is the phase, the vertical
+    is the individual feature's path. -#}
+<g class="bands">
+{%- for band in chart.bands %}
+<rect class="band band-{{ band.id }}" x="0" y="{{ band.y }}" width="{{ chart.lanesWidth }}" height="{{ band.height }}"/>
+{%- endfor %}
+</g>
+
+{#- A light rule at every ladder row, drawn BENEATH the ribbons, so a ribbon crosses a rule rather
+    than being cut by it. Lines, not a grid: the moment these meet verticals they are cells again. -#}
+<g class="rules">
+{%- for y in chart.rules %}
+<line class="rule" x1="0" y1="{{ y }}" x2="{{ chart.lanesWidth }}" y2="{{ y }}"/>
+{%- endfor %}
+</g>
+
+<g class="lanes" data-lanes>
+{%- for lane in chart.lanes %}
+<g class="lane" data-slug="{{ lane.slug }}" transform="translate({{ lane.x }},0)">
+
+<g class="lane-head" data-lane-head>
+<rect class="lane-head-box" x="4" y="6" width="{{ chart.columnPitch - 16 }}" height="44" rx="8" ry="8"/>
+<rect class="lane-head-accent" x="4" y="6" width="5" height="44" rx="2" ry="2"/>
+<a href="{{ lane.url }}"><text class="col-h" x="18" y="26">{{ lane.codename }}</text></a>
+{{ ui.svgChip("stage", lane.stage, 18, 32) }}
+</g>
+
+{#- The ribbon. One object per feature, drawn in two weights: solid over what has begun, faint over
+    what is on record beyond it. Each arrow ends in its own head, growing straight out of its own
+    body — nothing floats, and there is never a gap between the two. -#}
+<g class="ribbon">
+{%- for segment in lane.solid.segments %}
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.centre - 18 }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="6" ry="6"/>
+{%- endfor %}
+{%- for d in lane.solid.detours %}
+<path class="ribbon-detour" d="{{ d }}" fill="none"/>
+{%- endfor %}
+<path class="ribbon-head tone-{{ lane.solid.head.tone }}" d="{{ lane.solid.head.d }}"/>
+{%- if lane.faint %}
+{%- for segment in lane.faint.segments %}
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.centre - 14 }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="5" ry="5"/>
+{%- endfor %}
+<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
+{%- endif %}
+</g>
+
+{#- A dot per milestone the ribbon covers, with its stored days beside it. Nothing below the final
+    arrowhead, whatever its status — the rule is positional, not status-based (#780). -#}
+{%- for dot in lane.dots %}
+<g class="milestone-dot tone-{{ dot.tone }}">
+<circle class="dot{% if dot.hollow %} dot-hollow{% endif %}" cx="{{ lane.centre }}" cy="{{ dot.y }}" r="7"/>
+{%- for line in dot.lines %}
+<text class="{% if line.strong %}dt-b num{% else %}dt{% endif %}" x="62" y="{{ dot.y - 3 + loop.index0 * 13 }}">{{ line.text }}</text>
+{%- endfor %}
+</g>
+{%- endfor %}
+
+{#- A skipped milestone is noted, not treated as a wall. The ribbon has already left its lane
+    around this marker; here is the marker, and the reason to read it at. -#}
+{%- for skip in lane.skips %}
+<g class="skip-mark">
+<circle class="skip-ring" cx="{{ lane.centre }}" cy="{{ skip.y }}" r="12"/>
+<path class="skip-cross" d="{{ skip.cross }}" fill="none"/>
+<text class="skip-t" x="62" y="{{ skip.y - 3 }}">{{ skip.label }}</text>
+<text class="dt" x="62" y="{{ skip.y + 10 }}">{{ skip.reason }}</text>
+</g>
+{%- endfor %}
+
+{#- The balloon, at the step it describes rather than at the end of the arrow. Fixed width tied to
+    the column, growing downward as the text needs; its connector steps into a lane just clear of
+    this feature's own ribbon and travels vertically inside this column, so it cannot cross a
+    neighbour. No next step, no balloon. -#}
+{%- if lane.balloon %}
+<g class="balloon tone-{{ lane.balloon.tone }}">
+<path class="balloon-line" d="{{ lane.balloon.connector }}" fill="none"/>
+<circle class="balloon-pin" cx="{{ lane.balloon.dot.x }}" cy="{{ lane.balloon.dot.y }}" r="4"/>
+<path class="balloon-body" d="{{ lane.balloon.path }}" filter="url(#balloon-shadow)"/>
+<text class="bl-k" x="{{ lane.balloon.textX }}" y="{{ lane.balloon.kickerY }}">{{ lane.balloon.kicker }}</text>
+{%- for line in lane.balloon.lines %}
+<text class="bl-t" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
+{%- endfor %}
+</g>
+{%- endif %}
+
+</g>
+{%- endfor %}
+</g>
+</svg>
 </div>
+
+<ul class="chart-key">
+<li><span class="key-swatch tone-done"></span>finished</li>
+<li><span class="key-swatch tone-live"></span>in progress</li>
+<li><span class="key-swatch tone-ahead"></span>on record, not started</li>
+<li><span class="key-swatch key-skip"></span>skipped — the work went round it</li>
+</ul>
 {% endblock %}

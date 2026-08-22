@@ -39,6 +39,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
+import { computeChart } from './chart.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
@@ -391,7 +392,16 @@ function planPages(site) {
   pages.push({
     name: 'depth',
     extend: 'depth.njk',
-    data: { ...shell, permalink: '/index.html', title: 'Feature planning', workstreams: site.workstreams, ladder: site.ladder },
+    // The DRAWING, not the data. `src/chart.mjs` turns the ladder and the features into
+    // coordinates and paths, and `depth.njk` interpolates them and positions nothing of its own —
+    // which is what keeps a rebuilt-as-SVG surface (#780) checkable in an environment with no
+    // browser.
+    data: {
+      ...shell,
+      permalink: '/index.html',
+      title: 'Feature planning',
+      chart: computeChart(site.ladder, site.workstreams),
+    },
   });
 
   pages.push({

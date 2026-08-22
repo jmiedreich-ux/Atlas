@@ -15,6 +15,7 @@ import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
+import { computeChart } from '../src/chart.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
@@ -128,12 +129,16 @@ function assemble(entries) {
   }));
 }
 
+// #780 rebuilt this surface out of an HTML table into drawn SVG paths, so what the layout is
+// handed is the DRAWING — `src/chart.mjs`'s coordinates and paths — rather than the ladder. The
+// layout positions nothing of its own; `tests/chart.test.mjs` checks the geometry, and what is
+// checked here is that the drawing reaches the page intact.
 function renderDepth(entries) {
+  const assembled = assemble(entries);
   return env.render('depth.njk', {
     ...site,
     title: 'Feature planning',
-    workstreams: assemble(entries),
-    ladder: computeLadder(entries),
+    chart: computeChart(computeLadder(entries), assembled),
   });
 }
 
@@ -786,14 +791,23 @@ function palette(theme) {
 
 // Which token a class takes its text colour, and its ground, from — read from the component rules
 // so that changing a rule changes what this test measures.
+//
+// `fill` counts as both. Half this stylesheet now paints an SVG (#780), where text takes its
+// colour from `fill` and a shape takes its ground from `fill` as well; what matters is which token
+// the paint comes from, not which property name CSS uses for it. Resolved across EVERY rule for
+// the selector, last declaration winning, as the cascade would — the tone classes are deliberately
+// grouped into shared rules, and a lookup that stopped at the first would read the wrong one.
 function tokenFor(selector, property) {
-  const rule = DECLARATION_RULES.find((r) => r.selector.split(',').some((s) => s.trim() === selector));
-  assert.ok(rule, `no rule for ${selector}`);
-  const declarations = new Map(declarationsIn(rule.body));
-  const raw =
-    property === 'color'
-      ? declarations.get('color')
-      : declarations.get('background') ?? declarations.get('background-color');
+  const rules = DECLARATION_RULES.filter((r) => r.selector.split(',').some((s) => s.trim() === selector));
+  assert.ok(rules.length > 0, `no rule for ${selector}`);
+
+  const wanted = property === 'color' ? ['color', 'fill'] : ['background', 'background-color', 'fill'];
+  let raw;
+  for (const rule of rules) {
+    for (const [name, value] of declarationsIn(rule.body)) {
+      if (wanted.includes(name)) raw = value;
+    }
+  }
   assert.ok(raw, `${selector} sets no ${property}`);
   const token = /var\(\s*(--[\w-]+)\s*\)/.exec(raw);
   assert.ok(token, `${selector}'s ${property} is not a token: ${raw}`);
@@ -804,20 +818,33 @@ function tokenFor(selector, property) {
 // class actually appears inside which painted container — not by pairing tokens by role, which is
 // how five of the six failures went unnoticed: `--sky-text-muted` is fine on the contract's plain
 // surfaces (4.55, 4.76) and fails on the status tints these labels actually sit on.
+//
+// #780 rebuilt the first surface out of an HTML table into drawn SVG, so the pairings on it are
+// now SVG text on an SVG fill: a `fill` rather than a `color`, and a `fill` rather than a
+// `background`. `tokenFor` below reads both, because what matters is which token the paint comes
+// from and not which property name CSS happens to use for it.
 const OCCURRING_PAIRS = [
-  ['.cell-state', '.cell-covered'],
-  ['.cell-state', '.cell-head'],
-  ['.head-next', '.cell-head'],
-  ['.head-mark', '.cell-head'],
-  ['.tip-note', '.cell-head'],
+  // The ladder gutter paints its own opaque ground so the lanes do not show through it.
+  ['.lad-stage', '.ladder-ground'],
+  ['.lad-num', '.ladder-ground'],
+  ['.band-name', '.ladder-ground'],
+  ['.col-h', '.lane-head-box'],
+  ['.chip-text', '.chip-box'],
+  // The dates, the skip note and the balloon all sit over the execution band, which is the tint
+  // that covers the whole bottom of the drawing.
+  ['.dt', '.band-execution'],
+  ['.dt-b', '.band-execution'],
+  ['.skip-t', '.band-execution'],
+  ['.skip-t', '.skip-ring'],
+  ['.bl-k', '.balloon-body'],
+  ['.balloon.tone-live .bl-k', '.balloon-body'],
+  ['.bl-t', '.balloon-body'],
   ['.meta-label', '.gate-callout'],
   ['.meta-label', '.contents'],
   ['.card-what', '.card'],
   ['.track-count', '.card'],
   ['.lede', 'body'],
   ['.breadcrumb', 'body'],
-  ['.depth-chart caption', '.depth-chart'],
-  ['.ladder-cell', '.ladder-cell'],
   ['.chip-done', '.chip-done'],
   ['.chip-awaiting-decision', '.chip-awaiting-decision'],
   ['.chip-parked', '.chip-parked'],
@@ -872,63 +899,59 @@ test('tokens.css: the contrast check is reading real colours, not agreeing with 
   }
 });
 
-test('tokens.css: the chart owns both scrolls, so its sticky headers have a scrollport to stick to', () => {
-  // Per CSS Overflow 3, a non-visible value on one axis computes the other to auto, so
-  // `overflow-x: auto` already makes .chart-scroll a scroll container on BOTH axes. With no height
-  // bound it never scrolls vertically, and `position: sticky; top: 0` inside it resolves against a
-  // scrollport that cannot move — the headers would silently never stick.
+test('tokens.css: the drawing owns its sideways scroll, and the ladder is pinned to its left edge', () => {
+  // #780 rebuilt this surface into two SVGs side by side inside one horizontal scroller: the
+  // ladder gutter, which stays put, and the lanes, which scroll under it. The ladder names the row
+  // every ribbon is measured against, so a ladder that scrolls away takes the drawing's meaning
+  // with it.
+  //
+  // `left: 0`, NOT `top: 0`. M1's version bounded the box's height so that sticky column headers
+  // had a vertical scrollport to resolve against; the drawing is now as tall as it needs to be and
+  // the PAGE scrolls it, so there is no vertical scrollport at all and a `top: 0` inside would
+  // resolve against a box that can never move — which is exactly the bug M1's own comment
+  // described.
   const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((x) => x.trim() === '.chart-scroll'));
   assert.ok(scroller, 'no .chart-scroll rule');
 
   const declarations = new Map(declarationsIn(scroller.body));
+  assert.match(scroller.body, /overflow-x\s*:\s*auto/, '.chart-scroll must scroll sideways itself');
+  assert.equal(declarations.get('display'), 'flex', 'the ladder and the lanes must sit side by side');
   assert.ok(
-    declarations.has('max-height'),
-    '.chart-scroll must bound its own height, or nothing inside it can stick to the top of it',
+    !declarations.has('max-height'),
+    'the drawing no longer scrolls vertically, so bounding its height only clips it',
   );
 
-  // Anything claiming the top of that scrollport must actually be sticky. Resolved across every
-  // rule for the selector, as the cascade would, since the stacking order is stated separately
-  // from the appearance.
-  const claimsTop = new Set(
-    DECLARATION_RULES.filter((r) => declarationsIn(r.body).some(([p, v]) => p === 'top' && v === '0'))
-      .flatMap((r) => r.selector.split(',').map((x) => x.trim())),
+  // Anything claiming an edge of that scrollport must actually be sticky, or the declaration does
+  // nothing at all.
+  const claimsEdge = new Set(
+    DECLARATION_RULES.filter((r) =>
+      declarationsIn(r.body).some(([p, v]) => (p === 'left' || p === 'top') && v === '0'),
+    ).flatMap((r) => r.selector.split(',').map((x) => x.trim())),
   );
-  assert.ok(claimsTop.size > 0, 'nothing claims the top of the chart');
-  for (const selector of claimsTop) {
+  assert.ok(claimsEdge.has('.planning-ladder'), 'the ladder does not claim the left edge of the scroller');
+  for (const selector of claimsEdge) {
     const sticky = DECLARATION_RULES.filter((r) =>
       r.selector.split(',').some((x) => x.trim() === selector),
     ).some((r) => /position\s*:\s*sticky/.test(r.body));
-    assert.ok(sticky, `${selector} sets top: 0 without position: sticky, which does nothing`);
+    assert.ok(sticky, `${selector} claims an edge without position: sticky, which does nothing`);
   }
 });
 
-test('tokens.css: the sticky cells stack deliberately, and each paints on an opaque ground', () => {
-  // Sticky cells overlap each other as the chart scrolls. At z-index: auto they paint in DOM
-  // order, so the column headers slide over the sticky corner. The order is fixed here: the
-  // corner above the column headers, the column headers above the ladder column.
-  // Last declaration wins, as the cascade would resolve it, so the order holds however the rules
-  // are split up.
-  function zIndexOf(selector) {
-    const declared = DECLARATION_RULES.filter((r) =>
-      r.selector.split(',').some((x) => x.trim() === selector),
-    ).flatMap((r) => declarationsIn(r.body).filter(([property]) => property === 'z-index'));
-    assert.ok(declared.length > 0, `${selector} is sticky but sets no z-index, so it paints in DOM order`);
-    return Number(declared[declared.length - 1][1]);
-  }
+test('tokens.css: the pinned ladder paints above the lanes, on a ground they cannot show through', () => {
+  // At `z-index: auto` a sticky element paints in DOM order, and the ladder is written FIRST — so
+  // every lane would slide over the top of it. And a transparent ground shows the ribbons passing
+  // underneath even once the stacking is right.
+  const rulesFor = (selector) =>
+    DECLARATION_RULES.filter((r) => r.selector.split(',').some((x) => x.trim() === selector));
 
-  const corner = zIndexOf('.ladder-head');
-  const columns = zIndexOf('.column-head');
-  const ladder = zIndexOf('.ladder-cell');
-  assert.ok(corner > columns, `the sticky corner (${corner}) must paint above the column headers (${columns})`);
-  assert.ok(columns > ladder, `the column headers (${columns}) must paint above the ladder column (${ladder})`);
+  const zIndex = rulesFor('.planning-ladder').flatMap((r) =>
+    declarationsIn(r.body).filter(([property]) => property === 'z-index'),
+  );
+  assert.ok(zIndex.length > 0, '.planning-ladder is sticky but sets no z-index, so it paints in DOM order');
+  assert.ok(Number(zIndex[zIndex.length - 1][1]) > 0, 'the pinned ladder must paint above the lanes');
 
-  // A sticky cell with a transparent ground shows the content it is meant to cover sliding under it.
-  for (const selector of ['.ladder-head', '.ladder-cell', '.column-head']) {
-    const opaque = DECLARATION_RULES.filter((r) =>
-      r.selector.split(',').some((x) => x.trim() === selector),
-    ).some((r) => /background\s*:\s*var\(\s*--[\w-]+\s*\)/.test(r.body));
-    assert.ok(opaque, `${selector} is sticky but has no opaque background`);
-  }
+  const opaque = rulesFor('.ladder-ground').some((r) => /fill\s*:\s*var\(\s*--[\w-]+\s*\)/.test(r.body));
+  assert.ok(opaque, 'the ladder has no opaque ground, so the lanes show through it as they scroll past');
 });
 
 test('tokens.css: body sets an explicit background from a token', () => {
@@ -984,106 +1007,169 @@ test('tokens.css: wide content scrolls inside its own container, never the page 
   );
 });
 
-// --- decision 22/23/24: the desktop depth chart -------------------------------------------------
+// --- decisions 22/23/24 and #780: the feature planning drawing ----------------------------------
+//
+// This surface is a DRAWING now, not a table. `tests/chart.test.mjs` checks the geometry — which
+// arrows exist, where each ends, that a head grows out of its own body. What is checked here is
+// that the drawing reaches the page intact, and that the thing #780 put above everything else on
+// its list stays true: it is not a chart and they are not grid cells.
 
-function depthCells(html, codename) {
-  const re = /<td\b[^>]*data-row="([^"]+)"[^>]*data-column="([^"]+)"[^>]*data-state="([^"]+)"[^>]*>/g;
-  return [...html.matchAll(re)]
-    .filter((m) => m[2] === codename)
-    .map((m) => ({ row: m[1], state: m[3] }));
+function laneMarkup(html, slug) {
+  // A lane is one <g class="lane"> and the next one begins at the next `data-slug`, so the slice
+  // between them is exactly this feature's own markup — dots, dates, skip marker and balloon
+  // included. Read by splitting rather than by a lazy regex, which would stop at the first nested
+  // </g> and silently check a fragment.
+  const parts = html.split(/<g class="lane" data-slug="/).slice(1);
+  const mine = parts.find((part) => part.startsWith(`${slug}"`));
+  assert.ok(mine, `no lane rendered for ${slug}`);
+  return mine;
 }
 
-test('depth: one column per workstream, one row per ladder row, in the order computeLadder returned', () => {
-  const headings = [...depthHtml.matchAll(/<th\b[^>]*data-column="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(
-    headings,
-    ladder.columns.map((c) => c.codename),
-    'the chart must render the columns computeLadder returned, in that order',
-  );
-
-  for (const column of ladder.columns) {
-    assert.deepEqual(
-      depthCells(depthHtml, column.codename).map((c) => c.row),
-      ladder.rows.map((r) => r.id),
-      `column ${column.codename} must have a cell for every ladder row, in ladder order`,
-    );
+test('planning: nothing on this surface is rendered in a table cell', () => {
+  // #780's framing, and it sat above everything else on the list: "it was implemented as an HTML
+  // table — workstreams as columns, ladder rows as <tr>, every intersection a <td> — and every
+  // visual complaint above follows from that." A rebuild that quietly kept one table would
+  // reintroduce every one of them.
+  for (const tag of ['<table', '<td', '<tr', '<thead', '<tbody', '<caption']) {
+    assert.ok(!depthHtml.includes(tag), `the feature planning page still renders ${tag}`);
   }
+  assert.match(depthHtml, /<svg[^>]*class="planning-chart"/, 'the features are not drawn at all');
+});
 
-  // The layout pairs ladder.columns[i] with workstreams[i]. If that pairing ever slipped, every
-  // heading would link at the wrong workstream while still looking right.
-  ladder.columns.forEach((column, i) => {
-    const heading = new RegExp(
-      `<th\\b[^>]*data-column="${column.codename}"[^>]*>([\\s\\S]*?)</th>`,
-    ).exec(depthHtml);
-    assert.ok(heading, `no heading rendered for ${column.codename}`);
+test('planning: one lane per feature, in the order computeLadder returned, each placed by one translate', () => {
+  const chart = computeChart(ladder, assemble(workstreams));
+
+  const slugs = [...depthHtml.matchAll(/<g class="lane" data-slug="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(slugs, workstreams.map((w) => w.slug), 'the lanes are not the features, in order');
+
+  // One transform per lane, and nothing else positioning it: that is what lets the ordering move a
+  // whole feature by rewriting one number.
+  const transforms = [...depthHtml.matchAll(/<g class="lane" data-slug="[^"]+" transform="translate\((\d+),0\)"/g)].map(
+    (m) => Number(m[1]),
+  );
+  assert.deepEqual(transforms, chart.lanes.map((lane) => lane.x));
+
+  // And each header links at its own feature.
+  workstreams.forEach((stream) => {
     assert.match(
-      heading[1],
-      new RegExp(`href="/workstream/${workstreams[i].slug}/"`),
-      `column ${column.codename} links at the wrong workstream`,
+      laneMarkup(depthHtml, stream.slug),
+      new RegExp(`<a href="${workstreamUrl(stream.slug)}"><text class="col-h"[^>]*>${stream.manifest.codename}</text></a>`),
+      `${stream.slug}'s header links at the wrong feature`,
     );
   });
 });
 
-test('depth: the completed bar covers every row through barTo and stops there', () => {
-  for (const column of ladder.columns) {
-    const cells = depthCells(depthHtml, column.codename);
-    const covered = cells.filter((c) => c.state === 'covered').map((c) => c.row);
+test('planning: the milestone identifiers are in the ladder column, and in no feature’s own lane', () => {
+  // #780, correcting an earlier comment of its own: "the milestone ids belong in the ladder column
+  // only. Repeating them inside each workstream's cells is the actual problem; the cells should
+  // carry fill and nothing else."
+  const ladderMarkup = depthHtml.slice(
+    depthHtml.indexOf('class="planning-ladder"'),
+    depthHtml.indexOf('class="planning-chart"'),
+  );
+  const captions = [...ladderMarkup.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>([^<]+)<\/text>/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(captions, computeChart(ladder, assemble(workstreams)).rows.map((r) => r.caption));
+  assert.ok(captions.includes('M1'), 'the ladder does not name the milestone depths at all');
 
-    const barIndex = column.barTo === null ? -1 : ladder.rows.findIndex((r) => r.id === column.barTo);
-    const expected = ladder.rows.slice(0, barIndex + 1).map((r) => r.id);
-
-    assert.deepEqual(covered, expected, `column ${column.codename}: the bar must end exactly at ${column.barTo}`);
+  for (const stream of workstreams) {
+    const lane = laneMarkup(depthHtml, stream.slug);
+    for (const milestone of stream.manifest.milestones) {
+      assert.ok(
+        !new RegExp(`>${milestone.label}<`).test(lane),
+        `${stream.slug}'s lane repeats the milestone id ${milestone.label}; that belongs in the ladder alone`,
+      );
+    }
+    assert.ok(!/Passed/.test(lane), `${stream.slug}'s lane still carries the word "Passed"`);
   }
 });
 
-test('depth: the arrowhead marks headAt, one row past the last covered row and never on it', () => {
-  for (const column of ladder.columns) {
-    const cells = depthCells(depthHtml, column.codename);
+test('planning: every feature has a ribbon and an arrowhead, drawn as paths rather than glyphs', () => {
+  for (const stream of workstreams) {
+    const lane = laneMarkup(depthHtml, stream.slug);
+    assert.match(lane, /<rect class="ribbon-body tone-/, `${stream.slug} has no ribbon`);
+    assert.match(lane, /<path class="ribbon-head tone-[a-z]+" d="M /, `${stream.slug} has no arrowhead`);
+    // The M1 failure this replaces: a text glyph standing in for the head.
+    assert.ok(!/&#9660;/.test(lane), `${stream.slug} draws its head as a text glyph`);
+  }
+});
 
-    const heads = cells.filter((c) => c.state === 'head');
-    assert.equal(heads.length, 1, `column ${column.codename} must have exactly one arrowhead`);
-    assert.equal(heads[0].row, column.headAt, `column ${column.codename}: the head must sit on headAt`);
-
-    const headIndex = cells.findIndex((c) => c.state === 'head');
-    let lastCovered = -1;
-    cells.forEach((c, i) => {
-      if (c.state === 'covered') lastCovered = i;
-    });
+test('planning: the faint second arrow is drawn only where records remain beyond the work', () => {
+  const chart = computeChart(ladder, assemble(workstreams));
+  for (const lane of chart.lanes) {
+    const markup = laneMarkup(depthHtml, lane.slug);
+    const heads = [...markup.matchAll(/<path class="ribbon-head tone-/g)].length;
     assert.equal(
-      headIndex,
-      lastCovered + 1,
-      `column ${column.codename}: the head must sit one row past the bar — the off-by-one this chart exists to get right`,
+      heads,
+      lane.faint ? 2 : 1,
+      `${lane.slug}: a feature with ${lane.faint ? 'records ahead' : 'nothing recorded ahead'} drew ${heads} heads`,
     );
+  }
+  assert.ok(chart.lanes.some((l) => l.faint), 'the fixture no longer exercises the faint reach at all');
+  assert.ok(chart.lanes.some((l) => !l.faint), 'the fixture no longer exercises the single arrow at all');
+});
+
+test('planning: a skipped milestone is marked in its own row, with the reason beside it', () => {
+  const reef = laneMarkup(depthHtml, 'reef');
+  assert.match(reef, /<circle class="skip-ring"/, 'the milestone the work went round was not marked');
+  assert.match(reef, /<text class="skip-t"[^>]*>M3 skipped<\/text>/);
+  assert.match(reef, /#703 · parked/, 'the marker does not say why, or where to read the reason');
+  assert.match(reef, /<path class="ribbon-detour"/, 'the ribbon does not visibly go round the marker');
+
+  // A feature with no gap has none of it.
+  assert.ok(!/skip-ring/.test(laneMarkup(depthHtml, 'anchor')), 'a feature with no gap was given a marker');
+});
+
+test('planning: the stored dates reach the page beside the milestone they belong to', () => {
+  const reef = laneMarkup(depthHtml, 'reef');
+  assert.match(reef, /4 May 2026 → 8 May 2026/, "the closed milestone's two stored days are missing");
+  assert.match(reef, /4 days/, 'how long it took is missing');
+
+  const tide = laneMarkup(depthHtml, 'tide');
+  assert.match(tide, /in progress/, 'the milestone in flight does not say so');
+
+  // Nothing on the page is derived from today: the only years on it are the ones on record.
+  const thisYear = String(new Date().getFullYear());
+  const manifestYears = new Set(
+    workstreams.flatMap((w) =>
+      w.manifest.milestones.flatMap((m) => [m.started, m.completed].filter(Boolean).map((d) => d.slice(0, 4))),
+    ),
+  );
+  if (!manifestYears.has(thisYear)) {
+    assert.ok(!depthHtml.includes(thisYear), 'a figure derived from today reached the page');
   }
 });
 
-test('depth: every column carries its note at its tip', () => {
-  for (const column of ladder.columns) {
-    const cellRe = new RegExp(
-      `<td\\b[^>]*data-row="${column.headAt}"[^>]*data-column="${column.codename}"[^>]*>([\\s\\S]*?)</td>`,
-    );
-    const match = cellRe.exec(depthHtml);
-    assert.ok(match, `no head cell rendered for ${column.codename}`);
-
-    const text = stripTags(match[1]);
+test('planning: a balloon points at the step it describes, and none is drawn with nothing to say', () => {
+  const chart = computeChart(ladder, assemble(workstreams));
+  for (const lane of chart.lanes) {
+    const markup = laneMarkup(depthHtml, lane.slug);
+    const drawn = /<g class="balloon tone-/.test(markup);
+    assert.equal(drawn, lane.balloon !== null, `${lane.slug}: the balloon and the drawing disagree`);
+    if (!lane.balloon) continue;
     assert.ok(
-      text.includes(column.note),
-      `column ${column.codename}: decision 25 wants the reason it stopped at its tip; the cell reads "${text}"`,
-    );
-    assert.ok(
-      text.includes(column.tipLabel),
-      `column ${column.codename}: the tip must name what is next (${column.tipLabel})`,
+      markup.includes(`<circle class="balloon-pin" cx="${lane.balloon.dot.x}" cy="${lane.balloon.dot.y}"`),
+      `${lane.slug}: the balloon does not attach to the ribbon at the step it describes`,
     );
   }
+  assert.ok(chart.lanes.some((l) => l.balloon === null), 'the fixture no longer exercises "nothing next, no balloon"');
 });
 
-test('depth: the chart sits inside a horizontally scrolling container', () => {
+test('planning: the drawing sits inside a horizontally scrolling container, with the ladder pinned to it', () => {
   const scrollIndex = depthHtml.indexOf('class="chart-scroll"');
-  const tableIndex = depthHtml.indexOf('<table');
-  assert.ok(scrollIndex !== -1, 'the chart is not wrapped in a .chart-scroll container');
-  assert.ok(scrollIndex < tableIndex, 'the .chart-scroll wrapper must come before the table it wraps');
+  const ladderIndex = depthHtml.indexOf('class="planning-ladder"');
+  const lanesIndex = depthHtml.indexOf('class="planning-chart"');
+  assert.ok(scrollIndex !== -1, 'the drawing is not wrapped in a .chart-scroll container');
+  assert.ok(scrollIndex < ladderIndex, 'the .chart-scroll wrapper must come before what it wraps');
+  assert.ok(ladderIndex < lanesIndex, 'the ladder must come before the lanes that scroll under it');
 });
 
+test('planning: the key states in words what the colours say, so colour is never the only signal', () => {
+  for (const phrase of ['finished', 'in progress', 'on record, not started', 'skipped']) {
+    assert.ok(depthHtml.includes(phrase), `the key does not name "${phrase}"`);
+  }
+});
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------
 
 test('mobile: workstreams are ordered by what needs the owner, not alphabetically', () => {
@@ -1215,7 +1301,10 @@ test('chips: every status chip carries a text label, never colour alone', () => 
   // pages carried the count on their own. A page that stopped rendering chips is exactly what this
   // is for.
   const expected = {
-    'depth.njk': 'a stage chip per column, plus a status chip per labelled cell',
+    // #780 took the status chips OUT of the drawing — "the cells should carry fill and nothing
+    // else" — so what is left on this surface is one stage chip per feature's header, drawn inside
+    // the SVG because a drawing cannot hold a <span>.
+    'depth.njk': 'a stage chip per feature header',
     'mobile.njk': 'a triage chip per card',
     'workstream.njk': 'a stage chip, plus a status chip per milestone row',
     'milestone.njk': 'this milestone\'s own status',
@@ -1228,7 +1317,12 @@ test('chips: every status chip carries a text label, never colour alone', () => 
   );
 
   for (const [name, html] of Object.entries(ALL_PAGES)) {
-    const chips = [...html.matchAll(/<span\b[^>]*class="[^"]*\bchip\b[^"]*"[^>]*>([\s\S]*?)<\/span>/g)];
+    // `<span>` on a document page, `<g>` inside the drawing: one chip, two elements, one label
+    // table (`chipLabel` in base.njk). Both are matched, because "colour alone is not a status"
+    // has to hold wherever a chip is rendered.
+    const chips = [
+      ...html.matchAll(/<(span|g)\b[^>]*class="[^"]*\bchip\b[^"]*"[^>]*>([\s\S]*?)<\/\1>/g),
+    ].map((m) => [m[0], m[2]]);
 
     if (expected[name] === null) {
       assert.equal(chips.length, 0, `${name}: renders chips, and this table says it has none to render`);
@@ -1251,8 +1345,8 @@ test('chips: every status chip carries a text label, never colour alone', () => 
   assert.equal(triageChips.length, cards.length, 'every card on the phone view carries its own chip');
   assert.equal(cards.length, workstreams.length, 'a card per workstream');
 
-  const stageChips = [...depthHtml.matchAll(/<span\b[^>]*data-stage="/g)];
-  assert.equal(stageChips.length, workstreams.length, 'every column on the chart carries its stage');
+  const stageChips = [...depthHtml.matchAll(/<g\b[^>]*data-stage="/g)];
+  assert.equal(stageChips.length, workstreams.length, 'every feature on the drawing carries its stage');
 });
 
 test('chips: every triage state renders its own human label, decision 27\'s headline included', () => {
@@ -1342,13 +1436,21 @@ test('chips: every value in the closed vocabularies renders its own human label'
     assert.equal(stripTags(match[1]), statusLabels[status], `the "${status}" chip must read its human label`);
   }
 
+  // The stage chips live inside the drawing now, so they are drawn as a <g> — one macro, one
+  // label table, two elements (see `chipLabel` in base.njk). The words must be the same words.
   const stagesHtml = renderDepth(WORKSTREAM_STAGES.map((stage, i) => entry(`Stage${i}`, { stage })));
   for (const stage of WORKSTREAM_STAGES) {
-    const re = new RegExp(`<span\\b[^>]*data-stage="${stage}"[^>]*>([\\s\\S]*?)</span>`);
+    const re = new RegExp(`<g\\b[^>]*data-stage="${stage}"[^>]*>([\\s\\S]*?)</g>`);
     const match = re.exec(stagesHtml);
     assert.ok(match, `no chip rendered for stage "${stage}"`);
     assert.equal(stripTags(match[1]), stageLabels[stage], `the "${stage}" chip must read its human label`);
   }
+
+  // And the two spellings agree, because they read the same table rather than two copies of it.
+  const workstreamStage = /<span\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/span>/.exec(html);
+  const drawnStage = /<g\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/g>/.exec(stagesHtml);
+  assert.ok(workstreamStage && drawnStage, 'one of the two chip spellings did not render at all');
+  assert.equal(stripTags(workstreamStage[1]), stripTags(drawnStage[1]));
 });
 
 // --- the document pages ---------------------------------------------------------------------------
@@ -1452,23 +1554,29 @@ test('base: every page declares a language, a viewport and the stylesheet', () =
 test('base: the digits the layouts line up in columns are marked for tabular numerals', () => {
   // Not "somewhere on the page there is a .num" — that passes however many digits are left
   // unmarked. Each place where digits actually stack into a column is checked on its own.
-  const ladderCells = [...depthHtml.matchAll(/<th scope="row" class="ladder-cell">([\s\S]*?)<\/th>/g)].map(
-    (m) => m[1],
+  // The ladder gutter, whose milestone identifiers stack straight down the left of the drawing.
+  const ladderCaptions = [...depthHtml.matchAll(/<text class="([^"]*)"[^>]*>(M\d+|[A-Z][a-z ]+)<\/text>/g)];
+  const numbered = ladderCaptions.filter(([, , caption]) => /^M\d+$/.test(caption));
+  assert.equal(
+    numbered.length,
+    ladder.rows.filter((r) => r.kind === 'milestone').length,
+    'expected one numbered ladder caption per milestone row',
   );
-  assert.equal(ladderCells.length, ladder.rows.length, 'expected one ladder cell per row');
-  ladder.rows.forEach((row, i) => {
-    if (row.kind !== 'milestone') return;
+  for (const [, classes, caption] of numbered) {
     assert.match(
-      ladderCells[i],
-      /<span class="[^"]*\bnum\b[^"]*">\d+<\/span>/,
-      `ladder row ${row.id}: its depth number stacks into a column, so it must be tabular`,
+      classes,
+      /\bnum\b/,
+      `ladder caption ${caption} stacks into a column, so it must be marked tabular`,
     );
-  });
+  }
 
-  assert.ok(
-    !/class="cell-label"/.test(depthHtml),
-    'a milestone id in a chart cell was rendered without .num, so ids will not line up down a column',
-  );
+  // And the dates, which stack down each feature's own lane. Both lines of a closed milestone's
+  // pair are digits; only the day itself is a column, so only it is required to be tabular.
+  const strongDates = [...depthHtml.matchAll(/<text class="([^"]*)"[^>]*>\d+ [A-Z][a-z]{2} \d{4}/g)];
+  assert.ok(strongDates.length > 0, 'no dates reached the drawing at all');
+  for (const [, classes] of strongDates) {
+    assert.match(classes, /\bnum\b/, 'a date stacks down a lane, so it must be marked tabular');
+  }
 
   // Exactly the cards that have milestones, not "at least three": a floor stays true while a
   // card quietly loses its marking.
@@ -1581,12 +1689,15 @@ test('decision 40: no layout names a person, whatever the action.yml may have to
 test("decision 40: no theme file hard-codes the fixture's own content either", () => {
   // The fixture's vocabulary is the test of the rule: if the generator can render the fixture
   // without any of these words appearing in a template, it holds no project content at all.
-  const fixtureWords = ['lighthouse', 'beacon', 'tide', 'harbor', 'anchor'];
+  const fixtureWords = ['lighthouse', 'beacon', 'tide', 'reef', 'harbor', 'anchor', 'shoal'];
   for (const file of themeFiles()) {
     const lower = file.text.toLowerCase();
     for (const word of fixtureWords) {
+      // Not `\b`, which counts a hyphen as a word boundary and so reads the SVG attribute
+      // `text-anchor` as the fixture's workstream "Anchor". A hyphenated identifier is one token
+      // in both SVG and CSS, and neither is project content a layout could have hard-coded.
       assert.ok(
-        !new RegExp(`\\b${word}\\b`).test(lower),
+        !new RegExp(`(?<![-\\w])${word}(?![-\\w])`).test(lower),
         `theme/${file.name} contains the fixture's own word "${word}" — the layouts must take that from data`,
       );
     }

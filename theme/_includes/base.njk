@@ -17,8 +17,13 @@
   label: colour alone is not a status, both because a chip has to survive a monochrome screen and
   colour-blind eyes, and because a label is the only part of a chip a test without a browser can
   read. Both vocabularies here are closed by the manifest schema.
+
+  Macro `svgChip(kind, value, x, y)` is the same chip drawn inside an SVG, for the feature
+  planning surface — which is a drawing rather than a document (#780) and so cannot hold a
+  `<span>`. Both read `chipLabel`, so the two can never say different words for one value; that
+  one shared macro is the reason this is not simply a second copy of the table.
 -#}
-{%- macro chip(kind, value) -%}
+{%- macro chipLabel(value) -%}
 {%- set LABELS = {
   "done": "Done",
   "next": "Next",
@@ -32,7 +37,18 @@
   "moving": "Moving",
   "blocked": "Blocked"
 } -%}
-<span class="chip chip-{{ value }}" data-{{ kind }}="{{ value }}">{{ LABELS[value] if LABELS[value] else value }}</span>
+{{- LABELS[value] if LABELS[value] else value -}}
+{%- endmacro -%}
+{%- macro chip(kind, value) -%}
+<span class="chip chip-{{ value }}" data-{{ kind }}="{{ value }}">{{ chipLabel(value) }}</span>
+{%- endmacro -%}
+{#- An SVG chip has to be sized in user units, because a <rect> does not grow to fit its text.
+    The width is set from the label's own length against the type size the stylesheet gives
+    `.chip-text`; it is generous rather than exact, so a longer label overflows into padding
+    rather than out of the box. -#}
+{%- macro svgChip(kind, value, x, y) -%}
+{%- set label = chipLabel(value) -%}
+<g class="chip chip-{{ value }}" data-{{ kind }}="{{ value }}" transform="translate({{ x }},{{ y }})"><rect class="chip-box" x="0" y="0" rx="8" ry="8" width="{{ (label | length * 6.6 + 16) | round }}" height="17"/><text class="chip-text" x="8" y="12">{{ label }}</text></g>
 {%- endmacro -%}
 <!doctype html>
 <html lang="en">
@@ -107,5 +123,8 @@
   });
 })();
 </script>
+{#- A surface that needs behaviour of its own loads it here, after the markup it acts on. Only the
+    feature planning surface uses this; every other page is static (decision 12). -#}
+{% block bodyScripts %}{% endblock %}
 </body>
 </html>
