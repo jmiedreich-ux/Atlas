@@ -1,0 +1,57 @@
+{#- Atlas — one milestone, and its plan (decisions 15, 18, 19).
+
+  Markdown is the authority for content, so the plan renders as the file it already is. The
+  manifest supplies only where the milestone stands.
+
+  Two headings sit at the top of this page and that is correct: "Milestone 1 · Signal contract"
+  is the manifest's own title spelled out as decision 19 requires, and the record's own heading
+  below it is the file's, which decision 11 forces. They are different sentences from different
+  authorities. (`document.njk` is the opposite case and prints only one.)
+
+  Data this layout expects:
+    workstream — the { slug, manifest } this milestone belongs to
+    milestone  — one entry from that manifest's milestones
+    planUrl    — the plan's own record page, so the reader can reach it as a record rather than
+                 only as something inlined here
+    recordUrl  — the acceptance record's page, or null when the manifest names none
+    record     — the plan, already rendered by renderMarkdown. Not `content`: that is one of
+                 Eleventy's reserved data names, and .eleventy.js keeps that guard switched on
+    anchors    — headingAnchors(plan), for the contents list
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-milestone{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Project depth</a> · <a href="{{ workstream.url }}">{{ workstream.manifest.codename }}</a></p>
+{#- Decision 19: headings spell "Milestone 6.3" and the bare id is kept for chips and cells. The
+    leading M comes off only when a number follows it, so a label that does not follow decision
+    18's M<n> convention is printed whole rather than cut into. -#}
+<h1>Milestone <span class="num">{{ milestone.label | replace(r/^M(?=\d)/, "") }}</span> · {{ milestone.title }} {{ ui.chip("status", milestone.status) }}</h1>
+
+<ul class="meta-list">
+<li><span class="meta-label">Recorded as</span><code>{{ milestone.id }}</code></li>
+<li><span class="meta-label">Depth</span><span class="num">{{ milestone.depth }}</span></li>
+<li><span class="meta-label">Acceptance</span>{{ milestone.acceptance.kind }}{% if recordUrl %} · <a href="{{ recordUrl }}"><code>{{ milestone.acceptance.record }}</code></a>{% elif milestone.acceptance.record %} · <code>{{ milestone.acceptance.record }}</code>{% endif %}</li>
+<li><span class="meta-label">Plan</span><a href="{{ planUrl }}"><code>{{ milestone.plan }}</code></a></li>
+<li><span class="meta-label">Issue</span>{% if milestone.issue %}<a class="num" href="https://github.com/{{ repo }}/issues/{{ milestone.issue }}">#{{ milestone.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</li>
+<li><span class="meta-label">Pull request</span>{% if milestone.pr %}<a class="num" href="https://github.com/{{ repo }}/pull/{{ milestone.pr }}">#{{ milestone.pr }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</li>
+</ul>
+
+{% if anchors | length %}
+<nav class="contents" aria-label="Contents">
+<span class="meta-label">In this plan</span>
+<ul>
+{% for heading in anchors %}
+<li class="level-{{ heading.level }}"><a href="#{{ heading.id }}">{{ heading.text }}</a></li>
+{% endfor %}
+</ul>
+</nav>
+{% endif %}
+
+<article class="doc">
+{{ record | safe }}
+</article>
+{% endblock %}

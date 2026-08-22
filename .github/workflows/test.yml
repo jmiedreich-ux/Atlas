@@ -1,0 +1,61 @@
+name: Test
+
+# Atlas's own CI. Its whole purpose is decision 32 turned back on the generator itself: prove the
+# suite and a real build pass on ubuntu-latest with Node 22 — the exact runner and runtime a
+# consuming project's workflow gets when it writes `uses: jmiedreich-ux/atlas@v1` — rather than on
+# whatever this repository happened to develop against. Earlier work on this generator passed on
+# the developer's machine and failed outright on Linux; this workflow is what would have caught it
+# before it shipped.
+
+on:
+  push:
+    # `main`, which is this repository's default branch. A branch that does not exist here would
+    # leave only `pull_request` firing, so nothing would exercise this workflow on merge — and
+    # `action.yml` would keep its zero real-runner evidence.
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Atlas
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the test suite
+        run: npm test
+
+      # Direct invocation of the generator, offline: decision 40's fixture, the same shape any
+      # consuming project's repository has, built the same way `src/build.mjs`'s own CLI is
+      # documented. `--offline` keeps this step hermetic — no dependency on `fixture/`'s invented
+      # `atlas-fixtures/lighthouse` repository actually existing on GitHub, or on the network being
+      # reachable from this runner at all — while still exercising every code path decision 32
+      # requires to fail loudly: a broken reference anywhere in the fixture would fail this step.
+      - name: Build the fixture directly
+        run: node src/build.mjs fixture .ci-fixture-out --offline --quiet
+
+      # The packaged form: this repository's own `action.yml`, referenced the same way `README.md`
+      # documents for a consuming project (`uses: <owner>/atlas@v1`), here as `uses: ./` because
+      # the ref under test is this checkout rather than a published tag. This is what decision 46
+      # actually ships, so it is what gets built here — not just the script it wraps. Deliberately
+      # left without `github-token`, so this step also proves decision 32's one tolerated
+      # exception in a real environment: `fixture/atlas.config.json`'s repo does not exist on
+      # GitHub, the issue fetch will fail or 404 against the live API, and the build must still
+      # succeed with empty issue buckets rather than fail.
+      - name: Build the fixture through the packaged action
+        uses: ./
+        with:
+          project-path: fixture
+          output-dir: .ci-action-out

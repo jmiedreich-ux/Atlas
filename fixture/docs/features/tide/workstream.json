@@ -1,0 +1,44 @@
+{
+  "codename": "Tide",
+  "what": "A three-milestone workstream invented for the fixture, shallower than Beacon so decision 20 is exercised: no workstream's numbering is imposed on another",
+  "stage": "shipping",
+  "position": "First milestone shipped, second in flight",
+  "gate": "Owner review of tide-table accuracy before M3",
+  "label": "workstream:tide",
+  "design": [{ "name": "lighthouse/Tide Overview v1", "where": "design-project" }],
+  "milestones": [
+    {
+      "id": "M1",
+      "label": "M1",
+      "depth": 1,
+      "title": "Tide-table ingestion",
+      "status": "done",
+      "plan": "m1-plan.md",
+      "issue": 301,
+      "pr": 401,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M2",
+      "label": "M2",
+      "depth": 2,
+      "title": "Buoy telemetry",
+      "status": "next",
+      "plan": "m2-plan.md",
+      "issue": 302,
+      "pr": null,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M3",
+      "label": "M3",
+      "depth": 3,
+      "title": "Harbor-master alerts",
+      "status": "unplanned",
+      "plan": "m3-plan.md",
+      "issue": null,
+      "pr": null,
+      "acceptance": { "kind": "demo-script", "record": null }
+    }
+  ]
+}

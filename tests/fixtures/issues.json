@@ -1,0 +1,51 @@
+[
+  {
+    "number": 101,
+    "title": "Signal contract: define the beacon handshake payload",
+    "state": "open",
+    "html_url": "https://github.com/atlas-fixtures/lighthouse/issues/101",
+    "labels": [
+      { "id": 1, "name": "bug", "color": "d73a4a" },
+      { "id": 2, "name": "workstream:beacon", "color": "0e8a16" }
+    ]
+  },
+  {
+    "number": 302,
+    "title": "Buoy telemetry needs a harbor-master alert hook",
+    "state": "open",
+    "html_url": "https://github.com/atlas-fixtures/lighthouse/issues/302",
+    "labels": [
+      { "id": 3, "name": "workstream:tide", "color": "1d76db" },
+      { "id": 4, "name": "workstream:harbor", "color": "5319e7" }
+    ]
+  },
+  {
+    "number": 204,
+    "title": "Lamp rotation service: switch to the new scheduler",
+    "state": "open",
+    "html_url": "https://github.com/atlas-fixtures/lighthouse/pull/204",
+    "labels": [
+      { "id": 2, "name": "workstream:beacon", "color": "0e8a16" }
+    ],
+    "pull_request": {
+      "url": "https://api.github.com/repos/atlas-fixtures/lighthouse/pulls/204",
+      "html_url": "https://github.com/atlas-fixtures/lighthouse/pull/204"
+    }
+  },
+  {
+    "number": 415,
+    "title": "Investigate flaky tide-table ingestion on retry",
+    "state": "open",
+    "html_url": "https://github.com/atlas-fixtures/lighthouse/issues/415",
+    "labels": []
+  },
+  {
+    "number": 420,
+    "title": "Triage: keeper console feels sluggish on slow connections",
+    "state": "open",
+    "html_url": "https://github.com/atlas-fixtures/lighthouse/issues/420",
+    "labels": [
+      { "id": 5, "name": "needs-triage", "color": "fbca04" }
+    ]
+  }
+]

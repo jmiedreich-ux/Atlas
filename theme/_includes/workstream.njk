@@ -1,0 +1,82 @@
+{#- Atlas — one workstream (decisions 13, 14, 15, 21).
+
+  The manifest is the authority for position, so everything on this page above the milestone table
+  is read straight out of it. The milestone table is a table of contents for the plans, not a
+  second copy of them: each row links to the milestone's own page.
+
+  Decision 21: design entries are named, never linked and never rendered. CI cannot reach the
+  design project, and anything only in the design project is by definition not approved — a link
+  would imply otherwise.
+
+  Data this layout expects:
+    workstream — one { slug, dir, manifestPath, manifest } from resolveWorkstreams
+    issues     — this workstream's open issues, i.e. fetchProjectIssues(...).byLabel for its label
+                 (an empty list is fine, and is what a build with no GitHub reach produces)
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-workstream{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Project depth</a></p>
+<h1>{{ workstream.manifest.codename }} {{ ui.chip("stage", workstream.manifest.stage) }}</h1>
+<p class="lede">{{ workstream.manifest.what }}</p>
+
+<ul class="meta-list">
+<li><span class="meta-label">Where it stands</span>{{ workstream.manifest.position }}</li>
+<li><span class="meta-label">Label</span><code>{{ workstream.manifest.label }}</code></li>
+</ul>
+
+<p class="gate-callout"><span class="meta-label">Gate</span>{{ workstream.manifest.gate }}</p>
+
+<h2>Milestones</h2>
+{% if workstream.milestones | length %}
+<div class="md-table-scroll">
+<table class="records">
+<thead>
+<tr><th scope="col">Milestone</th><th scope="col">Title</th><th scope="col">Status</th><th scope="col">Issue</th><th scope="col">Pull request</th></tr>
+</thead>
+<tbody>
+{#- The enriched milestones, not `manifest.milestones`: each carries the URL the build already
+    computed for its page, correctly encoded. A link rebuilt here from the slug would be a second
+    URL convention, and it was — the records and assets were encoded and these were not. -#}
+{% for entry in workstream.milestones %}
+<tr>
+<th scope="row" class="num"><a href="{{ entry.url }}">{{ entry.manifest.label }}</a></th>
+<td>{{ entry.manifest.title }}</td>
+<td>{{ ui.chip("status", entry.manifest.status) }}</td>
+<td class="num">{% if entry.manifest.issue %}<a href="https://github.com/{{ repo }}/issues/{{ entry.manifest.issue }}">#{{ entry.manifest.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
+<td class="num">{% if entry.manifest.pr %}<a href="https://github.com/{{ repo }}/pull/{{ entry.manifest.pr }}">#{{ entry.manifest.pr }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}
+<p class="empty">No milestones on record yet.</p>
+{% endif %}
+
+<h2>Design</h2>
+{% if workstream.manifest.design | length %}
+<ul class="named-refs">
+{% for reference in workstream.manifest.design %}
+<li>{{ reference.name }} <span class="where">{{ reference.where }} — named, not rendered: CI cannot reach it, and nothing held only there is approved</span></li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="empty">No design references on record.</p>
+{% endif %}
+
+<h2>Open issues</h2>
+{% if issues | length %}
+<ul class="issue-list">
+{% for issue in issues %}
+<li><a href="{{ issue.html_url }}"><span class="num">#{{ issue.number }}</span> {{ issue.title }}</a></li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="empty">No open issues carry this workstream's label.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,55 @@
+{
+  "codename": "Anchor",
+  "what": "A four-milestone workstream invented for the fixture, entirely done, so the depth chart's most important visual case — a column that ran deep and completed, whose head must land past its last milestone rather than on it — has a home in real fixture shape rather than only a hand-built test object",
+  "stage": "shipping",
+  "position": "All four milestones shipped",
+  "gate": "Nothing gates further work; a fifth milestone would need its own approval before it could appear here",
+  "label": "workstream:anchor",
+  "design": [{ "name": "lighthouse/Anchor Overview v1", "where": "design-project" }],
+  "milestones": [
+    {
+      "id": "M1",
+      "label": "M1",
+      "depth": 1,
+      "title": "Chain and windlass contract",
+      "status": "done",
+      "plan": "m1-plan.md",
+      "issue": 501,
+      "pr": 601,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M2",
+      "label": "M2",
+      "depth": 2,
+      "title": "Rode tension telemetry",
+      "status": "done",
+      "plan": "m2-plan.md",
+      "issue": 502,
+      "pr": 602,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M3",
+      "label": "M3",
+      "depth": 3,
+      "title": "Drag alarm",
+      "status": "done",
+      "plan": "m3-plan.md",
+      "issue": 503,
+      "pr": 603,
+      "acceptance": { "kind": "demo-script", "record": null }
+    },
+    {
+      "id": "M4",
+      "label": "M4",
+      "depth": 4,
+      "title": "Automatic release",
+      "status": "done",
+      "plan": "m4-plan.md",
+      "issue": 504,
+      "pr": 604,
+      "acceptance": { "kind": "demo-script", "record": null }
+    }
+  ]
+}

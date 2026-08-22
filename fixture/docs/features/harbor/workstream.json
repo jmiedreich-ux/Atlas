@@ -1,0 +1,10 @@
+{
+  "codename": "Harbor",
+  "what": "A pre-milestone workstream invented for the fixture, to prove a workstream can carry no milestones at all",
+  "stage": "designing",
+  "position": "Design in progress, no milestone planned yet",
+  "gate": "Owner approval of the harbor-master authority before milestone planning starts",
+  "label": "workstream:harbor",
+  "design": [{ "name": "lighthouse/Harbor Concept v1", "where": "design-project" }],
+  "milestones": []
+}

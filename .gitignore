@@ -1,3 +1,25 @@
 node_modules/
+
+# Build output. `.out/` and `.atlas-out/` are the local and default invocations; the two `.ci-*`
+# names are what this repository's own CI steps write.
 .out/
+.atlas-out/
+.ci-fixture-out/
+.ci-action-out/
+
+# A build writes its pages into `<out>.atlas-staging` and renames it into place, removing it either
+# way — so one only survives a run that was killed part-way through. The next build refuses to
+# start while it is there (see src/outdir.mjs), which makes it something to delete, never commit.
+*.atlas-staging/
+
+# Scratch the test suite writes. Deliberately beside the repository rather than in os.tmpdir():
+# where the two sit on different filesystem roots, path.relative() between them degrades to an
+# absolute path, which would make several of the relative-path assertions unfalsifiable.
+.tmp-tests/
+atlas-cwd-test-*/
+
 .superpowers/
+
+# Controller-staged reference copies of the plan and spec (not part of the generator).
+.m1-plan.md
+.atlas-decisions.md

@@ -1,0 +1,835 @@
+/* Atlas — the theme (decision 28: the product's own locked palette, Segoe UI typography,
+ * three-state dark mode).
+ *
+ * The generator holds no project content (decision 39): nothing below names a project, a
+ * workstream or a milestone. It styles the vocabulary the manifest schema closes — five milestone
+ * statuses, four workstream stages — and the three surfaces decision 22 asks for.
+ *
+ * ============================================================================================
+ * WHERE THE COLOURS COME FROM
+ * ============================================================================================
+ *
+ * Decision 28 asks for the product's own **locked palette**, so that Atlas reads as a sibling of
+ * the applications it sits beside. Until this file was rewritten it carried an invented
+ * palette that shared not one token name or value with the real thing, while colliding with it on
+ * the `--sky-` prefix — `--sky-surface` meant something different in each. A sibling that agrees
+ * with nobody about what `--sky-surface` is is not a sibling.
+ *
+ * So every `--sky-*` token below is **the locked Sky UI design-token contract**, by name, with its
+ * light value copied exactly. Atlas's own additions are `--atlas-*`, and the split is the point:
+ * the prefix now tells you which of the two files a token belongs to, and nothing means two
+ * things.
+ *
+ * Two consequences worth stating rather than leaving implicit:
+ *
+ *   * **This puts a product's design contract into a generator decision 39 says holds no project
+ *     content.** Token names and hex values are not project names — nothing here says who the
+ *     product is, and the generator still renders any project's repository — but the tension is
+ *     real, and decision 28 is what resolves it: Atlas is asked to look like a sibling, and a
+ *     sibling shares the palette or it does not.
+ *   * **The contract has rules of its own, and they are honoured here.** "Sky is a fill/focus
+ *     accent, never text on light" — so `--sky-color-primary` appears only as a fill (the
+ *     arrowhead's ring, a filled track segment) and never as a text colour; link text uses the
+ *     contract's own `--sky-action-link-text` and the arrowhead glyph uses `--sky-focus-color`.
+ *     "Always pair these with a label or icon" for the status colours — every chip carries a text
+ *     label, and every coloured chart cell carries either a milestone id or the word "Passed".
+ *
+ * **The one deliberate divergence: typography.** The contract's `--sky-font-family` leads with
+ * Inter. Atlas does not adopt it. Decision 28 names **Segoe UI**, says it needs no webfont on the
+ * machines this is read on, and the owner has confirmed that choice is deliberate and preferred.
+ * It is therefore `--atlas-font-sans` — Atlas's own token, not a redefinition of the contract's —
+ * so that nobody "corrects" it back later on the grounds that the locked file says Inter. It does;
+ * Atlas knowingly departs from it here and nowhere else.
+ *
+ * **Dark.** The contract's default `:root` is `color-scheme: light`; it carries a dark set under
+ * `:root[data-sky-theme="midnight"]`, and every token below that midnight defines takes ITS value
+ * exactly too. Seven tokens Atlas uses are absent from midnight, and only those are derived — each
+ * marked DERIVED at its definition, with what it was derived from.
+ *
+ * ============================================================================================
+ * THREE STATES, NOT TWO
+ * ============================================================================================
+ *
+ * A viewer is in one of three states, and the third is the one that gets forgotten:
+ *
+ *   1. explicit light   — the root carries data-theme="light"
+ *   2. explicit dark    — the root carries data-theme="dark"
+ *   3. system (default) — the root carries NOTHING, and prefers-color-scheme decides
+ *
+ * So the complete palette is defined on a bare `:root`, which is the only selector that applies
+ * in state 3 and in state 1. The dark palette is then written twice: once inside
+ * `@media (prefers-color-scheme: dark)`, guarded as `:root:not([data-theme="light"])` so an
+ * explicit light choice still wins over the system setting, and once as `:root[data-theme="dark"]`
+ * so an explicit dark choice wins over a light system setting. Nothing in CSS keeps those two
+ * copies in step, so a test does.
+ *
+ * A colour whose only definition sits inside one of those blocks resolves to nothing in the
+ * default state — the classic unreadable page. Every component rule below therefore takes its
+ * colour from a token, never a literal, and a test asserts both halves of that.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* --- the locked contract: palette ---------------------------------------------------------
+   * Names and light values exactly as the Sky UI token contract has them. Sky is a fill/focus
+   * accent, never text on light. */
+  --sky-color-primary: #87ceeb;
+  --sky-color-surface: #f8fafc;
+  --sky-color-surface-raised: #ffffff;
+  --sky-color-ink: #0f172a;
+  --sky-color-secondary: #e0f2fe;
+  --sky-color-border: #e2e8f0;
+  --sky-color-text-secondary: #475569;
+  --sky-color-text-muted: #64748b;
+
+  /* Reserved status colors. Always pair these with a label or icon. */
+  --sky-color-live-surface: #e0f4e9;
+  --sky-color-off-surface: #fbe7e5;
+  --sky-color-warning-surface: #fdf1dc;
+  --sky-color-promotion: #7c5cbf;
+  --sky-positive-text: #18603f;
+  --sky-danger-text: #8a2929;
+  --sky-warning-text: #7d5911;
+
+  /* Neutrals the palette does not cover: the page behind a frame, subtle fills, and the control
+   * hairline a stronger rule needs. */
+  --sky-color-shell: #e8eef4;
+  --sky-color-fill-subtle: #f4f7fa;
+  --sky-color-border-control: #cbd5e1;
+
+  /* --- the locked contract: semantic aliases ------------------------------------------------
+   * Defined as the contract defines them — as `var()` of a palette token, so a dark block that
+   * redefines the palette token moves the alias with it and never has to restate it. */
+  --sky-page-background: var(--sky-color-surface);
+  --sky-card-background: var(--sky-color-surface-raised);
+  --sky-text-primary: var(--sky-color-ink);
+  --sky-text-secondary: var(--sky-color-text-secondary);
+  --sky-text-muted: var(--sky-color-text-muted);
+  --sky-action-link-text: #1d6fb8;
+  --sky-badge-background: var(--sky-color-secondary);
+  --sky-badge-text: var(--sky-color-ink);
+  --sky-focus-color: #096f91;
+  --sky-focus-width: 2px;
+  --sky-focus-offset: 2px;
+  --sky-focus-ring: var(--sky-focus-width) solid var(--sky-focus-color);
+
+  /* Elevation. The contract defines one panel shadow; a card needs less. */
+  --sky-shadow-card: 0 1px 2px rgb(15 23 42 / 0.09), 0 10px 24px rgb(15 23 42 / 0.10);
+
+  /* --- the locked contract: spacing and shape ----------------------------------------------- */
+  --sky-space-1: 0.25rem;
+  --sky-space-2: 0.5rem;
+  --sky-space-3: 0.75rem;
+  --sky-space-4: 1rem;
+  --sky-space-5: 1.5rem;
+  --sky-space-6: 2rem;
+  --sky-space-7: 3rem;
+  --sky-radius-sm: 0.5rem;
+  --sky-radius-md: 0.75rem;
+  --sky-radius-lg: 1rem;
+  --sky-radius-pill: 999px;
+  --sky-card-radius: var(--sky-radius-lg);
+
+  /* --- Atlas's own ---------------------------------------------------------------------------
+   * Everything the contract has no name for. `--atlas-`, never `--sky-`: a token that is not in
+   * the locked file must not look as though it is.
+   *
+   * TYPOGRAPHY IS A DELIBERATE DIVERGENCE. The contract's `--sky-font-family` leads with Inter.
+   * Decision 28 names Segoe UI and says it needs no webfont on the machines this is read on, and
+   * the owner has confirmed that preference. This is Atlas's own token by design, so the
+   * divergence is visible rather than looking like a stale copy of the contract. Do not "correct"
+   * it to the contract's stack. */
+  --atlas-font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  --atlas-font-mono: "Cascadia Mono", Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Layout measures. Lengths, not colours; nothing in the contract covers them. */
+  --atlas-measure: 42rem;
+  --atlas-column-width: 11.5rem;
+  --atlas-ladder-width: 7rem;
+
+  /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
+   * surface beside it, and the `designing`/`planned` chips need one.
+   *
+   * The value is set BY the contrast requirement rather than picked and then checked: at #efeafa
+   * the contract's #7c5cbf computes 4.30:1, under AA's 4.5 for text this size, and this is the one
+   * colour in the file Atlas owns outright — so it is the one that moves. #f5f2fc computes 4.59. */
+  --atlas-tone-exploring-bg: #f5f2fc;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Guarded: without :not([data-theme="light"]) an explicit light choice would lose to the
+   * system setting. Only tokens are redefined here — never a component rule.
+   *
+   * Values are the contract's own `[data-sky-theme="midnight"]` set. The ones marked DERIVED are
+   * the tokens midnight does not define. */
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --sky-color-surface: #111827;
+    --sky-color-surface-raised: #1e293b;
+    --sky-color-ink: #f8fafc;
+    --sky-color-secondary: #17344a;
+    --sky-color-border: #475569;
+    --sky-color-text-secondary: #cbd5e1;
+    --sky-color-text-muted: #94a3b8;
+    --sky-color-live-surface: #123d2d;
+    --sky-color-off-surface: #4a2024;
+    --sky-color-warning-surface: #493518;
+    --sky-positive-text: #65d99c;
+    --sky-danger-text: #ff8a83;
+    --sky-warning-text: #f4c15d;
+    --sky-badge-text: #f8fafc;
+    --sky-focus-color: #38bdf8;
+    /* DERIVED: midnight carries the sky accent through unchanged and lightens the inks; the
+     * promotion violet is lightened onto the same ramp its light value sits on. */
+    --sky-color-promotion: #c3b6ef;
+    /* DERIVED: the page behind a frame, one step under midnight's --sky-color-surface (#111827),
+     * mirroring the gap the light set has between --sky-color-shell and --sky-color-surface. */
+    --sky-color-shell: #0d1523;
+    /* DERIVED: a subtle fill, one step over midnight's --sky-color-surface, as the light set's
+     * --sky-color-fill-subtle sits one step under its own surface. */
+    --sky-color-fill-subtle: #182234;
+    /* DERIVED: the control hairline, between midnight's --sky-color-border (#475569) and its
+     * --sky-color-text-muted (#94a3b8), as the light set's sits between its own two. */
+    --sky-color-border-control: #6b7c93;
+    /* DERIVED: midnight replaces the panel shadow's slate tint with black at a higher alpha
+     * (rgb(0 0 0 / 0.34) for rgb(15 23 42 / 0.12)); the card shadow follows the same rule. */
+    --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+    /* DERIVED: the contract's link blue is #1d6fb8, unreadable on a dark ground. Lightened into
+     * the same family midnight already uses for --sky-focus-color (#38bdf8). */
+    --sky-action-link-text: #7dd3fc;
+    /* DERIVED: Atlas's own, alongside --sky-color-promotion above. */
+    --atlas-tone-exploring-bg: #2a2247;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --sky-color-surface: #111827;
+  --sky-color-surface-raised: #1e293b;
+  --sky-color-ink: #f8fafc;
+  --sky-color-secondary: #17344a;
+  --sky-color-border: #475569;
+  --sky-color-text-secondary: #cbd5e1;
+  --sky-color-text-muted: #94a3b8;
+  --sky-color-live-surface: #123d2d;
+  --sky-color-off-surface: #4a2024;
+  --sky-color-warning-surface: #493518;
+  --sky-positive-text: #65d99c;
+  --sky-danger-text: #ff8a83;
+  --sky-warning-text: #f4c15d;
+  --sky-badge-text: #f8fafc;
+  --sky-focus-color: #38bdf8;
+  --sky-color-promotion: #c3b6ef;
+  --sky-color-shell: #0d1523;
+  --sky-color-fill-subtle: #182234;
+  --sky-color-border-control: #6b7c93;
+  --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+  --sky-action-link-text: #7dd3fc;
+  --atlas-tone-exploring-bg: #2a2247;
+}
+
+/* An explicit light choice needs no tokens — the bare :root palette is already the light one —
+ * but it does need this. Without it a viewer who chose light under a dark system setting keeps
+ * `color-scheme: light dark`, which resolves to dark, and the UA paints dark scrollbars and dark
+ * form-control chrome on a light page. */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Everything below is a component rule. From here down, no literal colour ever appears.
+ * ------------------------------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* An explicit ground: a transparent body silently borrows whatever the host paints behind it. */
+  background: var(--sky-page-background);
+  color: var(--sky-text-primary);
+  font-family: var(--atlas-font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  /* Wide content scrolls inside its own container; the page itself never scrolls sideways. */
+  overflow-x: hidden;
+}
+
+a {
+  /* The contract's own link colour. NOT --sky-color-primary: "Sky is a fill/focus accent, never
+   * text on light". */
+  color: var(--sky-action-link-text);
+}
+
+a:hover {
+  color: var(--sky-text-primary);
+}
+
+:focus-visible {
+  outline: var(--sky-focus-ring);
+  outline-offset: var(--sky-focus-offset);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--atlas-font-mono);
+  font-size: 0.9em;
+}
+
+pre {
+  background: var(--sky-color-fill-subtle);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-radius-md);
+  overflow-x: auto;
+  padding: var(--sky-space-3);
+}
+
+/* Digits that line up in a column — milestone numbers, issue numbers, depth counts. */
+.num,
+td.num,
+th.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.skip-link {
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-radius-sm);
+  left: var(--sky-space-2);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  position: absolute;
+  top: calc(-1 * var(--sky-space-7));
+}
+
+.skip-link:focus {
+  top: var(--sky-space-2);
+  z-index: 2;
+}
+
+/* --- shell ------------------------------------------------------------------------------------ */
+
+.site-head {
+  align-items: baseline;
+  background: var(--sky-card-background);
+  border-bottom: 1px solid var(--sky-color-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-4);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.site-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.site-nav {
+  display: flex;
+  gap: var(--sky-space-4);
+}
+
+.site-nav a {
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  text-decoration: underline;
+}
+
+.theme-toggle {
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-radius-sm);
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  margin-left: auto;
+  padding: var(--sky-space-1) var(--sky-space-3);
+}
+
+.site-main {
+  padding: var(--sky-space-5) var(--sky-space-4);
+}
+
+.site-foot {
+  border-top: 1px solid var(--sky-color-border);
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  margin-top: var(--sky-space-7);
+  padding: var(--sky-space-4);
+}
+
+h1 {
+  font-size: 1.55rem;
+  line-height: 1.25;
+  margin: 0 0 var(--sky-space-2);
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: var(--sky-space-6) 0 var(--sky-space-3);
+}
+
+h3 {
+  font-size: 1rem;
+  margin: var(--sky-space-5) 0 var(--sky-space-2);
+}
+
+.lede {
+  color: var(--sky-text-secondary);
+  margin: 0 0 var(--sky-space-5);
+  max-width: var(--atlas-measure);
+}
+
+/* --- chips: status is never colour alone -------------------------------------------------------
+ * Six tones carry every value in both closed vocabularies, so a milestone status and the stage or
+ * triage state that means the same thing read the same. Each is one of the contract's reserved
+ * status pairs, and the contract's rule for them — "always pair these with a label or icon" — is
+ * satisfied by the chip macro, which always emits a text label. */
+
+.chip {
+  background: var(--sky-color-shell);
+  border-radius: var(--sky-radius-pill);
+  color: var(--sky-text-secondary);
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.1rem var(--sky-space-2);
+  white-space: nowrap;
+}
+
+.chip-done {
+  background: var(--sky-color-live-surface);
+  color: var(--sky-positive-text);
+}
+
+.chip-next,
+.chip-shipping,
+.chip-moving {
+  background: var(--sky-badge-background);
+  color: var(--sky-badge-text);
+}
+
+.chip-gated,
+.chip-awaiting-decision {
+  background: var(--sky-color-warning-surface);
+  color: var(--sky-warning-text);
+}
+
+.chip-parked,
+.chip-blocked {
+  background: var(--sky-color-off-surface);
+  color: var(--sky-danger-text);
+}
+
+.chip-designing,
+.chip-planned {
+  background: var(--atlas-tone-exploring-bg);
+  color: var(--sky-color-promotion);
+}
+
+.chip-unplanned,
+.chip-not-started {
+  background: var(--sky-color-shell);
+  color: var(--sky-text-secondary);
+}
+
+/* --- surface one: the desktop depth chart ------------------------------------------------------ */
+
+/* `overflow-x: auto` alone already makes this a scroll container on BOTH axes — CSS Overflow 3
+ * computes a `visible` sibling axis to `auto` — but with no height bound the vertical scrollport
+ * can never move, and `position: sticky; top: 0` on the column headers inside it would silently
+ * do nothing. The ladder can grow without bound, because decision 20 makes it the union of every
+ * workstream's depth, so the fix is to bound the box rather than give up the sticky headers: the
+ * chart owns both scrolls, and the ladder column and the column headers both stay in view. The
+ * bound only engages when the chart is taller than the space left under the page furniture. */
+.chart-scroll {
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-radius-md);
+  max-height: calc(100vh - 12rem);
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.depth-chart {
+  background: var(--sky-card-background);
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 100%;
+  text-align: left;
+}
+
+.depth-chart caption {
+  caption-side: top;
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  padding: var(--sky-space-3) var(--sky-space-4);
+  text-align: left;
+}
+
+.depth-chart th,
+.depth-chart td {
+  border-bottom: 1px solid var(--sky-color-border);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  vertical-align: top;
+}
+
+.column-head {
+  background: var(--sky-card-background);
+  border-bottom: 2px solid var(--sky-color-border-control);
+  min-width: var(--atlas-column-width);
+  position: sticky;
+  top: 0;
+}
+
+.column-head a {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: var(--sky-space-1);
+  text-decoration: none;
+}
+
+.ladder-head,
+.ladder-cell {
+  background: var(--sky-color-shell);
+  color: var(--sky-text-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  left: 0;
+  min-width: var(--atlas-ladder-width);
+  position: sticky;
+  white-space: nowrap;
+}
+
+/* Three sticky things overlap inside that scrollport, and at `z-index: auto` they would paint in
+ * DOM order — which puts the column headers over the corner cell they are supposed to slide
+ * under. The order is stated rather than inherited: the corner is stuck on both axes and sits
+ * above everything, the column headers above the ladder column, the ladder column above the
+ * ordinary cells. Each of the three already paints on an opaque token ground, which is what stops
+ * the content underneath showing through as it passes. */
+.ladder-head {
+  top: 0;
+  z-index: 3;
+}
+
+.column-head {
+  z-index: 2;
+}
+
+.ladder-cell {
+  z-index: 1;
+}
+
+.cell {
+  min-width: var(--atlas-column-width);
+}
+
+/* Complete. The contract's positive pair, and the cell always carries a milestone id or the word
+ * "Passed" beside it — the contract's own rule for its status colours. */
+.cell-covered {
+  background: var(--sky-color-live-surface);
+  color: var(--sky-positive-text);
+}
+
+.cell-beyond {
+  background: var(--sky-color-fill-subtle);
+}
+
+/* The arrowhead's cell. The ring is --sky-color-primary because a ring is a fill; the glyph
+ * inside it is text, and takes the focus colour instead. */
+.cell-head {
+  background: var(--sky-color-secondary);
+  box-shadow: inset 0 0 0 2px var(--sky-color-primary);
+}
+
+.cell-label {
+  display: inline-block;
+  font-weight: 600;
+  margin-right: var(--sky-space-2);
+}
+
+/* On a tinted ground, not the page — so the SECONDARY ink, not the muted one. The contract's
+ * muted #64748b is built to sit on its plain surfaces, where it computes 4.55 and 4.76; on the
+ * status tints under these cells it computes 4.14 and 4.15, under AA's 4.5. Measured against the
+ * pairings that actually occur in the built markup, not against the tokens in the abstract. */
+.cell-state {
+  color: var(--sky-text-secondary);
+  font-size: 0.75rem;
+}
+
+.head-mark {
+  /* Text on a light ground, so NOT --sky-color-primary. */
+  color: var(--sky-focus-color);
+  display: block;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Also on a tinted ground — the arrowhead's own cell. See .cell-state above. */
+.head-next {
+  color: var(--sky-text-secondary);
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tip-note {
+  color: var(--sky-text-secondary);
+  font-size: 0.8rem;
+  margin: var(--sky-space-2) 0 0;
+  white-space: normal;
+}
+
+/* --- surface two: the mobile triage view -------------------------------------------------------- */
+
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sky-space-4);
+  list-style: none;
+  margin: 0;
+  max-width: 34rem;
+  padding: 0;
+}
+
+.card {
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-card-radius);
+  box-shadow: var(--sky-shadow-card);
+  padding: var(--sky-space-4);
+}
+
+.card-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+  justify-content: space-between;
+}
+
+.card-head h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.card-head a {
+  text-decoration: none;
+}
+
+.card p {
+  margin: var(--sky-space-2) 0 0;
+}
+
+.card-what {
+  color: var(--sky-text-secondary);
+  font-size: 0.9rem;
+}
+
+.card-position {
+  font-size: 0.9rem;
+}
+
+.track {
+  display: flex;
+  gap: 3px;
+  margin-top: var(--sky-space-3);
+}
+
+.track-seg {
+  background: var(--sky-color-border);
+  border-radius: 2px;
+  flex: 1 1 0;
+  height: 8px;
+}
+
+/* A fill, which is what the contract reserves Sky for. */
+.track-seg.is-filled {
+  background: var(--sky-color-primary);
+}
+
+.track-count {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+}
+
+.card-gate {
+  border-top: 1px solid var(--sky-color-border);
+  color: var(--sky-text-secondary);
+  font-size: 0.9rem;
+  margin-top: var(--sky-space-3);
+  padding-top: var(--sky-space-3);
+}
+
+/* `.meta-label` appears on the plain card AND inside the gate callout and the contents box, both
+ * of which are tinted, where the muted ink computes 4.26 and 4.43. One colour for both, and it is
+ * the one that clears AA on the tinted ground. */
+.card-gate-label,
+.meta-label {
+  color: var(--sky-text-secondary);
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* --- surface three: the document pages ---------------------------------------------------------- */
+
+.doc {
+  max-width: var(--atlas-measure);
+}
+
+.doc img {
+  max-width: 100%;
+}
+
+.doc blockquote {
+  border-left: 3px solid var(--sky-color-border-control);
+  color: var(--sky-text-secondary);
+  margin-left: 0;
+  padding-left: var(--sky-space-4);
+}
+
+.md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.md-table-scroll table,
+.records table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.md-table-scroll th,
+.md-table-scroll td,
+.records th,
+.records td {
+  border-bottom: 1px solid var(--sky-color-border);
+  padding: var(--sky-space-2) var(--sky-space-3);
+  text-align: left;
+  vertical-align: top;
+}
+
+.contents {
+  background: var(--sky-color-fill-subtle);
+  border-radius: var(--sky-radius-md);
+  font-size: 0.9rem;
+  margin-bottom: var(--sky-space-5);
+  max-width: var(--atlas-measure);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.contents ul {
+  list-style: none;
+  margin: var(--sky-space-2) 0 0;
+  padding: 0;
+}
+
+.contents li {
+  margin: var(--sky-space-1) 0;
+}
+
+.contents .level-3 {
+  padding-left: var(--sky-space-4);
+}
+
+.contents .level-4,
+.contents .level-5,
+.contents .level-6 {
+  padding-left: var(--sky-space-5);
+}
+
+.gate-callout {
+  background: var(--sky-color-warning-surface);
+  border-radius: var(--sky-radius-md);
+  color: var(--sky-warning-text);
+  margin: var(--sky-space-4) 0;
+  max-width: var(--atlas-measure);
+  padding: var(--sky-space-3) var(--sky-space-4);
+}
+
+.meta-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-5);
+  list-style: none;
+  margin: var(--sky-space-4) 0;
+  padding: 0;
+}
+
+.named-refs,
+.issue-list {
+  list-style: none;
+  margin: 0;
+  max-width: var(--atlas-measure);
+  padding: 0;
+}
+
+.named-refs li,
+.issue-list li {
+  border-bottom: 1px solid var(--sky-color-border);
+  padding: var(--sky-space-2) 0;
+}
+
+.named-refs .where {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+}
+
+/* The records index: one section per directory the repository already has. */
+.record-group {
+  margin: var(--sky-space-5) 0;
+  max-width: var(--atlas-measure);
+}
+
+.record-group h2 {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0 0 var(--sky-space-2);
+  text-transform: uppercase;
+}
+
+.record-group .where {
+  display: block;
+}
+
+.empty {
+  color: var(--sky-text-muted);
+  font-style: italic;
+}
+
+.breadcrumb {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 var(--sky-space-2);
+}
+
+/* On a narrow screen the depth chart is not the surface to reach for — decision 22 gives the
+ * phone its own view — but the document pages must still read, so they lose their outer padding
+ * rather than their width. */
+@media (max-width: 30rem) {
+  .site-main {
+    padding: var(--sky-space-4) var(--sky-space-3);
+  }
+
+  .site-head {
+    padding: var(--sky-space-3);
+  }
+}

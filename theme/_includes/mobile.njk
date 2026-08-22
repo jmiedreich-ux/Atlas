@@ -1,0 +1,66 @@
+{#- Atlas — surface two: triage on a phone (decision 27).
+
+  Not a squeezed depth chart. On a phone the question is never "how far has this got" but "why has
+  it stopped", so the cards are ordered by what needs the owner and every card ends on its gate.
+
+  The order decision 27 fixes:
+
+    1. waiting on a decision — the workstream is designed but not approved, or its next milestone
+       is gated, or nothing is left on record for it to do
+    2. moving   — a milestone is in flight
+    3. blocked  — work is parked on something outside the workstream
+    4. designing
+    5. not started
+
+  This layout classifies nothing and sorts nothing: `src/triage.mjs` decides both, and hands the
+  cards over already in order. That is deliberate. `state.json` (decision 29) is built from the
+  same function, so the machine-readable output and this page cannot disagree about what needs the
+  owner — and a mapping that lives in a template is one no table test can pin and no other surface
+  can reuse.
+
+  Data this layout expects:
+    triaged — orderByTriage(...)'s output: the workstreams already in card order, each one a
+              { slug, manifest, triage, column }, where `triage` is its state and `column` is its
+              own entry from computeLadder's columns — including `covered`, `completedCount` and
+              `milestoneCount`, which are what this page draws the track from
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-mobile{% endblock %}
+
+{% block content %}
+<h1>What needs you</h1>
+<p class="lede">Ordered by what is waiting on a decision, not by name. Every card ends on the gate that is holding it.</p>
+
+<ul class="card-list">
+{%- for stream in triaged %}
+<li>
+<article class="card" data-workstream="{{ stream.manifest.codename }}" data-triage="{{ stream.triage }}">
+<header class="card-head">
+<h2><a href="{{ stream.url }}">{{ stream.manifest.codename }}</a></h2>
+{{ ui.chip("triage", stream.triage) }}
+</header>
+<p class="card-what">{{ stream.manifest.what }}</p>
+<p class="card-position">{{ stream.manifest.position }}</p>
+{#- How much of the track is filled. Not counted here: `computeLadder` decides what "complete"
+    means for a workstream (decision 24 — the contiguous run from depth 1, so a done M2 behind an
+    un-done M1 completes nothing), and the depth chart draws its bar from the same numbers. This
+    page reads them. A second count here is exactly how these two surfaces came to state
+    contradictory facts about one workstream. -#}
+{% if stream.column.milestoneCount %}
+<div class="track" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
+{% for filled in stream.column.covered %}<span class="track-seg{% if filled %} is-filled{% endif %}"></span>{% endfor %}
+</div>
+<p class="track-count"><span class="num">{{ stream.column.completedCount }}</span> of <span class="num">{{ stream.column.milestoneCount }}</span> milestones complete</p>
+{% else %}
+<p class="track-count empty">No milestones on record yet</p>
+{% endif %}
+<p class="card-next">Next: {{ stream.column.tipLabel }}</p>
+<p class="card-gate"><span class="card-gate-label">Gate</span>{{ stream.manifest.gate }}</p>
+</article>
+</li>
+{% endfor %}
+</ul>
+{% endblock %}

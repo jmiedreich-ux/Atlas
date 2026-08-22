@@ -1,0 +1,112 @@
+{#- Atlas — the page shell every surface extends, and the shared chip macro.
+
+  The generator holds no project content (decision 39): every name on a rendered page arrives as
+  data. A layout that hard-codes one is a fork of the generator waiting to happen, and a test
+  asserts that none of them do.
+
+  Data this layout expects:
+    project  — the project's display name, from atlas.config.json
+    repo     — "owner/name", from atlas.config.json
+    title    — this page's own title
+
+  Blocks: `content` (the page), `bodyClass` (surface-specific body classes).
+
+  The stylesheet is served at /tokens.css; the build copies theme/tokens.css there.
+
+  Macro `chip(kind, value)` renders one status, stage or triage chip. It always emits a text
+  label: colour alone is not a status, both because a chip has to survive a monochrome screen and
+  colour-blind eyes, and because a label is the only part of a chip a test without a browser can
+  read. Both vocabularies here are closed by the manifest schema.
+-#}
+{%- macro chip(kind, value) -%}
+{%- set LABELS = {
+  "done": "Done",
+  "next": "Next",
+  "gated": "Gated",
+  "parked": "Parked",
+  "unplanned": "Unplanned",
+  "not-started": "Not started",
+  "designing": "Designing",
+  "planned": "Planned",
+  "shipping": "Shipping",
+  "awaiting-decision": "Waiting on you",
+  "moving": "Moving",
+  "blocked": "Blocked"
+} -%}
+<span class="chip chip-{{ value }}" data-{{ kind }}="{{ value }}">{{ LABELS[value] if LABELS[value] else value }}</span>
+{%- endmacro -%}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · {{ project }}</title>
+<link rel="stylesheet" href="/tokens.css">
+<script>
+/* Stamps an explicit theme choice before first paint. No choice stamps nothing at all, which is
+ * the default state the stylesheet's bare :root exists to serve. */
+(function () {
+  try {
+    var choice = window.localStorage.getItem('atlas-theme');
+    if (choice === 'dark' || choice === 'light') {
+      document.documentElement.setAttribute('data-theme', choice);
+    }
+  } catch (err) { /* storage unavailable: the system setting decides, which is a fine answer */ }
+})();
+</script>
+</head>
+<body class="{% block bodyClass %}page{% endblock %}">
+<a class="skip-link" href="#main">Skip to the content</a>
+<header class="site-head">
+<p class="site-title">{{ project }}</p>
+<nav class="site-nav" aria-label="Surfaces">
+<a href="/">Depth</a>
+<a href="/mobile/">Triage</a>
+<a href="/records/">Records</a>
+</nav>
+<button type="button" class="theme-toggle" data-theme-toggle>Theme: <span data-theme-label>System</span></button>
+</header>
+<main class="site-main" id="main">
+{% block content %}{% endblock %}
+</main>
+<footer class="site-foot">
+<p>Built from the repository and its issues, never hand-maintained. Where this page and a record disagree, the record is right. <a href="https://github.com/{{ repo }}">{{ repo }}</a></p>
+</footer>
+<script>
+/* Cycles system → light → dark. "System" removes the attribute rather than guessing a value, so
+ * the page falls back to prefers-color-scheme instead of freezing whichever it happened to show. */
+(function () {
+  var button = document.querySelector('[data-theme-toggle]');
+  if (!button) { return; }
+  var label = button.querySelector('[data-theme-label]');
+  var order = ['system', 'light', 'dark'];
+  var names = { system: 'System', light: 'Light', dark: 'Dark' };
+
+  function read() {
+    try {
+      var stored = window.localStorage.getItem('atlas-theme');
+      return stored === 'light' || stored === 'dark' ? stored : 'system';
+    } catch (err) { return 'system'; }
+  }
+
+  function apply(choice) {
+    if (choice === 'system') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', choice);
+    }
+    label.textContent = names[choice];
+    try {
+      if (choice === 'system') { window.localStorage.removeItem('atlas-theme'); }
+      else { window.localStorage.setItem('atlas-theme', choice); }
+    } catch (err) { /* nothing to persist to; the choice still holds for this page */ }
+  }
+
+  apply(read());
+  button.addEventListener('click', function () {
+    apply(order[(order.indexOf(read()) + 1) % order.length]);
+  });
+})();
+</script>
+</body>
+</html>

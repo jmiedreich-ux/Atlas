@@ -1,0 +1,43 @@
+{#- Atlas — the way into the records (decisions 1, 2, 3, 10, 15).
+
+  Every record the build put on the site, listed. Without this page the roadmap, the design
+  authorities and the standalone documents all live at URLs nothing links to, and a site whose
+  records cannot be reached fails Atlas's own premise invisibly — the pages exist, so nothing looks
+  broken.
+
+  **Two kinds, and the difference is stated rather than hidden.** A Markdown record is rendered by
+  Atlas, so its page is a rendering and the file remains the authority (decision 2). A standalone
+  document is copied byte-for-byte and never templated (decision 10) — it is not an Atlas page at
+  all, it is the file itself, styles and scripts and all. A reader who follows one link lands on
+  something Atlas made; a reader who follows the other lands on the document its author made. That
+  is worth a word, not a shrug.
+
+  Generated from the very lists the pages and the copies come from (decision 3), so it cannot name
+  something the build did not write, or omit something it did. Grouped by the directory each file
+  lives in, because the repository's own shape is the only grouping Atlas is entitled to invent.
+
+  Data this layout expects:
+    groups — [{ dir, entries: [{ title, path, url, kind }] }], in path order, where `kind` is
+             "rendered" or "copied"
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+
+{% block bodyClass %}page page-records{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Project depth</a></p>
+<h1>Records</h1>
+<p class="lede">Every record on this site, in the shape of the repository that holds it. Atlas is never the record: where a page and its file disagree, the file is right.</p>
+
+{% for group in groups %}
+<section class="record-group">
+<h2><code>{{ group.dir }}</code></h2>
+<ul class="named-refs">
+{% for entry in group.entries %}
+<li data-kind="{{ entry.kind }}"><a href="{{ entry.url }}">{{ entry.title }}</a> <span class="where">{{ entry.path }}{% if entry.kind == "copied" %} — a standalone document, served exactly as it is in the repository{% endif %}</span></li>
+{% endfor %}
+</ul>
+</section>
+{% endfor %}
+{% endblock %}
