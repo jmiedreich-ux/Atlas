@@ -44,6 +44,7 @@ import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
+import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
 import { orderByTriage } from './triage.mjs';
 import configureAtlasEleventy from '../.eleventy.js';
 
@@ -580,6 +581,14 @@ export async function build(projectRoot, outDir, options = {}) {
     await renderPages(pages, staging, { quiet });
 
     writeFileSync(path.join(staging, 'state.json'), serialiseState(state), 'utf8');
+
+    // Decision 7: nothing on an Atlas site is anonymous. Emitted rather than left to each project,
+    // because the failure mode this closes is a project that does NOTHING — M1 shipped no
+    // configuration at all, so a project adopting Atlas got a public site by default while the one
+    // live site was gated by a file its own workflow copied in. A project that needs a different
+    // identity provider still overwrites this after the build; a project that does nothing is
+    // now gated instead of open. See src/swa.mjs.
+    writeFileSync(path.join(staging, SWA_CONFIG_FILENAME), serialiseSwaConfig(), 'utf8');
 
     // Only now is anything already published at risk, and only for the moment between these two
     // calls. Before this line a failure costs nothing; a page that did not render cannot take the

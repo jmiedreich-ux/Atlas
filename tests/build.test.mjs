@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { build } from '../src/build.mjs';
 import { MILESTONE_STATUSES } from '../src/schema.mjs';
+import { serialiseSwaConfig } from '../src/swa.mjs';
 
 // Everything here runs against `fixture/`, the invented nautical project, and writes into
 // `.tmp-tests/` — deliberately beside the repository rather than in `os.tmpdir()`. Where the two
@@ -232,6 +233,7 @@ const EXPECTED_FILES = [
   'order.js',
   'records/index.html',
   'state.json',
+  'staticwebapp.config.json',
   'tokens.css',
   'workstream/anchor/index.html',
   'workstream/anchor/m1/index.html',
@@ -272,7 +274,13 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
   // the includes directory set to `.`, Eleventy skipped that exclusion entirely — it never
   // ignores the input directory — and discovered all six. Six extra files appear here, and the
   // count no longer matches what `planPages` produced.
-  const copied = new Set([...state.assets.map((asset) => asset.path), 'tokens.css', 'order.js', 'state.json']);
+  const copied = new Set([
+    ...state.assets.map((asset) => asset.path),
+    'tokens.css',
+    'order.js',
+    'state.json',
+    'staticwebapp.config.json',
+  ]);
   const rendered = listFiles(OUT).filter((file) => !copied.has(file));
 
   assert.equal(
@@ -962,6 +970,32 @@ test('build: two builds into one output directory — at most one may report suc
     state.workstreams.length,
     'the published site carries a mixture of both projects',
   );
+});
+
+test('build: the site is gated by default — a project that configures nothing is not public', () => {
+  // #780's top generator gap. The gate on the one live Atlas site is a file that project's own
+  // workflow copies in, so any OTHER project adopting the generator published its records to the
+  // world. Decision 7 says nothing on an Atlas site is anonymous, and this is what makes that
+  // true for a project that does nothing at all.
+  const emitted = path.join(OUT, 'staticwebapp.config.json');
+  assert.ok(existsSync(emitted), 'the build published a site with no access configuration');
+
+  const config = JSON.parse(readFileSync(emitted, 'utf8'));
+  const catchAll = config.routes.find((route) => route.route === '/*');
+  assert.ok(catchAll, 'nothing covers the whole site');
+  assert.ok(!catchAll.allowedRoles.includes('anonymous'), 'the whole site is readable anonymously');
+  assert.ok(
+    !catchAll.allowedRoles.includes('authenticated'),
+    'the site is open to anyone with an account, which decision 7 is not',
+  );
+
+  // It reaches the output byte-for-byte as the module writes it, so the module's own tests are
+  // testing the file that ships.
+  assert.equal(readFileSync(emitted, 'utf8'), serialiseSwaConfig());
+
+  // And it is not mistaken for one of the project's own records.
+  assert.ok(!state.assets.some((asset) => asset.path.endsWith('staticwebapp.config.json')));
+  assert.ok(!state.documents.some((doc) => doc.path.endsWith('staticwebapp.config.json')));
 });
 
 test("build: the theme's own files are served where the layouts link to them", () => {

@@ -233,3 +233,23 @@ its own and makes no judgement about what belongs on the site; a file that shoul
 by everyone who can reach the site should not be under `docs/`. The only exceptions Atlas makes are
 `workstream.json` manifests, which are read rather than served, and dot-files and dot-directories,
 which are skipped.
+
+Alongside the pages, every build writes three files of its own: `state.json` (above), `tokens.css`
+and `order.js` from the theme, and `staticwebapp.config.json`.
+
+## Who can read the site
+
+**Atlas emits a `staticwebapp.config.json` that gates the whole site, so a project that configures
+nothing is not public** (decision 7: nothing on an Atlas site is anonymous). Every route requires
+the `reader` role, which is granted by Azure Static Web Apps **role invitation** — deliberately not
+`authenticated`, which means "signed in to the identity provider" and would put a login page in
+front of a public site rather than controlling access to it. The `/.auth/*` endpoints are exempted
+first, or the gate would lock a reader out of the gate itself, and an unauthorised visitor is
+redirected to sign in rather than shown a bare 401.
+
+The identity provider is Microsoft (`aad`), which is what decision 7 names. **A project using a
+different provider, or a different role name, overwrites `staticwebapp.config.json` in its own
+deploy step, after the build.** Atlas emits the safe default; it does not read the choice from
+`atlas.config.json`.
+
+See `src/swa.mjs`, which is the authoritative source for the emitted file.
