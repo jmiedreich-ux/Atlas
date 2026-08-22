@@ -29,7 +29,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -39,6 +38,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig, resolveWorkstreams } from './config.mjs';
+import { assertOutputDirIsSafe, assertStagingDirIsFree, stagingDirFor } from './outdir.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
@@ -115,146 +115,6 @@ function assertRoadmapExists(projectRoot) {
       `${ROADMAP} is missing: a project Atlas builds provides ${ROADMAP} at its root (decision 40), ` +
         `and decision 16 makes its tables generated output rather than prose.`,
     );
-  }
-}
-
-// The output directory is replaced wholesale by every build, so a page whose record was deleted
-// does not live on forever. That is a destructive act on a path a caller supplied, so one rule
-// governs it:
-//
-//   **nothing the build reads may overlap what the build replaces** — in either direction.
-//
-// The rule is checked against the things the build actually reads, one by one, rather than against
-// the project and generator directories wholesale. That distinction is not pedantry; it is what
-// separates the two cases below, which a coarser rule cannot tell apart:
-//
-//   * `atlas <project> <project>/docs` — the destructive one, and the one that actually happens
-//     ("build into the docs folder"). Every record the build was about to render is deleted first,
-//     and then the build fails anyway because it just removed its own inputs.
-//   * `atlas <project> <project>/_site` — harmless, and the conventional invocation for a static
-//     site generator. It is also what a composite action does: `atlas $GITHUB_WORKSPACE
-//     $GITHUB_WORKSPACE/_site`. `_site` holds nothing the build reads, so replacing it costs
-//     nothing. A rule phrased as "the output must not be inside the project" refuses this, which
-//     would make Atlas unusable in the one shape decision 39 says it always runs in.
-//
-// **Two paths that are the same path can be spelled differently, and a lexical compare sees two
-// different strings.** A guard that only compares strings is precise about the spellings it was
-// shown and blind to every other one:
-//
-//   * **Case.** On APFS and on Windows, `<project>/DOCS` IS `<project>/docs`. A case-sensitive
-//     `startsWith` does not see it, and the whole corpus is read, rendered and then deleted with
-//     exit 0. macOS is a normal developer machine; so is Windows.
-//   * **Symlinks in an ancestor position.** `<arena>/plink -> <project>`, then
-//     `atlas <project> <arena>/plink/docs`. Lexically those share nothing. Likewise a project
-//     whose `docs/` is a symlink elsewhere, with the caller naming the target directly.
-//
-// So the comparison asks the filesystem, and only then falls back to comparing strings:
-//
-//   1. `isSameFile` compares `dev` + `ino`, against every existing ancestor of the output path.
-//      **This is the check that does the work.** `statSync` follows symlinks and the filesystem
-//      knows its own case rules, so one comparison closes both families above: on a
-//      case-insensitive volume `<project>/DOCS` has `<project>/docs`'s inode, and through a
-//      symlinked ancestor `<arena>/plink/docs` has it too. Verified by disabling this check alone
-//      and watching every one of those shapes destroy the corpus again.
-//   2. `canonicalise` resolves the deepest ancestor that exists and re-appends the segments that
-//      do not, so the lexical comparison below sees canonical spellings. This is defence in depth,
-//      and it is worth being exact about how much: with (1) in place, disabling (2) did not make
-//      any destructive input reachable, because `dev`/`ino` needs both paths to EXIST and every
-//      path the build reads exists in any project that builds at all. It earns its keep only for a
-//      read path that is missing — where the build is going to fail anyway, and the difference is
-//      which error the caller sees — and as the check that stays correct if the set of read paths
-//      ever grows to include an optional one.
-//
-// One case that looks like it needs defending and does not: when the OUTPUT path is itself a
-// symlink, `rmSync(out, { recursive: true })` unlinks the link rather than following it, so the
-// corpus survives. Confirmed by hand. Only an ancestor being a link is destructive.
-
-// The deepest existing ancestor of `target`, resolved through symlinks, with the not-yet-existing
-// segments re-appended. `realpathSync` on the whole path would throw for an output directory that
-// has not been created yet, which is the normal case.
-function canonicalise(target) {
-  const remainder = [];
-  let current = path.resolve(target);
-
-  for (;;) {
-    try {
-      return path.join(realpathSync(current), ...remainder);
-    } catch {
-      const parent = path.dirname(current);
-      // The filesystem root does not exist as far as realpath is concerned: give up and use what
-      // the caller wrote, which is still better than nothing.
-      if (parent === current) return path.resolve(target);
-      remainder.unshift(path.basename(current));
-      current = parent;
-    }
-  }
-}
-
-// Whether two paths are the same file or directory as far as the filesystem is concerned —
-// case-folding, hard links and all. A path that does not exist is nothing, and is not the same as
-// anything.
-function isSameFile(a, b) {
-  try {
-    const left = statSync(a);
-    const right = statSync(b);
-    return left.dev === right.dev && left.ino === right.ino;
-  } catch {
-    return false;
-  }
-}
-
-function assertOutputDirIsSafe(projectRoot, outDir) {
-  const contains = (parent, child) => child === parent || child.startsWith(`${parent}${path.sep}`);
-
-  const out = canonicalise(outDir);
-
-  // Every path the build reads. `atlas.config.json`, `ROADMAP.md` and `docs/` are the project's
-  // side of the convention (decision 40); the theme is the generator's own, and is named rather
-  // than the whole generator repository so that `<generator>/.out` — the ordinary local
-  // invocation, and this suite's own scratch directory — keeps working.
-  const readsFrom = [
-    [path.join(projectRoot, CONFIG_FILENAME), "the project's config"],
-    [path.join(projectRoot, ROADMAP), "the project's roadmap"],
-    [path.join(projectRoot, DOCS_DIRNAME), "the project's records"],
-    [THEME_DIR, "Atlas's own theme"],
-  ];
-
-  const refuse = (reason) => {
-    throw new Error(`refusing to build into ${path.resolve(outDir)}: ${reason}`);
-  };
-
-  for (const [rawSource, name] of readsFrom) {
-    const source = canonicalise(rawSource);
-
-    // The filesystem's own answer, which is the only one that survives a case-insensitive volume.
-    // Checked against every existing ancestor of the output path, not just the path itself:
-    // `<project>/DOCS/site` is as destructive as `<project>/DOCS`.
-    for (let probe = out; ; probe = path.dirname(probe)) {
-      if (isSameFile(probe, source)) {
-        refuse(
-          probe === out
-            ? `that is ${name} (${rawSource}), and the build replaces its output directory`
-            : `it is inside ${name} (${rawSource}), and the build replaces its output directory — ` +
-              `every file under it would be deleted before it could be read`,
-        );
-      }
-      if (path.dirname(probe) === probe) break;
-    }
-
-    if (out === source) {
-      refuse(`that is ${name} (${rawSource}), and the build replaces its output directory`);
-    }
-    // `atlas <project> /`, or `atlas <project> <project>` — the output would take the input with it.
-    if (contains(out, source)) {
-      refuse(`it contains ${name} (${rawSource}), and the build replaces its output directory`);
-    }
-    // `atlas <project> <project>/docs` — the records are deleted before they can be read.
-    if (contains(source, out)) {
-      refuse(
-        `it is inside ${name} (${rawSource}), and the build replaces its output directory — ` +
-          `every file under it would be deleted before it could be read`,
-      );
-    }
   }
 }
 
@@ -598,7 +458,10 @@ export async function build(projectRoot, outDir, options = {}) {
 
   const root = path.resolve(projectRoot);
   const out = path.resolve(outDir);
-  assertOutputDirIsSafe(root, out);
+  // Both destructive paths, before anything is read: the output directory and the staging
+  // directory beside it. See src/outdir.mjs — this is the only call site.
+  assertOutputDirIsSafe(root, out, GENERATOR_ROOT);
+  assertStagingDirIsFree(out, existsSync);
 
   // Everything the project can get wrong, fails here — before a single byte is written anywhere.
   const site = await assembleSite(root, { fetchImpl, token, offline });
@@ -606,9 +469,9 @@ export async function build(projectRoot, outDir, options = {}) {
   const state = buildState(site);
 
   // A sibling of the output directory, so the swap below is a rename within one filesystem rather
-  // than a copy across two.
-  const staging = `${out}.atlas-staging`;
-  rmSync(staging, { recursive: true, force: true });
+  // than a copy across two. Named by src/outdir.mjs, which is also what checked it above: a second
+  // path the build removes is a second path the guard has to have seen.
+  const staging = stagingDirFor(out);
   mkdirSync(staging, { recursive: true });
 
   try {
