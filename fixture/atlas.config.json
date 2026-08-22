@@ -1,5 +1,5 @@
 {
   "project": "Lighthouse Fixture",
   "repo": "atlas-fixtures/lighthouse",
-  "workstreams": ["beacon", "tide", "harbor"]
+  "workstreams": ["beacon", "tide", "harbor", "anchor"]
 }

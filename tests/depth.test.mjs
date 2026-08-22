@@ -94,8 +94,7 @@ test('computeLadder: the ladder is the union of every workstream depth, not the 
   // Shallow's column must not force the ladder to invent Shallow-specific labels for rows 4-6,
   // and Shallow's own column data must never reach past its own depth of 3.
   const shallowCol = columns.find((c) => c.codename === 'Shallow');
-  const shallowHeadDepth = Number(shallowCol.headAt.replace('depth-', ''));
-  assert.ok(shallowHeadDepth <= 4, 'Shallow has no business pointing past its own next milestone');
+  assert.equal(shallowCol.headAt, 'depth-1', 'Shallow has no business pointing past its own next milestone');
 });
 
 // --- decision 23: three pre-milestone stages sit above the first milestone ------------------
@@ -148,9 +147,12 @@ test('computeLadder: a workstream whose last milestone is done puts the head bey
   assert.ok(rowById(rows, col.headAt), 'the ladder must grow a row for the head to land on');
 
   // decision 20 at the level of a single string: the tip names Finisher's own next id, not the
-  // ladder row's generic number.
+  // ladder row's generic number. Pin the actual format, not just "differs from the row label" —
+  // 'TBD', 'Milestone 3', 'm3', or a genuine off-by-one bug like `M${depth - 1}` would all pass
+  // a bare inequality silently.
   const landedRow = rowById(rows, col.headAt);
   assert.notEqual(col.tipLabel, landedRow.label);
+  assert.equal(col.tipLabel, 'M3');
 });
 
 test('computeLadder: a workstream whose final milestone is NOT done keeps the head on the very next milestone (control)', () => {
@@ -249,12 +251,12 @@ test('computeLadder: tipLabel is the column\'s own milestone id, never the ladde
 
 // --- full fixture integration ------------------------------------------------------------------
 
-test('computeLadder: the fixture project (6 / 3 / 0 depths) produces the expected columns', () => {
+test('computeLadder: the fixture project (6 / 3 / 0 / 4-done depths) produces the expected columns', () => {
   const config = loadConfig(FIXTURE_ROOT);
   const workstreams = resolveWorkstreams(config);
   const { rows, columns } = computeLadder(workstreams);
 
-  assert.deepEqual(columns.map((c) => c.codename), ['Beacon', 'Tide', 'Harbor']);
+  assert.deepEqual(columns.map((c) => c.codename), ['Beacon', 'Tide', 'Harbor', 'Anchor']);
 
   const milestoneRows = rows.filter((r) => r.kind === 'milestone');
   assert.equal(milestoneRows.length, 6, 'the ladder must be as deep as Beacon, the deepest workstream');
@@ -277,4 +279,22 @@ test('computeLadder: the fixture project (6 / 3 / 0 depths) produces the expecte
   for (const col of columns) {
     assert.ok(typeof col.note === 'string' && col.note.length > 0, `${col.codename} must carry a note`);
   }
+});
+
+test('computeLadder: Anchor, the fixture\'s one fully-done workstream, puts the head past its last milestone', () => {
+  const config = loadConfig(FIXTURE_ROOT);
+  const workstreams = resolveWorkstreams(config);
+  const { rows, columns } = computeLadder(workstreams);
+
+  const anchor = columns.find((c) => c.codename === 'Anchor');
+  // Anchor's manifest runs M1-M4, all `done` — the bar must reach depth-4, its own last
+  // milestone, and the head must sit strictly past it rather than on it.
+  assert.equal(anchor.barTo, 'depth-4');
+  assert.notEqual(anchor.headAt, anchor.barTo);
+  assert.equal(anchor.headAt, 'depth-5');
+  assert.ok(rowById(rows, anchor.headAt), 'the ladder must have a real row for the head to land on');
+  // No milestone is recorded at depth 5 for Anchor — the tip falls back to the M<n> convention,
+  // never the shared row's bare number.
+  assert.equal(anchor.tipLabel, 'M5');
+  assert.notEqual(anchor.tipLabel, rowById(rows, anchor.headAt).label);
 });

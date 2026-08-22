@@ -12,3 +12,7 @@ imposed on another (decision 20).
 
 **3 · Harbor has no milestones yet.** It stays in `designing` until the harbor-master authority is
 approved.
+
+**4 · Anchor ships in four milestones, all of them done.** The fixture's one fully-completed
+workstream, so the depth chart's head-past-the-last-milestone case has real fixture shape, not
+just a hand-built test object.

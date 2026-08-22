@@ -42,7 +42,7 @@ test('loadConfig: reads the fixture project and normalises absolute paths', () =
   const config = loadConfig(FIXTURE_ROOT);
   assert.equal(config.project, 'Lighthouse Fixture');
   assert.equal(config.repo, 'atlas-fixtures/lighthouse');
-  assert.deepEqual(config.workstreams, ['beacon', 'tide', 'harbor']);
+  assert.deepEqual(config.workstreams, ['beacon', 'tide', 'harbor', 'anchor']);
   assert.ok(path.isAbsolute(config.projectRoot));
   assert.ok(path.isAbsolute(config.workstreamsRoot));
   assert.ok(path.isAbsolute(config.configPath));
@@ -129,21 +129,23 @@ test("resolveWorkstreams: loads the fixture's workstreams in declaration order",
   const workstreams = resolveWorkstreams(config);
   assert.deepEqual(
     workstreams.map((w) => w.slug),
-    ['beacon', 'tide', 'harbor'],
+    ['beacon', 'tide', 'harbor', 'anchor'],
   );
   assert.deepEqual(
     workstreams.map((w) => w.manifest.codename),
-    ['Beacon', 'Tide', 'Harbor'],
+    ['Beacon', 'Tide', 'Harbor', 'Anchor'],
   );
 });
 
-test('resolveWorkstreams: the fixture exercises workstreams of different milestone depths, including one with none', () => {
+test('resolveWorkstreams: the fixture exercises workstreams of different milestone depths, including one with none and one fully done', () => {
   const config = loadConfig(FIXTURE_ROOT);
   const workstreams = resolveWorkstreams(config);
   const bySlug = Object.fromEntries(workstreams.map((w) => [w.slug, w]));
   assert.equal(bySlug.beacon.manifest.milestones.length, 6);
   assert.equal(bySlug.tide.manifest.milestones.length, 3);
   assert.equal(bySlug.harbor.manifest.milestones.length, 0);
+  assert.equal(bySlug.anchor.manifest.milestones.length, 4);
+  assert.ok(bySlug.anchor.manifest.milestones.every((m) => m.status === 'done'));
 });
 
 test('resolveWorkstreams: a workstream directory that does not exist fails with that path named', () => {
