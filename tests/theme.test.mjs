@@ -16,6 +16,7 @@ import nunjucks from 'nunjucks';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
 import { computeChart } from '../src/chart.mjs';
+import { formatDay } from '../src/dates.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
@@ -1129,15 +1130,21 @@ test('planning: the stored dates reach the page beside the milestone they belong
   const tide = laneMarkup(depthHtml, 'tide');
   assert.match(tide, /in progress/, 'the milestone in flight does not say so');
 
-  // Nothing on the page is derived from today: the only years on it are the ones on record.
-  const thisYear = String(new Date().getFullYear());
-  const manifestYears = new Set(
+  // Every date on the page is one on record. Checked as a set rather than against today's year,
+  // which the fixture's own dates may share — a guard skipped whenever the fixture is current is
+  // a guard that cannot fail in the year anyone runs it.
+  const recorded = new Set(
     workstreams.flatMap((w) =>
-      w.manifest.milestones.flatMap((m) => [m.started, m.completed].filter(Boolean).map((d) => d.slice(0, 4))),
+      w.manifest.milestones.flatMap((m) => [m.started, m.completed].filter(Boolean)),
     ),
   );
-  if (!manifestYears.has(thisYear)) {
-    assert.ok(!depthHtml.includes(thisYear), 'a figure derived from today reached the page');
+  const rendered = [...depthHtml.matchAll(/>(\d{1,2} [A-Z][a-z]{2} \d{4})/g)].map((m) => m[1]);
+  assert.ok(rendered.length > 0, 'no dates reached the page at all');
+  for (const day of rendered) {
+    assert.ok(
+      [...recorded].some((iso) => formatDay(iso) === day),
+      `the page shows "${day}", which is on no record — something was derived rather than read`,
+    );
   }
 });
 

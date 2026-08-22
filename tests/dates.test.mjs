@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { daysBetween, formatDay, formatDuration, isCalendarDate } from '../src/dates.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Every date below is invented for this test file. The generator holds no project content of its
 // own (decision 40), and dates are content.
@@ -58,4 +63,28 @@ test('dates: a duration reads as English, and a same-day one does not read as ze
   assert.equal(formatDuration(1), '1 day');
   assert.equal(formatDuration(2), '2 days');
   assert.equal(formatDuration(13), '13 days');
+});
+
+test('dates: nothing between a manifest and a page ever reads the clock', () => {
+  // The property the byte-identical guarantee rests on, asserted where it can actually be broken.
+  // Comparing two builds run seconds apart cannot catch a value derived from today — both runs
+  // agree — and comparing against this year's digits is a guard that skips itself whenever the
+  // records happen to be current. So: the source is read, and the two ways to ask what time it is
+  // are not in it.
+  //
+  // `new Date(someNumber)` is fine and is used: it is arithmetic on a stored day. `new Date()`
+  // with no argument, and `Date.now()`, are the clock.
+  const sources = ['chart.mjs', 'dates.mjs', 'depth.mjs', 'state.mjs', 'build.mjs', 'swa.mjs'];
+  for (const name of sources) {
+    const text = readFileSync(path.resolve(__dirname, '..', 'src', name), 'utf8');
+    assert.ok(!/\bDate\.now\s*\(/.test(text), `src/${name} reads the clock with Date.now()`);
+    assert.ok(!/\bnew Date\s*\(\s*\)/.test(text), `src/${name} reads the clock with new Date()`);
+    assert.ok(!/toISOString|toLocaleDateString|Intl\.DateTimeFormat/.test(text),
+      `src/${name} formats a date through the host's own locale or timezone`);
+  }
+
+  for (const name of readdirSync(path.resolve(__dirname, '..', 'theme', '_includes'))) {
+    const text = readFileSync(path.resolve(__dirname, '..', 'theme', '_includes', name), 'utf8');
+    assert.ok(!/\bDate\b/.test(text), `theme/_includes/${name} reaches for a date of its own`);
+  }
 });
