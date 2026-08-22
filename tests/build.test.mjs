@@ -122,8 +122,8 @@ function manifestOf(slug) {
 
 // --- what the build produced --------------------------------------------------------------------
 
-test('build: a page for the depth chart and a page for the phone view', () => {
-  assert.ok(existsSync(path.join(OUT, 'index.html')), 'no depth chart at /');
+test('build: a page for the feature planning chart and a page for the phone view', () => {
+  assert.ok(existsSync(path.join(OUT, 'index.html')), 'no feature planning chart at /');
   assert.ok(existsSync(path.join(OUT, 'mobile', 'index.html')), 'no phone view at /mobile/');
 
   assert.match(read('index.html'), /class="depth-chart"/);
@@ -131,6 +131,38 @@ test('build: a page for the depth chart and a page for the phone view', () => {
 
   // Both surfaces render the project's own name, from atlas.config.json and nowhere else.
   assert.match(read('index.html'), /Lighthouse Fixture/);
+});
+
+// The M1 name described the mechanism — a ladder of depths — rather than what the page is for.
+// The rename is only done when a reader cannot meet the old word anywhere: not in the title bar,
+// not in the navigation, not in a breadcrumb back to it, and not in the machine-readable index an
+// agent orients from.
+test('build: the first surface is named "Feature planning" everywhere a reader meets it', () => {
+  const home = read('index.html');
+  assert.match(home, /<title>Feature planning · Lighthouse Fixture<\/title>/, 'the title bar still says something else');
+  assert.match(home, /<h1>Feature planning<\/h1>/, 'the page heading still says something else');
+
+  // Every page's navigation, and every breadcrumb that leads back to this one.
+  const linkingPages = [
+    'index.html',
+    'mobile/index.html',
+    'records/index.html',
+    'workstream/beacon/index.html',
+    'workstream/beacon/m1/index.html',
+    'ROADMAP/index.html',
+  ];
+  for (const page of linkingPages) {
+    const html = read(page);
+    assert.match(html, /href="\/">Feature planning</, `${page} does not call the home surface Feature planning`);
+    assert.ok(!/>Project depth</.test(html), `${page} still carries the old name`);
+    assert.ok(!/>Depth</.test(html), `${page} still carries the old nav label`);
+  }
+
+  const surface = state.surfaces.find((entry) => entry.url === '/');
+  assert.ok(surface, 'state.json lists no surface at /');
+  assert.equal(surface.title, 'Feature planning');
+  // The id is a machine key in a v1 contract, and v1 is not being bumped: only the wording moves.
+  assert.equal(surface.id, 'depth');
 });
 
 test('build: a page per workstream, and a page per milestone', () => {

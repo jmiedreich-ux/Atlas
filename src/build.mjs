@@ -391,7 +391,7 @@ function planPages(site) {
   pages.push({
     name: 'depth',
     extend: 'depth.njk',
-    data: { ...shell, permalink: '/index.html', title: 'Project depth', workstreams: site.workstreams, ladder: site.ladder },
+    data: { ...shell, permalink: '/index.html', title: 'Feature planning', workstreams: site.workstreams, ladder: site.ladder },
   });
 
   pages.push({

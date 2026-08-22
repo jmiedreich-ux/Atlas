@@ -65,7 +65,7 @@ export function buildState(site) {
     // Decision 22: three purpose-built surfaces. Two of them are whole-project views; the third,
     // a record, is one page per document and is listed under `documents`.
     surfaces: [
-      { id: 'depth', title: 'Project depth', url: '/' },
+      { id: 'depth', title: 'Feature planning', url: '/' },
       { id: 'triage', title: 'What needs you', url: '/mobile/' },
     ],
 

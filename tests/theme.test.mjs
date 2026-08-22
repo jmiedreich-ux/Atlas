@@ -131,7 +131,7 @@ function assemble(entries) {
 function renderDepth(entries) {
   return env.render('depth.njk', {
     ...site,
-    title: 'Project depth',
+    title: 'Feature planning',
     workstreams: assemble(entries),
     ladder: computeLadder(entries),
   });

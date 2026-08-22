@@ -25,7 +25,7 @@
 {% block bodyClass %}page page-milestone{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/">Project depth</a> · <a href="{{ workstream.url }}">{{ workstream.manifest.codename }}</a></p>
+<p class="breadcrumb"><a href="/">Feature planning</a> · <a href="{{ workstream.url }}">{{ workstream.manifest.codename }}</a></p>
 {#- Decision 19: headings spell "Milestone 6.3" and the bare id is kept for chips and cells. The
     leading M comes off only when a number follows it, so a label that does not follow decision
     18's M<n> convention is printed whole rather than cut into. -#}
@@ -33,7 +33,7 @@
 
 <ul class="meta-list">
 <li><span class="meta-label">Recorded as</span><code>{{ milestone.id }}</code></li>
-<li><span class="meta-label">Depth</span><span class="num">{{ milestone.depth }}</span></li>
+<li><span class="meta-label">Ladder position</span><span class="num">{{ milestone.depth }}</span></li>
 <li><span class="meta-label">Acceptance</span>{{ milestone.acceptance.kind }}{% if recordUrl %} · <a href="{{ recordUrl }}"><code>{{ milestone.acceptance.record }}</code></a>{% elif milestone.acceptance.record %} · <code>{{ milestone.acceptance.record }}</code>{% endif %}</li>
 <li><span class="meta-label">Plan</span><a href="{{ planUrl }}"><code>{{ milestone.plan }}</code></a></li>
 <li><span class="meta-label">Issue</span>{% if milestone.issue %}<a class="num" href="https://github.com/{{ repo }}/issues/{{ milestone.issue }}">#{{ milestone.issue }}</a>{% else %}<span class="empty">None yet</span>{% endif %}</li>
