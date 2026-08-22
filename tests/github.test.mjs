@@ -212,3 +212,67 @@ test('fetchProjectIssues: a successful response that fails to parse as JSON degr
     assert.ok(warnCalls.length >= 1, 'expected a warning to be logged');
   });
 });
+
+// --- decision 32: a short answer says it may be short ---------------------
+
+// The page size the module asks GitHub for, derived from what the module actually requests rather
+// than restated here — a constant compared to itself is a test that cannot fail.
+async function requestedPageSize() {
+  const fetchImpl = fetchImplReturning([]);
+  await fetchProjectIssues({ repo: REPO, fetchImpl });
+  const size = new URL(fetchImpl.calls[0].url).searchParams.get('per_page');
+  assert.ok(size, 'the request does not ask for a page size at all');
+  return Number(size);
+}
+
+test('fetchProjectIssues: a full page warns that the backlog may be longer', async () => {
+  // One request, no Link header, no pagination — a deliberate design, because the alternative is
+  // an unbounded number of requests against a rate limit on a six-hourly schedule. What is not
+  // acceptable is answering short and saying nothing: decision 32 exists to forbid exactly that.
+  const size = await requestedPageSize();
+  const full = Array.from({ length: size }, (_, i) => ({
+    number: i + 1,
+    title: `Invented issue ${i + 1}`,
+    html_url: `https://example.invalid/${i + 1}`,
+    labels: [{ name: 'workstream:beacon' }],
+  }));
+
+  await withSilencedWarn(async (warnings) => {
+    const result = await fetchProjectIssues({ repo: REPO, fetchImpl: fetchImplReturning(full) });
+
+    assert.equal(result.byLabel.get('workstream:beacon').length, size, 'the buckets are still real');
+    assert.equal(warnings.length, 1, `expected one warning, saw ${warnings.length}`);
+    const message = warnings[0].join(' ');
+    assert.match(message, /^atlas: /, 'every warning this generator prints is prefixed');
+    assert.ok(message.includes(REPO), 'the warning must name the repository it is about');
+    assert.ok(
+      /may be|truncat|short/i.test(message),
+      `the warning must say the answer may be incomplete: ${message}`,
+    );
+    // Not the empty-buckets warning: nothing failed here.
+    assert.ok(!/empty issue buckets/.test(message), message);
+  });
+});
+
+test('fetchProjectIssues: one item short of a full page says nothing', async () => {
+  const size = await requestedPageSize();
+  const nearly = Array.from({ length: size - 1 }, (_, i) => ({
+    number: i + 1,
+    title: `Invented issue ${i + 1}`,
+    html_url: `https://example.invalid/${i + 1}`,
+    labels: [],
+  }));
+
+  await withSilencedWarn(async (warnings) => {
+    const result = await fetchProjectIssues({ repo: REPO, fetchImpl: fetchImplReturning(nearly) });
+    assert.equal(result.unlabelled.length, size - 1);
+    assert.deepEqual(warnings, [], 'a complete answer must not cry wolf');
+  });
+});
+
+test('fetchProjectIssues: the page it asks for is large enough to be worth having', async () => {
+  // The ceiling is lower than it looks: /issues returns issues AND pull requests interleaved, so
+  // this is a combined figure. A page size quietly reduced would make every backlog on the site
+  // short, and before this test nothing noticed.
+  assert.equal(await requestedPageSize(), 100, 'GitHub\'s maximum page size for this endpoint');
+});

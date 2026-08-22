@@ -270,6 +270,326 @@ test('build: the same project builds identically from a foreign working director
   );
 });
 
+test('build: --quiet means quiet, Eleventy\'s own progress included', async () => {
+  // `quietMode` is not enough on its own: Eleventy logs its completion line with `force: true`,
+  // which is documented to bypass verbose mode, so `--quiet` still printed `[11ty] Wrote N files`.
+  // CI passes `--quiet` expecting silence, and the flag is documented as suppressing exactly this.
+  const { spawnSync } = await import('node:child_process');
+
+  function run(flags) {
+    const out = path.join(TMP_ROOT, `quiet-${flags.join('')}`.replace(/[^a-z0-9-]/gi, ''));
+    rmSync(out, { recursive: true, force: true });
+    const result = spawnSync(
+      process.execPath,
+      [path.join(REPO_ROOT, 'src', 'build.mjs'), FIXTURE_ROOT, out, '--offline', ...flags],
+      { encoding: 'utf8', cwd: REPO_ROOT },
+    );
+    assert.equal(result.status, 0, `the build failed: ${result.stderr}`);
+    return result;
+  }
+
+  const quiet = run(['--quiet']);
+  const lines = quiet.stdout.split('\n').filter((line) => line.trim() !== '');
+
+  assert.deepEqual(
+    lines.filter((line) => line.includes('[11ty]')),
+    [],
+    `--quiet must suppress Eleventy's own output, saw: ${lines.join(' | ')}`,
+  );
+  assert.equal(lines.length, 1, `--quiet leaves exactly Atlas's own summary, saw: ${lines.join(' | ')}`);
+  assert.match(lines[0], /^atlas: built \d+ pages/);
+  assert.equal(quiet.stderr.trim(), '', `--quiet must print nothing to stderr either: ${quiet.stderr}`);
+
+  // And the flag is doing something: without it, Eleventy is heard from. A test that only asserted
+  // silence would also pass if the build had stopped writing anything at all.
+  const loud = run([]);
+  assert.ok(
+    loud.stdout.includes('[11ty]'),
+    'without --quiet Eleventy should still report, or this test proves nothing',
+  );
+});
+
+test('build: every failure names a repository-relative path, and never an absolute one', async () => {
+  // Three conventions used to coexist: `src/build.mjs` named paths repository-relative,
+  // `src/config.mjs` named them absolutely, and `assertRoadmapExists` and the ladder check named
+  // no path at all — so "point Atlas at the wrong directory" answered `ROADMAP.md is missing` with
+  // no clue which directory was searched. One convention now, and this is what keeps it: every
+  // way a project can break the build, run for real, with both halves asserted — the relative path
+  // IS there, and the machine's own path is NOT.
+  //
+  // Anything absolute would also be noise on a runner (`/home/runner/work/repo/repo/...`) and
+  // would contradict this module's own rule about machine paths reaching the reader.
+  const cases = [
+    {
+      what: 'no atlas.config.json at all',
+      names: 'atlas.config.json',
+      make: (root) => {
+        mkdirSync(root, { recursive: true });
+      },
+    },
+    {
+      what: 'an atlas.config.json that is not JSON',
+      names: 'atlas.config.json',
+      make: (root) => {
+        mkdirSync(root, { recursive: true });
+        writeFileSync(path.join(root, 'atlas.config.json'), '{ not json');
+      },
+    },
+    {
+      what: 'an atlas.config.json that fails the schema',
+      names: 'atlas.config.json',
+      make: (root) => {
+        mkdirSync(root, { recursive: true });
+        writeFileSync(path.join(root, 'atlas.config.json'), JSON.stringify({ project: 'P' }));
+      },
+    },
+    {
+      what: 'no ROADMAP.md',
+      names: 'ROADMAP.md',
+      make: (root) => {
+        mkdirSync(root, { recursive: true });
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: [] }),
+        );
+      },
+    },
+    {
+      what: 'a ROADMAP.md that is a directory',
+      names: 'ROADMAP.md',
+      make: (root) => {
+        mkdirSync(path.join(root, 'ROADMAP.md'), { recursive: true });
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: [] }),
+        );
+      },
+    },
+    {
+      what: 'a workstream directory that is not there',
+      names: 'docs/features/ghost',
+      make: (root) => {
+        mkdirSync(root, { recursive: true });
+        writeFileSync(path.join(root, 'ROADMAP.md'), '# R\n');
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: ['ghost'] }),
+        );
+      },
+    },
+    {
+      what: 'a manifest that is not JSON',
+      names: 'docs/features/nova/workstream.json',
+      make: (root) => {
+        mkdirSync(path.join(root, 'docs', 'features', 'nova'), { recursive: true });
+        writeFileSync(path.join(root, 'ROADMAP.md'), '# R\n');
+        writeFileSync(path.join(root, 'docs', 'features', 'nova', 'workstream.json'), '{ nope');
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: ['nova'] }),
+        );
+      },
+    },
+    {
+      what: 'a manifest naming a plan file that does not exist',
+      names: 'docs/features/nova/workstream.json',
+      make: (root) => {
+        mkdirSync(path.join(root, 'docs', 'features', 'nova'), { recursive: true });
+        writeFileSync(path.join(root, 'ROADMAP.md'), '# R\n');
+        writeFileSync(
+          path.join(root, 'docs', 'features', 'nova', 'workstream.json'),
+          JSON.stringify({
+            codename: 'Nova',
+            what: 'Invented for this test',
+            stage: 'shipping',
+            position: 'Invented for this test',
+            gate: 'Nothing but this test',
+            label: 'workstream:nova',
+            design: [{ name: 'nova/Overview v1', where: 'design-project' }],
+            milestones: [
+              {
+                id: 'M1',
+                label: 'M1',
+                depth: 1,
+                title: 'Invented',
+                status: 'next',
+                plan: 'missing-plan.md',
+                issue: null,
+                pr: null,
+                acceptance: { kind: 'demo-script', record: null },
+              },
+            ],
+          }),
+        );
+        writeFileSync(
+          path.join(root, 'atlas.config.json'),
+          JSON.stringify({ project: 'P', repo: 'o/n', workstreams: ['nova'] }),
+        );
+      },
+    },
+  ];
+
+  let index = 0;
+  for (const scenario of cases) {
+    index += 1;
+    const root = path.join(TMP_ROOT, `messages-${index}`);
+    const out = path.join(TMP_ROOT, `messages-${index}-out`);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(out, { recursive: true, force: true });
+    scenario.make(root);
+
+    const error = await build(root, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true })
+      .then(() => null)
+      .catch((err) => err);
+
+    assert.ok(error, `${scenario.what}: the build did not fail at all`);
+    assert.ok(
+      error.message.includes(scenario.names),
+      `${scenario.what}: the failure does not name "${scenario.names}" — ${error.message}`,
+    );
+    assert.ok(
+      !error.message.includes(path.resolve(root)),
+      `${scenario.what}: the failure names an absolute path from this machine — ${error.message}`,
+    );
+    assert.ok(
+      !/[A-Za-z]:\\|^\/(home|Users|tmp|var)\//.test(error.message),
+      `${scenario.what}: the failure carries a machine path — ${error.message}`,
+    );
+  }
+});
+
+test('build: the CLI prefixes everything it says with atlas:', async () => {
+  // Three console.error calls in `main`, and one of them used to go out bare. A caller filtering
+  // a workflow log on the generator's name would have missed it.
+  const { spawnSync } = await import('node:child_process');
+
+  for (const argv of [[], ['--offlien', FIXTURE_ROOT], [path.join(TMP_ROOT, 'no-such-project')]]) {
+    const result = spawnSync(process.execPath, [path.join(REPO_ROOT, 'src', 'build.mjs'), ...argv], {
+      encoding: 'utf8',
+      cwd: REPO_ROOT,
+    });
+    assert.notEqual(result.status, 0, `expected a non-zero exit for: ${argv.join(' ')}`);
+
+    const said = result.stderr.split('\n').filter((line) => line.trim() !== '');
+    assert.ok(said.length > 0, `nothing was said at all for: ${argv.join(' ')}`);
+    for (const line of said) {
+      assert.match(line, /^atlas: /, `an unprefixed line for "${argv.join(' ')}": ${line}`);
+    }
+  }
+});
+
+// --- the README, checked against the code it describes ---------------------------------------------
+
+// The README said `design` entries render "as plain links" while the layout, `src/state.mjs` and a
+// test all said the opposite, and it documented no way to run anything — no `npm test`, no CLI,
+// and no mention of `state.json`, the whole agent-facing contract of decision 29. Prose drifts
+// silently; this is what stops it.
+
+const README = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+
+test('README: it documents exactly the flags the command line accepts', async () => {
+  // The list comes from the CLI's own refusal message, so it cannot drift from `KNOWN_FLAGS`.
+  const { spawnSync } = await import('node:child_process');
+  const refused = spawnSync(
+    process.execPath,
+    [path.join(REPO_ROOT, 'src', 'build.mjs'), FIXTURE_ROOT, path.join(TMP_ROOT, 'flags'), '--nope'],
+    { encoding: 'utf8', cwd: REPO_ROOT },
+  );
+  const accepted = [...refused.stderr.matchAll(/--[a-z][a-z-]*/g)]
+    .map((m) => m[0])
+    .filter((flag) => flag !== '--nope');
+  assert.ok(accepted.length > 0, `could not read the accepted flags back: ${refused.stderr}`);
+
+  for (const flag of new Set(accepted)) {
+    assert.ok(README.includes(`\`${flag}\``), `the README does not document ${flag}`);
+  }
+
+  const documented = [...README.matchAll(/`(--[a-z][a-z-]*)`/g)].map((m) => m[1]);
+  for (const flag of new Set(documented)) {
+    assert.ok(
+      accepted.includes(flag),
+      `the README documents ${flag}, which the command line does not accept`,
+    );
+  }
+});
+
+test('README: it documents how to run the suite and the generator at all', () => {
+  assert.match(README, /npm test/, 'the README never says how to run the tests');
+  assert.match(
+    README,
+    /node src\/build\.mjs <project-root>/,
+    'the README never gives the CLI that CI itself invokes',
+  );
+});
+
+test('README: what it says about a design entry is what the code does (decision 21)', () => {
+  // Decision 21: named, never linked — CI cannot reach the design project, so a link would be one
+  // nobody can follow. The README used to say "as plain links".
+  assert.ok(
+    !/as plain links/.test(README),
+    'the README still describes design entries as links, which decision 21 forbids',
+  );
+  assert.match(
+    README,
+    /never as links|named, never linked|as text,\s*\n?\s*never as links/,
+    'the README must say design entries are named rather than linked',
+  );
+
+  // And the code still behaves that way, read from this build's own output rather than trusted.
+  const beacon = JSON.parse(readFileSync(path.join(OUT, 'state.json'), 'utf8')).workstreams.find(
+    (w) => w.design.length > 0,
+  );
+  assert.ok(beacon, 'no workstream in the fixture carries a design entry to check');
+  const page = readFileSync(path.join(OUT, 'workstream', beacon.slug, 'index.html'), 'utf8');
+  for (const reference of beacon.design) {
+    assert.ok(page.includes(reference.name), `${reference.name} is not named on the page`);
+    assert.ok(
+      !new RegExp(`<a\\b[^>]*>[^<]*${reference.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(page),
+      `${reference.name} was rendered as a link`,
+    );
+  }
+});
+
+test('README: it describes state.json, and every key it shows is one the build emits', () => {
+  // Decision 29's entire agent-facing contract went undocumented. Now that it is written down, the
+  // keys in that block are checked against the file this build actually wrote.
+  assert.match(README, /state\.json/, 'the README never mentions state.json');
+
+  const state = JSON.parse(readFileSync(path.join(OUT, 'state.json'), 'utf8'));
+  const block = /```jsonc\n([\s\S]*?)```/.exec(README);
+  assert.ok(block, 'the README shows no state.json shape');
+
+  const topLevel = [...block[1].matchAll(/^  "([a-zA-Z]+)":/gm)].map((m) => m[1]);
+  assert.ok(topLevel.length > 5, `expected the shape to show its top-level keys, saw ${topLevel}`);
+  for (const key of topLevel) {
+    assert.ok(key in state, `the README documents a top-level "${key}" that state.json does not have`);
+  }
+  for (const key of Object.keys(state)) {
+    assert.ok(topLevel.includes(key), `state.json emits "${key}" and the README does not show it`);
+  }
+
+  // The two properties the README tells a consumer to rely on.
+  const [stream] = state.workstreams;
+  for (const key of ['dir', 'manifestPath']) {
+    assert.ok(!path.isAbsolute(stream[key]), `${key} is absolute, which the README says it never is`);
+  }
+});
+
+test('README: the consuming workflow it documents grants the token what the build needs', () => {
+  // Without `issues: read`, an org that restricts the default token gets a 403, `src/github.mjs`
+  // correctly degrades to empty buckets, and the consumer publishes a site that silently claims
+  // every workstream has no backlog. That is the one failure decision 32 tolerates being turned
+  // into a lie by an omission in the docs.
+  const workflow = /```yaml\n([\s\S]*?)```/g;
+  const examples = [...README.matchAll(workflow)].map((m) => m[1]);
+  const consuming = examples.find((example) => example.includes('runs-on:'));
+  assert.ok(consuming, 'the README shows no consuming workflow');
+
+  assert.match(consuming, /permissions:/, 'the documented workflow grants no permissions at all');
+  assert.match(consuming, /issues:\s*read/, 'without issues: read every backlog on the site is empty');
+  assert.match(consuming, /contents:\s*read/, 'without contents: read the checkout cannot run');
+});
+
 test('build: the theme stylesheet is served where every page links to it', () => {
   assert.ok(existsSync(path.join(OUT, 'tokens.css')), 'no /tokens.css, so every page is unstyled');
   assert.equal(

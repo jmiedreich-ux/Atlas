@@ -36,6 +36,21 @@ function validManifest(overrides = {}) {
   };
 }
 
+// One convention, enforced here and in tests/build.test.mjs: a failure names the file at fault by
+// its repository-relative, slash-separated path, and never by an absolute one. On a runner an
+// absolute path reads `/home/runner/work/repo/repo/docs/...` — noise the reader cannot act on and
+// cannot search their own checkout for.
+function assertNamesRepositoryRelative(message, projectRoot, expected) {
+  assert.ok(
+    message.includes(expected),
+    `the failure does not name ${expected} repository-relative: ${message}`,
+  );
+  assert.ok(
+    !message.includes(path.resolve(projectRoot)),
+    `the failure names an absolute path from this machine: ${message}`,
+  );
+}
+
 // --- loadConfig --------------------------------------------------------
 
 test('loadConfig: reads the fixture project and normalises absolute paths', () => {
@@ -56,7 +71,7 @@ test('loadConfig: a missing atlas.config.json fails with the path named', () => 
       () => loadConfig(root),
       (err) => {
         assert.ok(err instanceof Error);
-        assert.ok(err.message.includes(path.join(root, 'atlas.config.json')));
+        assertNamesRepositoryRelative(err.message, root, 'atlas.config.json');
         return true;
       },
     );
@@ -81,7 +96,7 @@ test('loadConfig: malformed JSON in atlas.config.json fails with the path named'
     mkdirSync(root, { recursive: true });
     writeFileSync(path.join(root, 'atlas.config.json'), '{ not valid json');
     assert.throws(() => loadConfig(root), (err) => {
-      assert.ok(err.message.includes(path.join(root, 'atlas.config.json')));
+      assertNamesRepositoryRelative(err.message, root, 'atlas.config.json');
       return true;
     });
   } finally {
@@ -157,12 +172,11 @@ test('resolveWorkstreams: a workstream directory that does not exist fails with 
       workstreams: ['ghost'],
     });
     const config = loadConfig(root);
-    const expectedPath = path.join(config.workstreamsRoot, 'ghost');
     assert.throws(
       () => resolveWorkstreams(config),
       (err) => {
         assert.ok(err instanceof Error);
-        assert.ok(err.message.includes(expectedPath));
+        assertNamesRepositoryRelative(err.message, root, 'docs/features/ghost');
         return true;
       },
     );
@@ -186,7 +200,7 @@ test('resolveWorkstreams: a workstream directory that exists but is a file, not 
     assert.throws(
       () => resolveWorkstreams(config),
       (err) => {
-        assert.ok(err.message.includes(notADirPath));
+        assertNamesRepositoryRelative(err.message, root, 'docs/features/not-a-dir');
         assert.match(err.message, /not a directory/);
         assert.doesNotMatch(err.message, /does not exist/);
         return true;
@@ -232,7 +246,7 @@ test('resolveWorkstreams: a manifest with malformed JSON fails with the path nam
     assert.throws(
       () => resolveWorkstreams(config),
       (err) => {
-        assert.ok(err.message.includes(manifestPath));
+        assertNamesRepositoryRelative(err.message, root, 'docs/features/bad-json/workstream.json');
         return true;
       },
     );

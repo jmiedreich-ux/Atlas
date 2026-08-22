@@ -4,16 +4,19 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Nunjucks is not a dependency of this package and is deliberately not added as one: it arrives
-// with @11ty/eleventy, which bundles it as the engine decision 9 names, and npm hoists it to
-// the top of node_modules. If this import ever stops resolving, the cause is a change to
-// Eleventy's own engine or dependency layout, not a missing entry in package.json.
+// Nunjucks, declared in devDependencies. It arrives with @11ty/eleventy anyway — it is the engine
+// decision 9 names — and this import used to rely on that: on npm's hoisting putting Eleventy's
+// transitive copy at the top of node_modules. That holds under `npm ci` and breaks under pnpm,
+// Yarn PnP, `--install-strategy=nested`, or any Eleventy release that vendors or swaps it. When it
+// broke, the largest test file in the repository died at import with a message pointing at nothing
+// in package.json. A devDependency costs no download and keeps decision 9's two RUNTIME
+// dependencies exactly two.
 import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
-import { orderByTriage } from '../src/triage.mjs';
+import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -902,6 +905,63 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     }
   }
   assert.ok(seen >= 10, `expected chips across the pages, saw ${seen}`);
+});
+
+test('chips: every triage state renders its own human label, decision 27\'s headline included', () => {
+  // The status and stage halves of this vocabulary were already covered; the triage half — the
+  // label on the single card decision 27 puts FIRST — was not, and "Waiting on you" could be
+  // changed to anything without a test noticing. The states come from `TRIAGE_ORDER` so a new one
+  // cannot be added without landing here; the labels are written out, because a label read back
+  // out of the template would agree with any wording.
+  const triageLabels = {
+    'awaiting-decision': 'Waiting on you',
+    moving: 'Moving',
+    blocked: 'Blocked',
+    designing: 'Designing',
+    'not-started': 'Not started',
+  };
+  assert.deepEqual(
+    Object.keys(triageLabels).sort(),
+    [...TRIAGE_ORDER].sort(),
+    'this table and src/triage.mjs disagree about which states exist',
+  );
+
+  // One workstream per state, each built so `classifyTriage` puts it in exactly that state.
+  const byState = {
+    'not-started': entry('Alfa', { stage: 'not-started' }),
+    designing: entry('Bravo', { stage: 'designing' }),
+    'awaiting-decision': entry('Charlie', { stage: 'planned' }),
+    moving: entry('Delta', {
+      stage: 'shipping',
+      milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+    }),
+    blocked: entry('Echo', {
+      stage: 'shipping',
+      milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'parked' })],
+    }),
+  };
+
+  const html = renderMobile(Object.values(byState));
+
+  for (const state of TRIAGE_ORDER) {
+    const match = new RegExp(`<span\\b[^>]*data-triage="${state}"[^>]*>([\\s\\S]*?)</span>`).exec(html);
+    assert.ok(match, `no chip rendered for triage state "${state}"`);
+    assert.equal(
+      stripTags(match[1]),
+      triageLabels[state],
+      `the "${state}" chip must read its human label`,
+    );
+  }
+
+  // And the state each card was actually classified into is the one it was built to be, so this
+  // test cannot pass by rendering five chips that all say the same thing about the wrong cards.
+  for (const [state, stream] of Object.entries(byState)) {
+    const card = new RegExp(
+      `<article class="card" data-workstream="${stream.manifest.codename}" data-triage="([^"]*)"`,
+    ).exec(html);
+    assert.ok(card, `no card for ${stream.manifest.codename}`);
+    assert.equal(card[1], state, `${stream.manifest.codename} was classified as ${card[1]}`);
+  }
 });
 
 test('chips: every value in the closed vocabularies renders its own human label', () => {

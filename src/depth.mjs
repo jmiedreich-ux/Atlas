@@ -154,27 +154,33 @@ export function computeLadder(workstreams) {
  * regressing, in the one place a regression would otherwise be silent.
  *
  * @param {ReturnType<typeof computeLadder>} ladder
+ * @param {string[]} [manifestPaths] - the repository-relative path of each column's manifest, in
+ *   the same order as `ladder.columns`. Every failure in this generator names the file at fault
+ *   repository-relative, and a codename on its own is not a file. Optional, because this module is
+ *   pure and a caller that has no paths to give should still be able to check the invariant.
  * @returns {ReturnType<typeof computeLadder>} the same ladder, so this can wrap a call.
- * @throws {Error} naming the column, the end, and the id that resolves to nothing.
+ * @throws {Error} naming the manifest, the column, the end, and the id that resolves to nothing.
  */
-export function assertLadderResolves(ladder) {
+export function assertLadderResolves(ladder, manifestPaths = []) {
   const rowIds = new Set(ladder.rows.map((row) => row.id));
 
-  for (const column of ladder.columns) {
+  const broken = (index, column, end, id) => {
+    const where = manifestPaths[index] ? `${manifestPaths[index]}: ` : '';
+    return new Error(
+      `${where}the depth chart is broken: column "${column.codename}" has ${end} "${id}", ` +
+        `which names no row on the ladder (rows: ${[...rowIds].join(', ')})`,
+    );
+  };
+
+  ladder.columns.forEach((column, index) => {
     // A null barTo is a column with nothing complete yet — the pre-milestone case, not a break.
     if (column.barTo !== null && !rowIds.has(column.barTo)) {
-      throw new Error(
-        `the depth chart is broken: column "${column.codename}" has barTo "${column.barTo}", ` +
-          `which names no row on the ladder (rows: ${[...rowIds].join(', ')})`,
-      );
+      throw broken(index, column, 'barTo', column.barTo);
     }
     if (!rowIds.has(column.headAt)) {
-      throw new Error(
-        `the depth chart is broken: column "${column.codename}" has headAt "${column.headAt}", ` +
-          `which names no row on the ladder (rows: ${[...rowIds].join(', ')})`,
-      );
+      throw broken(index, column, 'headAt', column.headAt);
     }
-  }
+  });
 
   return ladder;
 }

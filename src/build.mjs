@@ -37,7 +37,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadConfig, resolveWorkstreams } from './config.mjs';
+import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, stagingDirFor } from './outdir.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { fetchProjectIssues } from './github.mjs';
@@ -58,12 +58,14 @@ const MANIFEST_FILENAME = 'workstream.json';
 
 // --- paths ---------------------------------------------------------------------------------------
 
-// A repository-relative, slash-separated path. Nothing that reaches an output file is ever built
-// any other way: an absolute path from the build machine in a generated file is both useless to a
-// reader and the most common reason a rebuild stops being reproducible.
-function relPath(projectRoot, absolute) {
-  return path.relative(projectRoot, absolute).split(path.sep).join('/');
-}
+// A repository-relative, slash-separated path. Nothing that reaches an output file — or a failure
+// message — is ever built any other way: an absolute path from the build machine is both useless
+// to a reader and the most common reason a rebuild stops being reproducible.
+//
+// Defined once, in src/config.mjs, because config.mjs fails before build.mjs is doing anything and
+// its messages have to follow the same rule. `tests/build.test.mjs` enforces the rule across every
+// module that can fail.
+const relPath = repoRelative;
 
 // A site URL for a repository-relative path, with each segment encoded but the slashes left alone.
 function encodeUrlPath(relative) {
@@ -108,12 +110,25 @@ function assertPlansExist(projectRoot, workstreams) {
   }
 }
 
+// The sibling of `assertPlansExist`, and it checks the same two things for the same reason: a
+// directory named `ROADMAP.md` passed `existsSync` and reached the reader as a bare `EISDIR` from
+// somewhere else entirely.
 function assertRoadmapExists(projectRoot) {
   const absolute = path.join(projectRoot, ROADMAP);
+  const where = relPath(projectRoot, absolute);
+
   if (!existsSync(absolute)) {
     throw new Error(
-      `${ROADMAP} is missing: a project Atlas builds provides ${ROADMAP} at its root (decision 40), ` +
-        `and decision 16 makes its tables generated output rather than prose.`,
+      `${where} is missing: a project Atlas builds provides ${ROADMAP} at its root (decision 40), ` +
+        `and decision 16 makes its tables generated output rather than prose. Nothing was found ` +
+        `at ${where} — check that the project root given to Atlas is the directory that carries ` +
+        `${CONFIG_FILENAME}.`,
+    );
+  }
+  if (!statSync(absolute).isFile()) {
+    throw new Error(
+      `${where} is not a file: a project Atlas builds provides ${ROADMAP} at its root as a ` +
+        `Markdown record (decision 40), and this is a directory.`,
     );
   }
 }
@@ -200,7 +215,12 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const resolved = resolveWorkstreams(config);
   assertPlansExist(config.projectRoot, resolved);
 
-  const ladder = assertLadderResolves(computeLadder(resolved));
+  // The manifest paths travel with the ladder so that a broken column names a file rather than
+  // just a codename — the same convention every other failure in this generator follows.
+  const ladder = assertLadderResolves(
+    computeLadder(resolved),
+    resolved.map((stream) => relPath(config.projectRoot, stream.manifestPath)),
+  );
 
   // The one tolerated failure in the whole generator (decision 32's stated exception). `offline`
   // does not tolerate a failure — it declines to make the request at all, which is what a test,
@@ -427,6 +447,13 @@ async function renderPages(pages, outDir, { quiet }) {
     },
   });
 
+  // `quietMode` alone is not enough. Eleventy's completion line — `[11ty] Wrote N files` — is
+  // logged with `force: true`, which is documented to bypass verbose mode, so a `--quiet` build
+  // still printed it. `disableLogger()` is the switch that reaches it: it replaces the logger
+  // itself, and `force` cannot bypass a logger that is not there. Errors are unaffected — they
+  // travel by exception, not through this logger.
+  if (quiet) eleventy.disableLogger();
+
   await eleventy.write();
 }
 
@@ -540,7 +567,7 @@ async function main(argv) {
   const { projectRoot, outDir, offline, quiet } = parsed;
 
   if (!projectRoot) {
-    console.error('usage: node src/build.mjs <project-root> [<out-dir>] [--offline] [--quiet]');
+    console.error('atlas: usage: node src/build.mjs <project-root> [<out-dir>] [--offline] [--quiet]');
     return 2;
   }
 

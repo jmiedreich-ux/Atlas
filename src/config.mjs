@@ -13,21 +13,40 @@ const CONFIG_FILENAME = 'atlas.config.json';
 const WORKSTREAMS_DIRNAME = path.join('docs', 'features');
 const MANIFEST_FILENAME = 'workstream.json';
 
-function readJsonFile(absPath, describeWhat) {
+/**
+ * A repository-relative, slash-separated path — the ONE way any failure in this generator names a
+ * file.
+ *
+ * Every module that can fail uses this, and `tests/build.test.mjs` enforces it. An absolute path
+ * is worse than useless in a failure message: on a runner it is
+ * `/home/runner/work/repo/repo/docs/...`, which tells the reader nothing they can act on and
+ * nothing they can search their own checkout for, and it puts a build-machine path into output
+ * that is supposed to be reproducible.
+ *
+ * @param {string} projectRoot - already absolute.
+ * @param {string} absolute
+ * @returns {string}
+ */
+export function repoRelative(projectRoot, absolute) {
+  return path.relative(projectRoot, absolute).split(path.sep).join('/');
+}
+
+function readJsonFile(root, absPath, describeWhat) {
+  const where = repoRelative(root, absPath);
   let raw;
   try {
     raw = readFileSync(absPath, 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT') {
-      throw new Error(`${describeWhat} not found: expected a file at ${absPath}`);
+      throw new Error(`${describeWhat} not found: expected a file at ${where}`);
     }
-    throw new Error(`could not read ${describeWhat} at ${absPath}: ${err.message}`);
+    throw new Error(`could not read ${describeWhat} at ${where}: ${err.message}`);
   }
 
   try {
     return JSON.parse(raw);
   } catch (err) {
-    throw new Error(`${describeWhat} at ${absPath} is not valid JSON: ${err.message}`);
+    throw new Error(`${describeWhat} at ${where} is not valid JSON: ${err.message}`);
   }
 }
 
@@ -54,11 +73,13 @@ export function loadConfig(projectRoot) {
   const root = path.resolve(projectRoot);
   const configPath = path.join(root, CONFIG_FILENAME);
 
-  const raw = readJsonFile(configPath, 'atlas.config.json');
+  const raw = readJsonFile(root, configPath, 'atlas.config.json');
 
   const result = validateConfig(raw);
   if (!result.ok) {
-    throw new Error(`${configPath} failed validation: ${describeValidationFailure(result)}`);
+    throw new Error(
+      `${repoRelative(root, configPath)} failed validation: ${describeValidationFailure(result)}`,
+    );
   }
 
   return {
@@ -87,23 +108,28 @@ export function resolveWorkstreams(config) {
   return config.workstreams.map((slug) => {
     const dir = path.join(config.workstreamsRoot, slug);
 
+    const where = repoRelative(config.projectRoot, dir);
+
     if (!existsSync(dir)) {
       throw new Error(
-        `workstream "${slug}" is declared in atlas.config.json but its directory does not exist: ${dir}`,
+        `workstream "${slug}" is declared in atlas.config.json but its directory does not exist: ${where}`,
       );
     }
     if (!statSync(dir).isDirectory()) {
       throw new Error(
-        `workstream "${slug}" is declared in atlas.config.json but ${dir} is not a directory`,
+        `workstream "${slug}" is declared in atlas.config.json but ${where} is not a directory`,
       );
     }
 
     const manifestPath = path.join(dir, MANIFEST_FILENAME);
-    const raw = readJsonFile(manifestPath, `workstream manifest for "${slug}"`);
+    const raw = readJsonFile(config.projectRoot, manifestPath, `workstream manifest for "${slug}"`);
 
     const result = validateWorkstream(raw);
     if (!result.ok) {
-      throw new Error(`${manifestPath} failed validation: ${describeValidationFailure(result)}`);
+      throw new Error(
+        `${repoRelative(config.projectRoot, manifestPath)} failed validation: ` +
+          describeValidationFailure(result),
+      );
     }
 
     return { slug, dir, manifestPath, manifest: result.value };

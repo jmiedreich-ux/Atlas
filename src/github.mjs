@@ -19,6 +19,15 @@ function warn(message) {
   console.warn(`atlas: ${message} — rendering with empty issue buckets`);
 }
 
+// A warning that is not a failure: the buckets are real, they may just be short.
+function warnPossiblyTruncated(repo, count) {
+  console.warn(
+    `atlas: GitHub returned ${count} open items for ${repo}, which is this build's whole page — ` +
+      `the backlog may be longer, and any workstream's list below may be short. Atlas asks for one ` +
+      `page and does not follow the Link header.`,
+  );
+}
+
 function labelNames(issue) {
   return (issue.labels ?? []).map((label) => (typeof label === 'string' ? label : label.name));
 }
@@ -33,8 +42,16 @@ function isPullRequest(issue) {
  * `docs/features/<workstream>/workstream.json`'s `label` field).
  *
  * One request for the whole open-issues list, bucketed here in memory, rather than one search
- * request per workstream: today's ~47 open issues fit a single page, and the search endpoint
- * carries a lower rate limit than the list endpoint.
+ * request per workstream: an open backlog of any ordinary size fits a single page, and the search
+ * endpoint carries a lower rate limit than the list endpoint.
+ *
+ * That single page is a ceiling, and a lower one than it looks: `/issues` returns issues AND pull
+ * requests interleaved, so `per_page=100` is 100 COMBINED, not 100 issues. When the response comes
+ * back exactly full, the answer may be short — and a silently short answer is the one failure mode
+ * decision 32 exists to forbid, so it says so. It says so rather than paginating because the
+ * single-request design is deliberate: the alternative is an unbounded number of requests against
+ * a rate limit, on decision 30's six-hourly schedule, to render a backlog nobody reads past the
+ * first screen of.
  *
  * @param {object} opts
  * @param {string} opts.repo - `owner/name`, as recorded in `atlas.config.json`.
@@ -71,6 +88,10 @@ export async function fetchProjectIssues({ repo, token, fetchImpl = fetch }) {
   } catch (err) {
     warn(`could not parse GitHub's issues response for ${repo}: ${err.message}`);
     return emptyBuckets();
+  }
+
+  if (Array.isArray(items) && items.length === PER_PAGE) {
+    warnPossiblyTruncated(repo, items.length);
   }
 
   const buckets = emptyBuckets();
