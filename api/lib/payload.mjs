@@ -74,10 +74,18 @@ function checkWorkstream(value) {
   return { ok: true };
 }
 
+// A git blob SHA: 40 hex characters, or 64 once a repository is on SHA-256. Nothing else. The rule
+// used to also accept anything shaped `sha-...`, which was the test stub's own spelling of a SHA
+// leaking out of the tests and into the contract.
+const BLOB_SHA = /^[0-9a-f]{40}$|^[0-9a-f]{64}$/;
+
 function checkSha(value) {
   if (value === undefined || value === null) return { ok: true };
-  if (typeof value !== 'string' || !/^[0-9a-f]{4,64}$|^sha-[\w./-]{1,120}$/.test(value)) {
-    return fail(`"sha" must be the blob SHA the page was rendered from (got ${JSON.stringify(value)}).`);
+  if (typeof value !== 'string' || !BLOB_SHA.test(value)) {
+    return fail(
+      `"sha" must be the 40-character blob SHA the page was rendered from ` +
+        `(got ${JSON.stringify(value)}).`,
+    );
   }
   return { ok: true };
 }

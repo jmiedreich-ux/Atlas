@@ -13,7 +13,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 
 import { handleAcceptance, handleAnswer } from '../api/lib/handlers.mjs';
 import { renderMarkdown } from '../src/markdown.mjs';
@@ -68,10 +68,19 @@ const MANIFEST = JSON.stringify(
 
 const DEMO = '# M1 demo script\n\n1. Start the thing.\n';
 
-// A repository in memory. SHAs are counted rather than hashed, which is enough: what matters is
-// that a write changes the SHA and that the API refuses a write carrying the old one.
+// A repository in memory. What matters is that a write changes the SHA and that the API refuses a
+// write carrying the old one — but the SHAs are real 40-character hex, because the stub's own
+// spelling of a SHA once leaked out of here and into `payload.mjs`'s idea of what a SHA looks like.
+// A stub that does not look like the thing it stands in for is how a contract gets written by a
+// test.
+function blobSha(path, version) {
+  return createHash('sha1').update(`${path}@${version}`).digest('hex');
+}
+
 function gitHub(initial = {}) {
-  const files = new Map(Object.entries(initial).map(([p, text]) => [p, { text, sha: `sha-${p}-0` }]));
+  const files = new Map(
+    Object.entries(initial).map(([p, text]) => [p, { text, sha: blobSha(p, 0) }]),
+  );
   let version = 0;
   const calls = [];
 
@@ -106,10 +115,10 @@ function gitHub(initial = {}) {
       }
       version += 1;
       const text = Buffer.from(sent.content, 'base64').toString('utf8');
-      files.set(path, { text, sha: `sha-${path}-${version}` });
+      files.set(path, { text, sha: blobSha(path, version) });
       return reply(200, {
         commit: { html_url: `https://github.com/an-owner/a-repo/commit/c${version}`, sha: `c${version}` },
-        content: { sha: `sha-${path}-${version}` },
+        content: { sha: blobSha(path, version) },
       });
     }
 
@@ -121,7 +130,7 @@ function gitHub(initial = {}) {
   // Somebody else commits, from outside Atlas. This is how a stale SHA is produced honestly.
   impl.someoneElseCommits = (path, text) => {
     version += 1;
-    files.set(path, { text, sha: `sha-${path}-${version}` });
+    files.set(path, { text, sha: blobSha(path, version) });
   };
   return impl;
 }
@@ -623,4 +632,146 @@ test('answer: the rule exists because the renderer really would run it — pinne
   const html = renderMarkdown(`# A record\n\n${XSS}\n`, { hrefBase: '' });
   assert.match(html, /<script/i, 'the renderer no longer emits raw HTML — revisit the answer rule');
   assert.match(html, /onerror/i);
+});
+
+// --- I3: what a manifest can talk Atlas into writing ------------------------------------------------
+
+test('acceptance: a manifest naming a workflow file is refused — records live under docs/', async () => {
+  // Traversal was already closed. In-repo containment was not: a manifest naming
+  // `.github/workflows/deploy.yml` produced a 200 and a PUT to that path. It needs repo write to
+  // set up, so it is not remotely reachable — but decision 35 is a question about what Atlas can
+  // be made to write, and "anything in the repository" is the wrong answer to it.
+  for (const record of [
+    '.github/workflows/deploy.yml',
+    'action.yml',
+    'src/build.mjs',
+    'package.json',
+    'atlas.config.json',
+    'ROADMAP.md',
+    'api/lib/handlers.mjs',
+  ]) {
+    const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+    const github = gitHub({ [MANIFEST_PATH]: manifest, [record]: 'whatever was there\n' });
+
+    const response = await handleAcceptance(
+      post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+      deps(github),
+    );
+
+    assert.ok(response.status >= 400, `${record} was accepted as an acceptance record`);
+    assert.equal(
+      github.calls.filter((c) => c.method === 'PUT').length,
+      0,
+      `${record} was written to`,
+    );
+    assert.match(response.body.message, /docs\//, `the refusal does not say where records live`);
+  }
+});
+
+test('acceptance: a manifest cannot point Atlas at another manifest either', async () => {
+  // Under docs/, so the containment rule alone would allow it — and editing a manifest is the
+  // first thing decision 35 takes away.
+  const record = 'docs/features/another-stream/workstream.json';
+  const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+  const github = gitHub({ [MANIFEST_PATH]: manifest, [record]: '{}\n' });
+
+  const response = await handleAcceptance(
+    post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+    deps(github),
+  );
+
+  assert.ok(response.status >= 400);
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+  assert.match(response.body.message, /manifest/i);
+});
+
+test('acceptance: an ordinary record anywhere under docs/ still writes', async () => {
+  // The rule has to leave the real case alone: an acceptance record is a document, and a project
+  // may keep it anywhere in its records.
+  for (const record of ['docs/features/a-stream/m1-demo.md', 'docs/acceptance/2026/m1.md', 'docs/a.md']) {
+    const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+    const github = gitHub({ [MANIFEST_PATH]: manifest, [record]: '# A record\n' });
+
+    const response = await handleAcceptance(
+      post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+      deps(github),
+    );
+
+    assert.equal(response.status, 200, `${record} was refused: ${response.body.message}`);
+    assert.equal(response.body.path, record);
+  }
+});
+
+test('acceptance: the refusal names the manifest, because that is the file somebody has to fix', async () => {
+  const manifest = JSON.stringify({
+    milestones: [{ id: 'M1', acceptance: { kind: 'k', record: '.github/workflows/deploy.yml' } }],
+  });
+  const github = gitHub({ [MANIFEST_PATH]: manifest });
+  const response = await handleAcceptance(
+    post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+    deps(github),
+  );
+  assert.match(response.body.message, /workstream\.json/);
+  assert.match(response.body.message, /deploy\.yml/);
+});
+
+// --- the minors the review named ------------------------------------------------------------------
+
+test('a request that does not say what method it is, is refused — every guard here fails closed', async () => {
+  // `(request.method ?? 'POST')` was the one guard in the file that assumed the safe answer when
+  // it was not told. Nothing else in the write path does that, and a host that hands over a
+  // request with no method is a host Atlas does not understand.
+  for (const method of [undefined, null, '', 'GET', 'PUT', 'DELETE']) {
+    const github = repo();
+    const response = await handleAnswer(
+      { method, headers: AUTHOR, body: { workstream: 'a-stream', question: 'Q1', answer: 'x' } },
+      deps(github),
+    );
+    assert.equal(response.status, 405, `${JSON.stringify(method)} was accepted as a method`);
+    assert.equal(github.calls.length, 0);
+  }
+});
+
+test('a sha that no blob SHA could be is refused before anything is read', async () => {
+  // GitHub blob SHAs are 40 hex characters (64 under SHA-256). The rule accepted anything shaped
+  // `sha-...`, which was the test stub's own spelling leaking into the contract.
+  for (const sha of ['sha-docs/features/a-stream/open-questions.md-0', 'not-a-sha', 'zzzz', '../..', 123]) {
+    const github = repo();
+    const response = await handleAnswer(
+      post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'x', sha }),
+      deps(github),
+    );
+    assert.equal(response.status, 400, `${JSON.stringify(sha)} was accepted as a SHA`);
+    assert.equal(github.calls.length, 0);
+  }
+});
+
+test('a real blob SHA is accepted, in both lengths GitHub issues', async () => {
+  for (const sha of ['a'.repeat(40), 'b'.repeat(64)]) {
+    const github = repo();
+    const response = await handleAnswer(
+      post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'x', sha }),
+      deps(github),
+    );
+    // A conflict, because the register's SHA is not this one — but a conflict is the endpoint
+    // having accepted the value and compared it, which is the point.
+    assert.equal(response.status, 409, `${sha.slice(0, 8)}… was rejected as a SHA`);
+  }
+});
+
+test('no refusal quotes the configured repository back to whoever asked', async () => {
+  // The caller is an authenticated author, so this is not much of a leak — but the repository is a
+  // deployment setting, and a refusal has no reason to recite one.
+  const github = repo();
+  const responses = [
+    await handleAnswer(post(AUTHOR, { workstream: 'no-such-stream', question: 'Q1', answer: 'x' }), deps(github)),
+    await handleAcceptance(post(AUTHOR, { workstream: 'no-such-stream', milestone: 'M1', result: 'pass' }), deps(github)),
+    await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'x' }), deps(github, {})),
+  ];
+  for (const response of responses) {
+    assert.ok(
+      !response.body.message.includes('an-owner/a-repo'),
+      `a refusal named the repository: ${response.body.message}`,
+    );
+  }
 });

@@ -24,6 +24,7 @@
 // by the push, which is the whole reason decision 36 insists on a GitHub App.
 
 import { GitHubError, createContentsClient } from './github.mjs';
+import { RECORDS_ROOT, whyNotAWritableRecord } from './contract.mjs';
 import { RecordError, answerQuestion, recordAcceptance } from './records.mjs';
 import { authorise } from './principal.mjs';
 import { fetchInstallationToken } from './app-token.mjs';
@@ -60,7 +61,9 @@ function workstreamPath(slug, filename) {
  *   | { ok: false, response: object }}
  */
 async function prepare(request, { env, fetchImpl, nowSeconds }, validate) {
-  if ((request.method ?? 'POST').toUpperCase() !== 'POST') {
+  // Not `?? 'POST'`. This was the one guard in the file that assumed the safe answer when it was
+  // not told, and nothing else in the write path does that.
+  if (typeof request.method !== 'string' || request.method.toUpperCase() !== 'POST') {
     return {
       ok: false,
       response: refusal({
@@ -245,6 +248,22 @@ export async function handleAcceptance(request, deps) {
           `milestone ${milestone.id} has no acceptance.record in ${manifestPath}, so there is ` +
           `nowhere for this result to go. Add the record's repository path to the manifest ` +
           `first — Atlas writes into records, it does not create them.`,
+      });
+    }
+
+    // The manifest is a record like any other, and a record can be wrong — or can have been made
+    // wrong on purpose by somebody with repository write. This is the last thing between it and a
+    // PUT, and it is a containment rule rather than only a traversal one: see
+    // `whyNotAWritableRecord`.
+    const wrong = whyNotAWritableRecord(record);
+    if (wrong) {
+      return refusal({
+        status: 409,
+        error: 'unwritable-record',
+        message:
+          `milestone ${milestone.id} in ${manifestPath} names ${JSON.stringify(record)} as its ` +
+          `acceptance record, and that path ${wrong}. Atlas writes to records under ` +
+          `${RECORDS_ROOT}/ and nowhere else. Nothing was written.`,
       });
     }
 

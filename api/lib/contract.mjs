@@ -32,6 +32,50 @@ export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'par
 // to Atlas. A vocabulary that grows to hold them is a status dropdown by another name.
 export const ACCEPTANCE_RESULTS = Object.freeze(['pass', 'fail']);
 
+/** The directory a project's records live in (decision 40). Nothing outside it is writable. */
+export const RECORDS_ROOT = 'docs';
+
+/** The manifest filename. Editing one is decision 35's first excluded thing. */
+export const MANIFEST_FILENAME = 'workstream.json';
+
+/**
+ * Why a repository path may not be written to as a record, or `''` when it may.
+ *
+ * A milestone's `acceptance.record` (decision 14) is a path out of the project's own manifest, and
+ * the write path follows it. Traversal was already refused before a request was built — but
+ * traversal was never the whole question. A manifest naming `.github/workflows/deploy.yml` stays
+ * inside the repository and is still a workflow file, and `action.yml`, `src/*.mjs`,
+ * `package.json` and `atlas.config.json` were all reachable the same way.
+ *
+ * It needs repository write access to set up, so it is not remotely reachable. It is recorded and
+ * closed anyway, because decision 35 is a question about what Atlas can be made to write, and
+ * "anything in the repository" is the wrong answer to it whoever is asking.
+ *
+ * @param {unknown} repositoryRelative
+ * @returns {string} a sentence completing "…, and it <reason>", or '' when the path is fine.
+ */
+export function whyNotAWritableRecord(repositoryRelative) {
+  if (typeof repositoryRelative !== 'string' || repositoryRelative.trim() === '') {
+    return 'is not a path';
+  }
+  const path = repositoryRelative.trim();
+  if (path.includes('\\')) return 'contains a backslash, and a repository path uses forward slashes';
+  if (path.startsWith('/')) return 'is absolute, and a repository path is not';
+  if (path.endsWith('/')) return 'names a directory rather than a record';
+
+  const segments = path.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return 'is not a plain repository-relative path';
+  }
+  if (segments[0] !== RECORDS_ROOT || segments.length < 2) {
+    return `is outside ${RECORDS_ROOT}/, and Atlas only ever writes to a project's records`;
+  }
+  if (segments[segments.length - 1] === MANIFEST_FILENAME) {
+    return 'is a workstream manifest, and decision 35 keeps manifests out of Atlas entirely';
+  }
+  return '';
+}
+
 /**
  * Why an `atlas.config.json` workstream entry — or a workstream named in a write request — is not
  * a plain directory name, or `''` if it is.

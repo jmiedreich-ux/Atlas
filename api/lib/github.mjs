@@ -109,9 +109,11 @@ export function createContentsClient({ repo, token, fetchImpl = fetch, apiRoot =
       const payload = await readJson(response);
 
       if (response.status === 404) {
+        // The repository is a deployment setting and a refusal has no reason to recite one, so
+        // every message in this module names the path and the branch and stops there.
         throw new GitHubError(
-          `there is no ${path} on ${ref} in ${repo}. Atlas writes into records that already ` +
-            `exist; create the file and try again.`,
+          `there is no ${path} on ${ref}. Atlas writes into records that already exist; create ` +
+            `the file and try again.`,
           { status: 404, code: 'no-such-record' },
         );
       }
@@ -171,7 +173,7 @@ export function createContentsClient({ repo, token, fetchImpl = fetch, apiRoot =
 
       if (isStaleSha(response.status, messageFrom(payload))) {
         throw new GitHubError(
-          `${path} changed in ${repo} between Atlas reading it and writing it, so nothing was ` +
+          `${path} changed on ${branch} between Atlas reading it and writing it, so nothing was ` +
             `written. Reload the page and send this again — the other change is still there.`,
           { status: 409, code: 'conflict' },
         );
