@@ -6,10 +6,17 @@
 // `{ ok: true, value }` or `{ ok: false, errors: [{ path, message }] }`, never throws, and never
 // returns a partially-valid object.
 
+import { isCalendarDate } from './dates.mjs';
+
 // Decision 32: the status vocabulary is closed. An unknown value is rejected by name rather
 // than rendered as a blank chip.
 export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'planned', 'shipping']);
-export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'gated', 'parked', 'unplanned']);
+//
+// `blocked`, not `gated` (#780): the word "gate" belongs to the workstream's own `gate` field —
+// the thing the owner holds — and what a milestone is recording is simply that it cannot start.
+// The phone view's triage vocabulary already said `blocked`, so the product now has one word for
+// this rather than two that nearly mean the same thing.
+export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'parked', 'unplanned']);
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -121,6 +128,55 @@ function validateMilestone(milestone, path, errors) {
   }
 
   validateAcceptance(milestone.acceptance, joinPath(path, 'acceptance'), errors);
+  validateMilestoneDates(milestone, path, errors);
+}
+
+// M2.1, from #780. Two ADDITIVE fields — a milestone that carries neither validates exactly as it
+// did, which is what lets `state.json` stay at version 1: a new optional key does not break a
+// reader that understood the previous version.
+//
+// Both are stored facts, recorded when they happened, and both are `YYYY-MM-DD`. Nothing is
+// derived from today — see src/dates.mjs for why that is the whole point rather than a detail.
+function validateMilestoneDates(milestone, path, errors) {
+  const wasGiven = (key) => milestone[key] !== undefined && milestone[key] !== null;
+
+  for (const key of ['started', 'completed']) {
+    if (milestone[key] === undefined || milestone[key] === null) continue;
+    if (!isCalendarDate(milestone[key])) {
+      errors.push({
+        path: joinPath(path, key),
+        message:
+          `"${key}" must be a stored calendar day written YYYY-MM-DD, or null ` +
+          `(got ${JSON.stringify(milestone[key])})`,
+      });
+    }
+  }
+
+  // A close date with no start date is a record with a hole in it: the page would show when the
+  // milestone ended and be unable to say how long it took, which is the one thing the pair is for.
+  if (wasGiven('completed') && !wasGiven('started')) {
+    errors.push({
+      path: joinPath(path, 'started'),
+      message:
+        `"started" is required once "completed" is recorded — a milestone cannot say when it ` +
+        `closed without saying when it began`,
+    });
+  }
+
+  if (
+    wasGiven('started') &&
+    wasGiven('completed') &&
+    isCalendarDate(milestone.started) &&
+    isCalendarDate(milestone.completed) &&
+    milestone.completed < milestone.started
+  ) {
+    errors.push({
+      path: joinPath(path, 'completed'),
+      message:
+        `"completed" (${JSON.stringify(milestone.completed)}) is before "started" ` +
+        `(${JSON.stringify(milestone.started)}), so this milestone closed before it began`,
+    });
+  }
 }
 
 // Passing named-field validation says nothing about extra, unvalidated properties elsewhere on

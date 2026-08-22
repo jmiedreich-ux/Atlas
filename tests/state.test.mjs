@@ -67,9 +67,9 @@ test('state: it says which version of its own shape it is, first (decision 29)',
 
 // --- the same workstreams the pages were rendered from --------------------------------------------
 
-test('state: the workstreams are the ones the depth chart drew, in the same order', () => {
-  const drawn = [...new Set(attrValues(read('index.html'), 'data-column'))];
-  assert.deepEqual(state.workstreams.map((w) => w.codename), drawn);
+test('state: the workstreams are the ones the feature planning page drew, in the same order', () => {
+  const drawn = [...new Set(attrValues(read('index.html'), 'data-slug'))];
+  assert.deepEqual(state.workstreams.map((w) => w.slug), drawn);
   assert.deepEqual(state.workstreams.map((w) => w.slug), config.workstreams);
 });
 
@@ -216,10 +216,20 @@ test('state: the triage order is the order the phone view put the cards in (deci
 
 // --- the same ladder the chart drew -----------------------------------------------------------------
 
-test('state: the ladder is the one the chart drew, row for row and column for column', () => {
+test('state: the ladder is the one the drawing drew, row for row and column for column', () => {
   const html = read('index.html');
-  const rowIds = [...new Set(attrValues(html, 'data-row'))];
-  assert.deepEqual(state.ladder.rows.map((r) => r.id), rowIds);
+
+  // The ladder gutter's own captions, in order. #780 puts the milestone identifiers there and
+  // nowhere else, so this is the one place on the page the rows are named.
+  const gutter = html.slice(html.indexOf('class="planning-ladder"'), html.indexOf('class="planning-chart"'));
+  const captions = [...gutter.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>([^<]+)<\/text>/g)].map(
+    (m) => m[1],
+  );
+  assert.deepEqual(
+    state.ladder.rows.map((row) => (row.kind === 'stage' ? row.label : `M${row.label}`)),
+    captions,
+    'state.json and the drawing disagree about the ladder',
+  );
 
   assert.equal(state.ladder.columns.length, state.workstreams.length);
   state.ladder.columns.forEach((column, i) => {
@@ -232,8 +242,15 @@ test('state: the ladder is the one the chart drew, row for row and column for co
       column.barTo === null || state.ladder.rows.some((row) => row.id === column.barTo),
       `${column.codename}: barTo "${column.barTo}" names no row on the ladder`,
     );
-    // The tip note is the workstream's gate, and it reached the chart.
-    assert.ok(html.includes(column.note), `${column.codename}: the note in state never reached the chart`);
+    // Decision 25's note is the workstream's gate. M2.1 moved where it is said on this surface:
+    // #780 replaced the tip note with a balloon whose text is the next milestone's TITLE, and the
+    // gate only where the feature is still in the stages. It is unchanged on the phone view, which
+    // ends every card on it, and on the feature's own page.
+    assert.ok(
+      read(`workstream/${state.workstreams[i].slug}/index.html`).includes(column.note),
+      `${column.codename}: the gate in state never reached its own page`,
+    );
+    assert.ok(read('mobile/index.html').includes(column.note), `${column.codename}: the gate never reached the phone`);
   });
 });
 
@@ -320,6 +337,46 @@ test('state: the byte-for-byte copies are listed as copies, never as rendered re
   for (const asset of state.assets) {
     assert.ok(existsSync(path.join(OUT, asset.path)), `${asset.path} is listed but was not copied`);
   }
+});
+
+// --- M2.1, from #780: the stored dates travel with the milestone ----------------------------------
+
+test('state: a milestone carries the days it started and closed, exactly as recorded', () => {
+  const bySlug = Object.fromEntries(state.workstreams.map((w) => [w.slug, w]));
+  const milestone = (slug, id) => bySlug[slug].milestones.find((m) => m.id === id);
+
+  // Closed: both days, and both from the manifest rather than from anything Atlas worked out.
+  const manifests = Object.fromEntries(workstreams.map((w) => [w.slug, w.manifest]));
+  const recorded = manifests.reef.milestones.find((m) => m.id === 'M1');
+  assert.equal(milestone('reef', 'M1').started, recorded.started);
+  assert.equal(milestone('reef', 'M1').completed, recorded.completed);
+
+  // In flight: a start day and no close day.
+  assert.equal(milestone('tide', 'M2').started, '2026-04-06');
+  assert.equal(milestone('tide', 'M2').completed, null);
+
+  // Never recorded at all: null, not absent, so a reader never has to tell the two apart.
+  assert.equal(milestone('tide', 'M3').started, null);
+  assert.equal(milestone('tide', 'M3').completed, null);
+  assert.equal(milestone('anchor', 'M1').started, null, 'Anchor records no dates, and still renders');
+
+  for (const workstream of state.workstreams) {
+    for (const entry of workstream.milestones) {
+      assert.ok('started' in entry && 'completed' in entry, `${entry.id} is missing a date key`);
+    }
+  }
+});
+
+test('state: the two new date keys are additive, so the document stays at version 1', () => {
+  // The rule this pins, from the module's own comment: "bumped only when a change would break a
+  // reader that understood the previous version — a new optional key does not." A reader coded
+  // against v1 still finds every key it knew, unchanged.
+  assert.equal(state.version, 1);
+  assert.equal(STATE_VERSION, 1);
+
+  // And nothing dated by the BUILD got in alongside them: these are facts on record, not stamps.
+  const text = read('state.json');
+  assert.ok(!/"(generated|built|builtAt|generatedAt|timestamp)"/i.test(text), 'state.json stamps a build time');
 });
 
 // --- and it is stable ------------------------------------------------------------------------------

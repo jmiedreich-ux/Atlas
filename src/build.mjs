@@ -39,16 +39,26 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
+import { computeChart } from './chart.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
 import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
+import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
 import { orderByTriage } from './triage.mjs';
 import configureAtlasEleventy from '../.eleventy.js';
 
 const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
-const STYLESHEET = 'tokens.css';
+// The generator's own files, served at the paths the layouts link to. Copied rather than rendered:
+// Eleventy's template formats are `njk` and nothing else (see `.eleventy.js`), so neither of these
+// is ever discovered as a page.
+//
+// `order.js` is the feature planning surface's one piece of behaviour — putting the features in
+// your own order (#780). Decision 12 says no framework runtime and no second hosting model, and
+// this is neither: it is one static file, with no dependency of its own, doing one thing on one
+// page that the reader asked for.
+const THEME_FILES = Object.freeze(['tokens.css', 'order.js']);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';
@@ -391,7 +401,16 @@ function planPages(site) {
   pages.push({
     name: 'depth',
     extend: 'depth.njk',
-    data: { ...shell, permalink: '/index.html', title: 'Project depth', workstreams: site.workstreams, ladder: site.ladder },
+    // The DRAWING, not the data. `src/chart.mjs` turns the ladder and the features into
+    // coordinates and paths, and `depth.njk` interpolates them and positions nothing of its own —
+    // which is what keeps a rebuilt-as-SVG surface (#780) checkable in an environment with no
+    // browser.
+    data: {
+      ...shell,
+      permalink: '/index.html',
+      title: 'Feature planning',
+      chart: computeChart(site.ladder, site.workstreams),
+    },
   });
 
   pages.push({
@@ -554,12 +573,22 @@ export async function build(projectRoot, outDir, options = {}) {
       copyFileSync(asset.source, destination);
     }
 
-    // The theme's own stylesheet, at the path every layout links to.
-    copyFileSync(path.join(THEME_DIR, STYLESHEET), path.join(staging, STYLESHEET));
+    // The theme's own files, at the paths the layouts link to.
+    for (const file of THEME_FILES) {
+      copyFileSync(path.join(THEME_DIR, file), path.join(staging, file));
+    }
 
     await renderPages(pages, staging, { quiet });
 
     writeFileSync(path.join(staging, 'state.json'), serialiseState(state), 'utf8');
+
+    // Decision 7: nothing on an Atlas site is anonymous. Emitted rather than left to each project,
+    // because the failure mode this closes is a project that does NOTHING — M1 shipped no
+    // configuration at all, so a project adopting Atlas got a public site by default while the one
+    // live site was gated by a file its own workflow copied in. A project that needs a different
+    // identity provider still overwrites this after the build; a project that does nothing is
+    // now gated instead of open. See src/swa.mjs.
+    writeFileSync(path.join(staging, SWA_CONFIG_FILENAME), serialiseSwaConfig(), 'utf8');
 
     // Only now is anything already published at risk, and only for the moment between these two
     // calls. Before this line a failure costs nothing; a page that did not render cannot take the
