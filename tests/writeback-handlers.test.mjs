@@ -502,6 +502,25 @@ test('decision 35: the Function exports exactly two write handlers and no third'
   assert.deepEqual(handlers.sort(), ['handleAcceptance', 'handleAnswer']);
 });
 
+test('every request names the configured repository, and there is no way to make it name another', async () => {
+  // The plan's "no write that can reach a repository other than the configured one". Until this
+  // existed the stub answered any repository at all, so pointing the client somewhere else passed
+  // the whole suite — found by making exactly that change and watching nothing go red.
+  const github = repo();
+  await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'x' }), deps(github));
+  await handleAcceptance(post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }), deps(github));
+
+  const contentCalls = github.calls.filter((call) => call.url.includes('/contents/'));
+  assert.ok(contentCalls.length >= 3, `expected the record requests, saw ${contentCalls.length}`);
+  for (const call of contentCalls) {
+    assert.match(
+      call.url,
+      /\/repos\/an-owner\/a-repo\/contents\//,
+      `a request named a repository nobody configured: ${call.url}`,
+    );
+  }
+});
+
 test('decision 35: no request path can write to a manifest, a roadmap or a config', async () => {
   const github = repo();
   await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'x' }), deps(github));
