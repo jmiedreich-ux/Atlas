@@ -19,6 +19,10 @@
 //   * Nothing is dated. A build stamp would make every rebuild differ from the last, which would
 //     destroy the only property that lets a reader trust the file is current.
 
+// The shape of this document. Bumped only when a change would break a reader that understood the
+// previous version — a new optional key does not.
+export const STATE_VERSION = 1;
+
 function issueRef(issue) {
   return { number: issue.number, title: issue.title, url: issue.html_url };
 }
@@ -38,6 +42,10 @@ export function buildState(site) {
   }
 
   return {
+    // Decision 29 makes this a contract other tools consume, so it says which contract it is —
+    // first key, before anything a reader would have to parse to find it. One line now; after a
+    // consumer exists, an unversioned shape cannot be changed in a way anyone can detect.
+    version: STATE_VERSION,
     project: site.project,
     repo: site.repo,
 

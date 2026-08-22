@@ -695,6 +695,25 @@ h3 {
   font-size: 0.8rem;
 }
 
+/* The records index: one section per directory the repository already has. */
+.record-group {
+  margin: var(--sky-space-5) 0;
+  max-width: var(--sky-measure);
+}
+
+.record-group h2 {
+  color: var(--sky-ink-subtle);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin: 0 0 var(--sky-space-2);
+  text-transform: uppercase;
+}
+
+.record-group .where {
+  display: block;
+}
+
 .empty {
   color: var(--sky-ink-subtle);
   font-style: italic;

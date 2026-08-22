@@ -1,0 +1,35 @@
+{#- Atlas — the way into the records (decisions 1, 2, 3, 15).
+
+  Every Markdown record the build rendered, listed. Without this page the roadmap and the design
+  authorities render at URLs nothing links to, and a site whose records cannot be reached fails
+  Atlas's own premise invisibly — the pages exist, so nothing looks broken.
+
+  It is generated from the same `site.documents` list the record pages themselves are rendered
+  from, so it cannot list a page that was not written or omit one that was (decision 3: no
+  artifact without a generator). Grouped by the directory each record lives in, because the
+  repository's own shape is the only grouping Atlas is entitled to invent.
+
+  Data this layout expects:
+    groups — [{ dir, records: [{ title, path, url }] }], in path order
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+
+{% block bodyClass %}page page-records{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Project depth</a></p>
+<h1>Records</h1>
+<p class="lede">Every record in the repository, rendered as the file it already is. Atlas is never the record: where a page and its file disagree, the file is right.</p>
+
+{% for group in groups %}
+<section class="record-group">
+<h2><code>{{ group.dir }}</code></h2>
+<ul class="named-refs">
+{% for entry in group.records %}
+<li><a href="{{ entry.url }}">{{ entry.title }}</a> <span class="where">{{ entry.path }}</span></li>
+{% endfor %}
+</ul>
+</section>
+{% endfor %}
+{% endblock %}

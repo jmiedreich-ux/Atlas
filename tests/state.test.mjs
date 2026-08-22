@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { build } from '../src/build.mjs';
+import { STATE_VERSION } from '../src/state.mjs';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 
 // Decision 29: "the build emits state.json beside the pages. The same data, machine-readable."
@@ -48,6 +49,15 @@ test('state: it is emitted beside the pages, as parseable JSON (decision 29)', (
   assert.equal(typeof state, 'object');
   assert.equal(state.project, config.project);
   assert.equal(state.repo, config.repo);
+});
+
+test('state: it says which version of its own shape it is, first (decision 29)', () => {
+  // Decision 29 makes this a contract other tools consume. A consumer that cannot tell which
+  // shape it is holding cannot be told the shape changed, and by the time one exists it is too
+  // late to add cheaply.
+  assert.equal(state.version, STATE_VERSION);
+  assert.equal(typeof state.version, 'number');
+  assert.equal(Object.keys(state)[0], 'version', 'the version is not the first thing a reader meets');
 });
 
 // --- the same workstreams the pages were rendered from --------------------------------------------
@@ -175,8 +185,18 @@ test('state: pull requests and unlabelled issues are kept in their own buckets',
 // --- the same triage the phone view showed ---------------------------------------------------------
 
 test('state: the triage order is the order the phone view put the cards in (decisions 27, 29)', () => {
-  const cards = attrValues(read('mobile/index.html'), 'data-workstream');
-  const states = attrValues(read('mobile/index.html'), 'data-triage').filter((_, i) => i % 2 === 0);
+  // Read both values off the same <article> tag rather than counting `data-triage` attributes and
+  // taking every other one: the card also carries the state on its chip, and a third occurrence
+  // would silently misalign the two lists instead of failing.
+  const articles = [
+    ...read('mobile/index.html').matchAll(
+      /<article\b[^>]*data-workstream="([^"]+)"[^>]*data-triage="([^"]+)"[^>]*>/g,
+    ),
+  ];
+  assert.equal(articles.length, state.triage.length, 'the phone view and state.json disagree on how many cards');
+
+  const cards = articles.map((m) => m[1]);
+  const states = articles.map((m) => m[2]);
 
   assert.deepEqual(state.triage.map((t) => t.codename), cards, 'state.json and the phone view disagree about the order');
   assert.deepEqual(state.triage.map((t) => t.triage), states, 'state.json and the phone view disagree about the states');

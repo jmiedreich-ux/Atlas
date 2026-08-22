@@ -3,9 +3,17 @@
   Atlas is never the record. This page renders one, names where it lives, and links to it on
   GitHub so the reader can reach the authority rather than trust the rendering.
 
+  The record supplies its own <h1>. This page does not print `doc.title` above it: the title was
+  derived FROM that heading, so printing it back would announce the same words twice in a row and
+  put the contents list's first entry on the heading of the page you are already reading. Decision
+  11 forces the record's own heading; nothing forces a second one, and a duplicate Atlas invented
+  for itself is decision 11 inverted. The breadcrumb and the lede establish context instead.
+
   Data this layout expects:
-    doc      — { title, path } — path is the record's location in the repository
-    content  — the record, already rendered by renderMarkdown
+    doc      — { title, path } — path is the record's location in the repository; `title` names
+               the page in <title> and in the records index, not in the body
+    record   — the record, already rendered by renderMarkdown. Not `content`: that is one of
+               Eleventy's reserved data names, and .eleventy.js keeps that guard switched on
     anchors  — headingAnchors(source), for the contents list
     project, repo, title — see base.njk
 -#}
@@ -14,8 +22,7 @@
 {% block bodyClass %}page page-document{% endblock %}
 
 {% block content %}
-<p class="breadcrumb"><a href="/">Project depth</a></p>
-<h1>{{ doc.title }}</h1>
+<p class="breadcrumb"><a href="/">Project depth</a> · <a href="/records/">Records</a></p>
 <p class="lede">Rendered from <a href="https://github.com/{{ repo }}/blob/master/{{ doc.path }}"><code>{{ doc.path }}</code></a>. Where this page and that file disagree, the file is right.</p>
 
 {% if anchors | length %}
@@ -30,6 +37,6 @@
 {% endif %}
 
 <article class="doc">
-{{ content | safe }}
+{{ record | safe }}
 </article>
 {% endblock %}

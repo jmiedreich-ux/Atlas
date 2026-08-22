@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,12 +27,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const FIXTURE_ROOT = path.join(REPO_ROOT, 'fixture');
 const THEME_DIR = path.join(REPO_ROOT, 'theme');
+// The six layouts live in `theme/_includes/`, Eleventy's default includes directory — which is
+// what keeps Eleventy from discovering them as pages of their own. See `.eleventy.js`.
+const LAYOUT_DIR = path.join(THEME_DIR, '_includes');
 
 const TOKENS_CSS = readFileSync(path.join(THEME_DIR, 'tokens.css'), 'utf8');
 
 // Task 7 wires Eleventy. Here the same `.njk` files are rendered through Nunjucks directly, so a
 // layout can be asserted without standing up the whole pipeline.
-const env = new nunjucks.Environment(new nunjucks.FileSystemLoader(THEME_DIR, { noCache: true }), {
+const env = new nunjucks.Environment(new nunjucks.FileSystemLoader(LAYOUT_DIR, { noCache: true }), {
   autoescape: true,
 });
 
@@ -128,7 +131,7 @@ const milestoneHtml = env.render('milestone.njk', {
   title: 'Milestone 1',
   workstream: beacon,
   milestone: beacon.manifest.milestones[0],
-  content: renderMarkdown(beaconPlan, { hrefBase: 'docs/features/beacon' }),
+  record: renderMarkdown(beaconPlan, { hrefBase: 'docs/features/beacon' }),
   anchors: headingAnchors(beaconPlan),
 });
 
@@ -138,7 +141,7 @@ const documentHtml = env.render('document.njk', {
   ...site,
   title: 'Decisions on record',
   doc: { title: 'Decisions on record', path: 'docs/design/approved/lighthouse-decisions.md' },
-  content: renderMarkdown(decisionsText, { hrefBase: 'docs/design/approved' }),
+  record: renderMarkdown(decisionsText, { hrefBase: 'docs/design/approved' }),
   anchors: headingAnchors(decisionsText),
 });
 
@@ -840,10 +843,15 @@ test('base: the digits the layouts line up in columns are marked for tabular num
 // --- decision 40: the generator holds no project content ------------------------------------------
 
 function themeFiles() {
-  return readdirSync(THEME_DIR).map((name) => ({
-    name,
-    text: readFileSync(path.join(THEME_DIR, name), 'utf8'),
-  }));
+  return [
+    ...readdirSync(THEME_DIR)
+      .filter((name) => statSync(path.join(THEME_DIR, name)).isFile())
+      .map((name) => ({ name, text: readFileSync(path.join(THEME_DIR, name), 'utf8') })),
+    ...readdirSync(LAYOUT_DIR).map((name) => ({
+      name: `_includes/${name}`,
+      text: readFileSync(path.join(LAYOUT_DIR, name), 'utf8'),
+    })),
+  ];
 }
 
 // Names from a real project. None may appear in the generator, and none may reach a page built
