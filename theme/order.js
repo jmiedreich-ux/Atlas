@@ -80,6 +80,24 @@ export function moveSlug(order, slug, delta) {
 }
 
 /**
+ * What to say when a feature moves, for the live region on the page.
+ *
+ * A move rewrites a `transform` on an SVG group, which a screen reader has no reason to announce,
+ * so a reader moving a feature with the arrow keys would otherwise get silence and no way to tell
+ * whether the key did anything — including at either end, where the answer is that it did not.
+ *
+ * @param {string[]} order
+ * @param {string} slug
+ * @param {string} name - the feature's own codename, as the page shows it.
+ * @returns {string}
+ */
+export function announce(order, slug, name) {
+  const at = order.indexOf(slug);
+  if (at === -1) return '';
+  return `${name} moved to position ${at + 1} of ${order.length}.`;
+}
+
+/**
  * Where each lane sits, given an order and the column pitch the drawing was built at.
  *
  * @param {string[]} order
@@ -164,6 +182,7 @@ function wire(doc, storage) {
   if (generated.length < 2) return;
 
   const reset = doc.querySelector('[data-order-reset]');
+  const said = doc.querySelector('[data-order-said]');
   let order = orderSlugs(generated, readOrder(storage));
 
   function render() {
@@ -209,6 +228,9 @@ function wire(doc, storage) {
       event.preventDefault();
       commit(moveSlug(order, slug, delta));
       handle.focus();
+      // Said whether or not the position changed: at either end the useful answer is that the key
+      // worked and the feature is already first or last.
+      if (said) said.textContent = announce(order, slug, handle.getAttribute('data-name') || slug);
     });
 
     let startX = null;

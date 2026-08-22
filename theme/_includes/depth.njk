@@ -10,10 +10,19 @@
   What it is instead: one ribbon per feature descending a shared ladder. The ladder supplies the
   vertical scale; the ribbons are the drawing. Nothing occupies a cell, because there are no cells.
 
-  THIS LAYOUT POSITIONS NOTHING. Every coordinate and every path comes from `src/chart.mjs`, which
-  is pure and unit-tested; this file interpolates them. That is the same rule M1's version followed
-  for the two ends of a column, applied to the whole picture — a layout that computes a position is
-  a layout no test without a browser can check, and there is no browser here.
+  THIS LAYOUT POSITIONS NOTHING. Every coordinate, every radius and every path comes from
+  `src/chart.mjs`, which is pure and unit-tested; this file interpolates them and does no
+  arithmetic of its own. That is the same rule M1's version followed for the two ends of a column,
+  applied to the whole picture — a layout that computes a position is a layout no test without a
+  browser can check, and there is no browser here.
+
+  The claim above was FALSE in the first draft, and nothing caught it: the ribbon body's left edge
+  was written `lane.centre - 18` while its width was read from `CHART.ribbonWidth`, so raising that
+  constant moved the arrowhead and left the body four pixels off-centre behind it with the whole
+  suite green. `tests/theme.test.mjs` now reads every measurement back out of the rendered markup
+  and compares it against the drawing, so a number written here rather than interpolated fails the
+  moment the constant it duplicates is changed. The only literals left below are `0`, an origin,
+  and the percentages a filter region is defined in.
 
   Two drawings, side by side inside one horizontal scroller:
 
@@ -42,17 +51,19 @@
 <div class="planning-order">
 <p class="order-note" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys. <strong>The order is remembered on this device only</strong> — it does not follow you to another browser, or to your phone. An order that travelled with you would have to be written back to the repository, which Atlas does not yet do.</p>
 <button type="button" class="order-reset" data-order-reset hidden>Back to the generated order</button>
+{#- Moving a feature with the arrow keys changes a `transform` on an SVG group, which a screen
+    reader has no reason to announce. This is where the move is said out loud instead. -#}
+<p class="order-said" data-order-said role="status" aria-live="polite"></p>
 </div>
 
 <div class="chart-scroll" data-planning-scroll>
 <svg class="planning-ladder" width="{{ chart.ladderWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.ladderWidth }} {{ chart.height }}" aria-hidden="true" focusable="false">
 <rect class="ladder-ground" x="0" y="0" width="{{ chart.ladderWidth }}" height="{{ chart.height }}"/>
 {%- for band in chart.bands %}{% if band.id == "execution" %}
-{%- set mid = (band.y + band.height / 2) | round -%}
-<text class="band-name" x="18" y="{{ mid }}" transform="rotate(-90 18 {{ mid }})" text-anchor="middle">{{ band.label }}</text>
+<text class="band-name" x="{{ band.labelX }}" y="{{ band.labelY }}" transform="rotate(-90 {{ band.labelX }} {{ band.labelY }})" text-anchor="middle">{{ band.label }}</text>
 {%- endif %}{% endfor %}
 {%- for row in chart.rows %}
-<text class="{% if row.kind == "stage" %}lad-stage{% else %}lad-num num{% endif %}" x="{{ chart.ladderWidth - 14 }}" y="{{ row.centre + 4 }}" text-anchor="end">{{ row.caption }}</text>
+<text class="{% if row.kind == "stage" %}lad-stage{% else %}lad-num num{% endif %}" x="{{ chart.ladderCaptionX }}" y="{{ row.captionY }}" text-anchor="end">{{ row.caption }}</text>
 {%- endfor %}
 <line class="ladder-edge" x1="{{ chart.ladderWidth }}" y1="0" x2="{{ chart.ladderWidth }}" y2="{{ chart.ladderBottom }}"/>
 </svg>
@@ -85,11 +96,11 @@
 
 {#- The header is the drag handle, and it is focusable, because drag alone is not enough: the
     arrow keys move a feature too. -#}
-<g class="lane-head" data-lane-head tabindex="0" role="button" aria-describedby="order-note" aria-label="{{ lane.codename }}. Press the left and right arrow keys to move this feature.">
-<rect class="lane-head-box" x="4" y="6" width="{{ chart.columnPitch - 16 }}" height="44" rx="8" ry="8"/>
-<rect class="lane-head-accent" x="4" y="6" width="5" height="44" rx="2" ry="2"/>
-<a href="{{ lane.url }}"><text class="col-h" x="18" y="26">{{ lane.codename }}</text></a>
-{{ ui.svgChip("stage", lane.stage, 18, 32) }}
+<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" tabindex="0" role="button" aria-describedby="order-note" aria-label="{{ lane.codename }}. Press the left and right arrow keys to move this feature.">
+<rect class="lane-head-box" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.width }}" height="{{ chart.head.height }}" rx="{{ chart.head.radius }}" ry="{{ chart.head.radius }}"/>
+<rect class="lane-head-accent" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.accentWidth }}" height="{{ chart.head.height }}" rx="{{ chart.head.accentRadius }}" ry="{{ chart.head.accentRadius }}"/>
+<a href="{{ lane.url }}"><text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text></a>
+{{ ui.svgChip("stage", lane.stage, chart.head.textX, chart.head.chipY) }}
 </g>
 
 {#- The ribbon. One object per feature, drawn in two weights: solid over what has begun, faint over
@@ -97,7 +108,7 @@
     body — nothing floats, and there is never a gap between the two. -#}
 <g class="ribbon">
 {%- for segment in lane.solid.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.centre - 18 }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="6" ry="6"/>
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.solid.x }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="{{ lane.solid.radius }}" ry="{{ lane.solid.radius }}"/>
 {%- endfor %}
 {%- for d in lane.solid.detours %}
 <path class="ribbon-detour" d="{{ d }}" fill="none"/>
@@ -105,7 +116,7 @@
 <path class="ribbon-head tone-{{ lane.solid.head.tone }}" d="{{ lane.solid.head.d }}"/>
 {%- if lane.faint %}
 {%- for segment in lane.faint.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.centre - 14 }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="5" ry="5"/>
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
 {%- endfor %}
 <path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
 {%- endif %}
@@ -115,9 +126,9 @@
     arrowhead, whatever its status — the rule is positional, not status-based (#780). -#}
 {%- for dot in lane.dots %}
 <g class="milestone-dot tone-{{ dot.tone }}">
-<circle class="dot{% if dot.hollow %} dot-hollow{% endif %}" cx="{{ lane.centre }}" cy="{{ dot.y }}" r="7"/>
+<circle class="dot{% if dot.hollow %} dot-hollow{% endif %}" cx="{{ lane.centre }}" cy="{{ dot.y }}" r="{{ dot.r }}"/>
 {%- for line in dot.lines %}
-<text class="{% if line.strong %}dt-b num{% else %}dt{% endif %}" x="62" y="{{ dot.y - 3 + loop.index0 * 13 }}">{{ line.text }}</text>
+<text class="{% if line.strong %}dt-b num{% else %}dt{% endif %}" x="{{ lane.textX }}" y="{{ line.y }}">{{ line.text }}</text>
 {%- endfor %}
 </g>
 {%- endfor %}
@@ -126,10 +137,10 @@
     around this marker; here is the marker, and the reason to read it at. -#}
 {%- for skip in lane.skips %}
 <g class="skip-mark">
-<circle class="skip-ring" cx="{{ lane.centre }}" cy="{{ skip.y }}" r="12"/>
+<circle class="skip-ring" cx="{{ lane.centre }}" cy="{{ skip.y }}" r="{{ skip.r }}"/>
 <path class="skip-cross" d="{{ skip.cross }}" fill="none"/>
-<text class="skip-t" x="62" y="{{ skip.y - 3 }}">{{ skip.label }}</text>
-<text class="dt" x="62" y="{{ skip.y + 10 }}">{{ skip.reason }}</text>
+<text class="skip-t" x="{{ lane.textX }}" y="{{ skip.labelY }}">{{ skip.label }}</text>
+<text class="dt" x="{{ lane.textX }}" y="{{ skip.reasonY }}">{{ skip.reason }}</text>
 </g>
 {%- endfor %}
 
@@ -140,7 +151,7 @@
 {%- if lane.balloon %}
 <g class="balloon tone-{{ lane.balloon.tone }}">
 <path class="balloon-line" d="{{ lane.balloon.connector }}" fill="none"/>
-<circle class="balloon-pin" cx="{{ lane.balloon.dot.x }}" cy="{{ lane.balloon.dot.y }}" r="4"/>
+<circle class="balloon-pin" cx="{{ lane.balloon.dot.x }}" cy="{{ lane.balloon.dot.y }}" r="{{ lane.balloon.dot.r }}"/>
 <path class="balloon-body" d="{{ lane.balloon.path }}" filter="url(#balloon-shadow)"/>
 <text class="bl-k" x="{{ lane.balloon.textX }}" y="{{ lane.balloon.kickerY }}">{{ lane.balloon.kicker }}</text>
 {%- for line in lane.balloon.lines %}

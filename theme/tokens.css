@@ -148,10 +148,14 @@
   --atlas-font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
   --atlas-font-mono: "Cascadia Mono", Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Layout measures. Lengths, not colours; nothing in the contract covers them. */
+  /* Layout measures. Lengths, not colours; nothing in the contract covers them.
+   *
+   * Only ONE, deliberately. `--atlas-column-width` and `--atlas-ladder-width` lived here until
+   * #780 replaced the table with a drawing, and their last consumers went with it — leaving two
+   * authoritative-looking tokens quietly disagreeing with the real values in `src/chart.mjs`
+   * (`columnPitch: 240` against 184px, `ladderWidth: 104` against 112px). A measurement the
+   * drawing owns does not get a second home in the stylesheet. */
   --atlas-measure: 42rem;
-  --atlas-column-width: 11.5rem;
-  --atlas-ladder-width: 7rem;
 
   /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
    * surface beside it, and the `designing`/`planned` chips need one.
@@ -547,9 +551,16 @@ h3 {
 
 /* --- a lane, and its header ---------------------------------------------------------------- */
 
-/* The header is also the drag handle, so it says so before anyone touches it. */
+/* The header is also the drag handle, so it says so before anyone touches it.
+ *
+ * `touch-action: none` is what makes the drag work on a phone at all. `.chart-scroll` scrolls
+ * sideways, so without this the browser claims a touch that starts on a header for its own pan
+ * gesture and the drag arrives as `pointercancel` — the interaction would simply do nothing on
+ * the one device decision 4 says this is read on. It is scoped to the handle, so the drawing
+ * still pans normally everywhere else. */
 .lane-head {
   cursor: grab;
+  touch-action: none;
 }
 
 .lane-head-box {
@@ -755,6 +766,16 @@ h3 {
 
 .order-reset[hidden] {
   display: none;
+}
+
+/* The live region that says a keyboard move out loud. It carries no text until a feature moves,
+ * so it takes no room; it is deliberately NOT `display: none`, which would stop it being
+ * announced at all. */
+.order-said {
+  color: var(--sky-text-secondary);
+  flex-basis: 100%;
+  font-size: 0.78rem;
+  margin: 0;
 }
 
 .chart-key {

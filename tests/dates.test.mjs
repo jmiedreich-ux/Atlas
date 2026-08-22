@@ -74,9 +74,15 @@ test('dates: nothing between a manifest and a page ever reads the clock', () => 
   //
   // `new Date(someNumber)` is fine and is used: it is arithmetic on a stored day. `new Date()`
   // with no argument, and `Date.now()`, are the clock.
-  const sources = ['chart.mjs', 'dates.mjs', 'depth.mjs', 'state.mjs', 'build.mjs', 'swa.mjs'];
+  // EVERY module under src/, walked as a directory rather than named in a list. A hardcoded list
+  // is the same "guard that cannot fail" this test was written to replace, one level up: a review
+  // put `Date.now()` in `src/config.mjs` — which the list did not name — and the suite stayed
+  // green.
+  const srcDir = path.resolve(__dirname, '..', 'src');
+  const sources = readdirSync(srcDir).filter((name) => name.endsWith('.mjs'));
+  assert.ok(sources.length >= 8, `expected to scan the whole generator, saw ${sources.length} modules`);
   for (const name of sources) {
-    const text = readFileSync(path.resolve(__dirname, '..', 'src', name), 'utf8');
+    const text = readFileSync(path.join(srcDir, name), 'utf8');
     assert.ok(!/\bDate\.now\s*\(/.test(text), `src/${name} reads the clock with Date.now()`);
     assert.ok(!/\bnew Date\s*\(\s*\)/.test(text), `src/${name} reads the clock with new Date()`);
     assert.ok(!/toISOString|toLocaleDateString|Intl\.DateTimeFormat/.test(text),

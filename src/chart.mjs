@@ -54,7 +54,12 @@ export const CHART = Object.freeze({
   faintWidth: 28,
   headLength: 30,
   faintHeadLength: 26,
+  ribbonRadius: 6,
+  faintRadius: 5,
+
+  // The column of text beside every ribbon: the dates, and a skipped milestone's reason.
   textX: 62,
+  textLine: 13,
 
   // A ribbon stops short of its row's boundary so the light rule beneath it stays visible either
   // side of the head, rather than being buried under a solid block.
@@ -73,7 +78,36 @@ export const CHART = Object.freeze({
   dotRadius: 7,
   skipRadius: 12,
   detourReach: 28,
+  balloonPinRadius: 4,
+
+  // A feature's header: the drag handle, its accent spine, and the two lines inside it. It is
+  // inset a little on its left and rather more on its right, so two adjacent headers read as two
+  // rather than as one bar with a seam.
+  headMargin: 4,
+  headGutter: 12,
+  headTop: 6,
+  headHeight: 44,
+  headRadius: 8,
+  headAccentWidth: 5,
+  headAccentRadius: 2,
+  headTextX: 18,
+  headTitleY: 26,
+  headChipY: 32,
+
+  // The ladder gutter: the rotated band name down its left edge, and the row captions down its
+  // right.
+  ladderBandX: 18,
+  ladderCaptionInset: 14,
+  ladderCaptionRise: 4,
 });
+
+// EVERY measurement the page draws comes from the object above, through the drawing this module
+// returns. The template interpolates and computes nothing — see the note at the head of
+// `theme/_includes/depth.njk`, and `tests/theme.test.mjs`, which reads the rendered attributes
+// back and compares them against this drawing. That test exists because the first draft of the
+// template DID compute: it hard-coded `centre - 18` for a ribbon whose width it then read from
+// here, so raising `ribbonWidth` moved the head and left the body four pixels off-centre with the
+// whole suite still green.
 
 // --- small pure helpers --------------------------------------------------------------------------
 
@@ -283,7 +317,11 @@ function buildLane(stream, rows) {
     segments,
     detours: detourRows.map((index) => detourPath(centre, index)),
     head: { d: headPath(centre, CHART.ribbonWidth, solidHeadTop, CHART.headLength), tone: solidTone },
+    // The left edge, not just the width: the template must never halve a width of its own, or a
+    // change to `ribbonWidth` moves the head and leaves the body off-centre behind it.
+    x: centre - Math.round(CHART.ribbonWidth / 2),
     width: CHART.ribbonWidth,
+    radius: CHART.ribbonRadius,
   };
 
   // The faint reach: everything on record past where the work has got. Its own arrow, its own
@@ -297,7 +335,9 @@ function buildLane(stream, rows) {
     faint = {
       segments: [{ y: faintTop, height: faintHeadTop - faintTop, tone: 'ahead' }],
       head: { d: headPath(centre, CHART.faintWidth, faintHeadTop, CHART.faintHeadLength), tone: 'ahead' },
+      x: centre - Math.round(CHART.faintWidth / 2),
       width: CHART.faintWidth,
+      radius: CHART.faintRadius,
     };
   }
 
@@ -314,13 +354,22 @@ function buildLane(stream, rows) {
     .map((m) => ({ m, index: rowIndexOf(rows, `depth-${m.depth}`) }))
     .filter(({ m, index }) => index >= 0 && (m.status === 'done' || index === liveIndex))
     .sort((a, b) => a.index - b.index)
-    .map(({ m, index }) => ({
-      id: m.id,
-      y: rowTop(index) + Math.round(CHART.rowHeight / 2),
-      tone: index === liveIndex ? 'live' : 'done',
-      hollow: index === liveIndex,
-      lines: dateLines(m, index === liveIndex),
-    }));
+    .map(({ m, index }) => {
+      const y = rowTop(index) + Math.round(CHART.rowHeight / 2);
+      return {
+        id: m.id,
+        y,
+        r: CHART.dotRadius,
+        tone: index === liveIndex ? 'live' : 'done',
+        hollow: index === liveIndex,
+        // Each line carries its own baseline, exactly as the balloon's do. The template stacks
+        // nothing.
+        lines: dateLines(m, index === liveIndex).map((line, i) => ({
+          ...line,
+          y: y - 3 + i * CHART.textLine,
+        })),
+      };
+    });
 
   const skips = column.skipped
     .map((skip) => ({ skip, index: rowIndexOf(rows, skip.rowId) }))
@@ -330,9 +379,14 @@ function buildLane(stream, rows) {
       return {
         id: skip.id,
         y,
+        r: CHART.skipRadius,
         cross: skipCross(centre, y, CHART.skipRadius),
-        label: `${skip.label} skipped`,
+        // No milestone identifier: #780 puts those in the ladder column and nowhere else, and the
+        // marker already sits on that milestone's own row, so naming it here says it twice.
+        label: 'Skipped',
         reason: skip.issue ? `#${skip.issue} · ${skip.status}` : skip.status,
+        labelY: y - 3,
+        reasonY: y + 10,
       };
     });
 
@@ -342,6 +396,8 @@ function buildLane(stream, rows) {
     stage: column.stage,
     url: stream.url,
     centre,
+    // The column of text beside this feature's ribbon.
+    textX: CHART.textX,
     solid,
     faint,
     dots,
@@ -400,7 +456,7 @@ function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre 
     height,
     path: balloonPath(x, y, width, height, tailX),
     connector: connectorPath(centre + Math.round(CHART.ribbonWidth / 2), headCentre, tailX, y - CHART.balloonTailRise),
-    dot: { x: centre + Math.round(CHART.ribbonWidth / 2), y: headCentre },
+    dot: { x: centre + Math.round(CHART.ribbonWidth / 2), y: headCentre, r: CHART.balloonPinRadius },
     textX: x + CHART.balloonPad,
     kickerY: y + CHART.balloonPad + 8,
     lines: lines.map((line, i) => ({ text: line, y: y + CHART.balloonPad + 14 + (i + 1) * CHART.balloonLine - 4 })),
@@ -429,6 +485,8 @@ export function computeChart(ladder, workstreams) {
     y: rowTop(index),
     height: CHART.rowHeight,
     centre: rowTop(index) + Math.round(CHART.rowHeight / 2),
+    // The caption's own baseline, so the gutter stacks nothing of its own.
+    captionY: rowTop(index) + Math.round(CHART.rowHeight / 2) + CHART.ladderCaptionRise,
   }));
 
   // The lanes are drawn in their own coordinate space, starting at zero, because the ladder
@@ -451,17 +509,19 @@ export function computeChart(ladder, workstreams) {
   // row each and are already named in the ladder gutter; the fourth is everything from M1 down and
   // is by far the tallest, which is why its tint has to survive being stretched.
   const stageRows = rows.filter((row) => row.kind === 'stage');
+  const band = (id, label, y, height) => ({
+    id,
+    label,
+    y,
+    height,
+    // Where the rotated name in the ladder gutter turns about.
+    labelX: CHART.ladderBandX,
+    labelY: y + Math.round(height / 2),
+  });
   const bands = [
-    ...stageRows.map((row) => ({ id: row.id, label: row.caption, y: row.y, height: CHART.rowHeight })),
+    ...stageRows.map((row) => band(row.id, row.caption, row.y, CHART.rowHeight)),
     ...(rows.length > stageRows.length
-      ? [
-          {
-            id: 'execution',
-            label: 'Execution',
-            y: rowTop(stageRows.length),
-            height: ladderBottom - rowTop(stageRows.length),
-          },
-        ]
+      ? [band('execution', 'Execution', rowTop(stageRows.length), ladderBottom - rowTop(stageRows.length))]
       : []),
   ];
 
@@ -471,6 +531,21 @@ export function computeChart(ladder, workstreams) {
     height,
     ladderWidth: CHART.ladderWidth,
     ladderBottom,
+    // Where the gutter's right-aligned row captions sit.
+    ladderCaptionX: CHART.ladderWidth - CHART.ladderCaptionInset,
+    // A feature's header. Identical for every lane, because a lane is drawn about its own origin.
+    head: {
+      x: CHART.headMargin,
+      y: CHART.headTop,
+      width: CHART.columnPitch - CHART.headMargin - CHART.headGutter,
+      height: CHART.headHeight,
+      radius: CHART.headRadius,
+      accentWidth: CHART.headAccentWidth,
+      accentRadius: CHART.headAccentRadius,
+      textX: CHART.headTextX,
+      titleY: CHART.headTitleY,
+      chipY: CHART.headChipY,
+    },
     headerHeight: CHART.headerHeight,
     columnPitch: CHART.columnPitch,
     rows,

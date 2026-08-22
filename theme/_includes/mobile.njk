@@ -45,10 +45,15 @@
 <p class="card-what">{{ stream.manifest.what }}</p>
 <p class="card-position">{{ stream.manifest.position }}</p>
 {#- How much of the track is filled. Not counted here: `computeLadder` decides what "complete"
-    means for a workstream (decision 24 — the contiguous run from depth 1, so a done M2 behind an
-    un-done M1 completes nothing), and the depth chart draws its bar from the same numbers. This
-    page reads them. A second count here is exactly how these two surfaces came to state
-    contradictory facts about one workstream. -#}
+    means for a workstream, and the feature planning drawing fills its ribbon from the same flags.
+    This page reads them. A second count here is exactly how these two surfaces came to state
+    contradictory facts about one workstream.
+
+    "Complete" means THIS MILESTONE IS FINISHED — every `done` one, wherever it sits. M1 counted
+    the contiguous run from depth 1, so the first milestone that was not done stopped the count
+    dead; #780 reversed that, because a feature that parked one milestone and shipped four more
+    after it is four complete, not none. A milestone the work went ROUND is drawn on the desk view
+    as a skip marker and is not counted here, which is what makes "4 of 5" the honest reading. -#}
 {% if stream.column.milestoneCount %}
 <div class="track" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
 {% for filled in stream.column.covered %}<span class="track-seg{% if filled %} is-filled{% endif %}"></span>{% endfor %}

@@ -292,7 +292,10 @@ test('chart: the ribbon leaves its lane round a skipped milestone and rejoins be
 
   assert.equal(lane.skips.length, 1, 'the milestone the work went round was not marked');
   assert.equal(lane.skips[0].id, 'M2');
-  assert.match(lane.skips[0].label, /M2/);
+  // The caption does NOT name the milestone: the marker sits on that milestone's own row, and
+  // #780 puts the identifiers in the ladder column and nowhere else. The id stays on the object,
+  // for the drawing to place the marker by.
+  assert.equal(lane.skips[0].label, 'Skipped');
   assert.match(lane.skips[0].reason, /#709/, 'the marker must carry the issue the reason is recorded at');
   assert.match(lane.skips[0].reason, /parked/);
 

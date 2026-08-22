@@ -1076,16 +1076,128 @@ test('planning: the milestone identifiers are in the ladder column, and in no fe
 
   for (const stream of workstreams) {
     const lane = laneMarkup(depthHtml, stream.slug);
+    // Anywhere in the lane's own TEXT, not just as a whole text node. The first version of this
+    // required an exact `>M3<`, so the skip marker's own "M3 skipped" walked straight past it —
+    // which is precisely the repetition the rule forbids.
+    const spoken = [...lane.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' | ');
     for (const milestone of stream.manifest.milestones) {
       assert.ok(
-        !new RegExp(`>${milestone.label}<`).test(lane),
-        `${stream.slug}'s lane repeats the milestone id ${milestone.label}; that belongs in the ladder alone`,
+        !new RegExp(`(?<![\\w.])${milestone.label}(?![\\w.])`).test(spoken),
+        `${stream.slug}'s lane says the milestone id ${milestone.label}; that belongs in the ladder alone (lane reads: ${spoken})`,
       );
     }
     assert.ok(!/Passed/.test(lane), `${stream.slug}'s lane still carries the word "Passed"`);
   }
 });
 
+test('planning: every measurement on the page came from the drawing, never from the template', () => {
+  // The trap this closes, found in review. The template hard-coded a ribbon's left edge as
+  // `lane.centre - 18` — half of `CHART.ribbonWidth` — while reading the WIDTH from the drawing.
+  // Raising `ribbonWidth` to 44 therefore moved the arrowhead, which is computed, and left the
+  // body four pixels off-centre behind it, with the whole suite green. What shipped was correct;
+  // the trap was for whoever changed a constant next.
+  //
+  // So: every number the markup carries is read back and compared against the drawing that was
+  // handed to it. A literal written in the template is identical to the emitted value TODAY and
+  // diverges the moment the constant it duplicates moves — which is exactly when this fails.
+  const chart = computeChart(ladder, assemble(workstreams));
+
+  const attr = (markup, name) => {
+    const found = new RegExp(`\\b${name}="(-?[\\d.]+)"`).exec(markup);
+    assert.ok(found, `expected a ${name} on: ${markup}`);
+    return Number(found[1]);
+  };
+
+  // The header, identical for every lane because a lane is drawn about its own origin.
+  const heads = [...depthHtml.matchAll(/<rect class="lane-head-box"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(heads.length, chart.lanes.length, 'expected one header per feature');
+  for (const markup of heads) {
+    assert.equal(attr(markup, 'x'), chart.head.x);
+    assert.equal(attr(markup, 'width'), chart.head.width);
+    assert.equal(attr(markup, 'height'), chart.head.height);
+    assert.equal(attr(markup, 'rx'), chart.head.radius);
+  }
+
+  // The gutter's row captions.
+  const captions = [...depthHtml.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(captions.length, chart.rows.length);
+  captions.forEach((markup, i) => {
+    assert.equal(attr(markup, 'x'), chart.ladderCaptionX);
+    assert.equal(attr(markup, 'y'), chart.rows[i].captionY);
+  });
+
+  for (const lane of chart.lanes) {
+    const markup = laneMarkup(depthHtml, lane.slug);
+    const bodies = [...markup.matchAll(/<rect class="ribbon-body[^>]*>/g)].map((m) => m[0]);
+
+    // Both ribbons: the body's left edge, its width and its corner radius, all from the drawing.
+    for (const [arrow, name] of [
+      [lane.solid, 'solid'],
+      [lane.faint, 'faint'],
+    ]) {
+      if (!arrow) continue;
+      const mine = bodies.filter((body) => attr(body, 'width') === arrow.width);
+      assert.ok(mine.length > 0, `${lane.slug}: no ${name} ribbon body at all`);
+      for (const body of mine) {
+        assert.equal(attr(body, 'x'), arrow.x, `${lane.slug}: the ${name} body's left edge is not the drawing's`);
+        assert.equal(attr(body, 'rx'), arrow.radius, `${lane.slug}: the ${name} body's radius is not the drawing's`);
+      }
+    }
+
+    // And the property the whole trap turned on: a body is centred under its own head.
+    const arrowHeads = [...markup.matchAll(/<path class="ribbon-head[^"]*" d="M (-?[\d.]+) [\d.]+ L (-?[\d.]+) /g)];
+    assert.ok(arrowHeads.length > 0, `${lane.slug}: no arrowhead`);
+    for (const [, left, right] of arrowHeads) {
+      assert.equal(
+        (Number(left) + Number(right)) / 2,
+        lane.centre,
+        `${lane.slug}: an arrowhead is not centred on its own lane`,
+      );
+    }
+    for (const body of bodies) {
+      assert.equal(
+        attr(body, 'x') + attr(body, 'width') / 2,
+        lane.centre,
+        `${lane.slug}: a ribbon body is off-centre from the head it grows into`,
+      );
+    }
+
+    // The dots, their radius, and each date line's own baseline and column.
+    const dots = [...markup.matchAll(/<circle class="dot[^"]*"[^>]*>/g)].map((m) => m[0]);
+    assert.equal(dots.length, lane.dots.length, `${lane.slug}: wrong number of milestone dots`);
+    dots.forEach((dot, i) => {
+      assert.equal(attr(dot, 'cx'), lane.centre);
+      assert.equal(attr(dot, 'cy'), lane.dots[i].y);
+      assert.equal(attr(dot, 'r'), lane.dots[i].r, `${lane.slug}: a dot's radius is not the drawing's`);
+    });
+
+    const textLines = [...markup.matchAll(/<text class="(?:dt-b num|dt)"[^>]*>/g)].map((m) => m[0]);
+    const emittedBaselines = [
+      ...lane.dots.flatMap((d) => d.lines.map((line) => line.y)),
+      ...lane.skips.map((s) => s.reasonY),
+    ];
+    assert.equal(textLines.length, emittedBaselines.length, `${lane.slug}: wrong number of text lines beside the ribbon`);
+    for (const line of textLines) {
+      assert.equal(attr(line, 'x'), lane.textX, `${lane.slug}: a text line is not in the drawing's own column`);
+      assert.ok(emittedBaselines.includes(attr(line, 'y')), `${lane.slug}: a text line sits at a baseline nothing emitted`);
+    }
+
+    // The skip markers.
+    const rings = [...markup.matchAll(/<circle class="skip-ring"[^>]*>/g)].map((m) => m[0]);
+    assert.equal(rings.length, lane.skips.length);
+    rings.forEach((ring, i) => {
+      assert.equal(attr(ring, 'cy'), lane.skips[i].y);
+      assert.equal(attr(ring, 'r'), lane.skips[i].r, `${lane.slug}: a skip marker's radius is not the drawing's`);
+    });
+
+    // And the balloon's pin.
+    if (lane.balloon) {
+      const pin = /<circle class="balloon-pin"[^>]*>/.exec(markup)[0];
+      assert.equal(attr(pin, 'cx'), lane.balloon.dot.x);
+      assert.equal(attr(pin, 'r'), lane.balloon.dot.r);
+    }
+  }
+});
 test('planning: every feature has a ribbon and an arrowhead, drawn as paths rather than glyphs', () => {
   for (const stream of workstreams) {
     const lane = laneMarkup(depthHtml, stream.slug);
@@ -1114,7 +1226,9 @@ test('planning: the faint second arrow is drawn only where records remain beyond
 test('planning: a skipped milestone is marked in its own row, with the reason beside it', () => {
   const reef = laneMarkup(depthHtml, 'reef');
   assert.match(reef, /<circle class="skip-ring"/, 'the milestone the work went round was not marked');
-  assert.match(reef, /<text class="skip-t"[^>]*>M3 skipped<\/text>/);
+  // "Skipped", not "M3 skipped": the marker already sits on that milestone's own row, and #780
+  // puts the identifiers in the ladder column and nowhere else.
+  assert.match(reef, /<text class="skip-t"[^>]*>Skipped<\/text>/);
   assert.match(reef, /#703 · parked/, 'the marker does not say why, or where to read the reason');
   assert.match(reef, /<path class="ribbon-detour"/, 'the ribbon does not visibly go round the marker');
 
@@ -1190,9 +1304,42 @@ test('planning: a feature can be reordered by keyboard as well as by drag, and t
     assert.match(handle, /aria-label="[^"]*arrow keys[^"]*"/, 'a feature header does not say what the keys do');
   }
 
+  // A move rewrites a transform on an SVG group, which a screen reader has no reason to announce,
+  // so there is somewhere on the page for the module to say it.
+  assert.match(
+    depthHtml,
+    /<p class="order-said"[^>]*aria-live="polite"[^>]*>/,
+    'a keyboard move has nowhere to be announced',
+  );
+  for (const handle of handles) {
+    assert.match(handle, /data-name="[^"]+"/, 'a header carries no name for the announcement to use');
+  }
+
   // And the behaviour is one static file on this surface alone.
   assert.match(depthHtml, /<script type="module" src="\/order\.js"><\/script>/);
   assert.ok(!mobileHtml.includes('order.js'), 'the phone view loads the ordering script it has no use for');
+});
+
+test('tokens.css: a drag that starts on a header is the drag, not the browser own pan', () => {
+  // Found in review, and it would have killed the feature on the one device decision 4 says this
+  // is read on. `.chart-scroll` scrolls sideways, so without `touch-action: none` on the handle the
+  // browser claims a touch that starts there for its pan gesture and the drag arrives as
+  // `pointercancel` — nothing happens, on a phone, silently.
+  const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((x) => x.trim() === '.chart-scroll'));
+  assert.match(scroller.body, /overflow-x\s*:\s*auto/, 'this test is about a sideways scroller; there is not one');
+
+  const handle = DECLARATION_RULES.filter((r) => r.selector.split(',').some((x) => x.trim() === '.lane-head'));
+  assert.ok(handle.length > 0, 'no .lane-head rule');
+  assert.ok(
+    handle.some((r) => /touch-action\s*:\s*none/.test(r.body)),
+    'the drag handle does not claim the touch, so a touch drag is taken by the scroller instead',
+  );
+
+  // Scoped to the handle: the drawing must still pan normally everywhere else.
+  const blanket = DECLARATION_RULES.filter((r) => /touch-action\s*:\s*none/.test(r.body)).flatMap((r) =>
+    r.selector.split(',').map((x) => x.trim()),
+  );
+  assert.deepEqual(blanket, ['.lane-head'], `touch-action: none must apply to the handle alone; saw ${blanket}`);
 });
 
 test('planning: the key states in words what the colours say, so colour is never the only signal', () => {

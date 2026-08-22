@@ -52,8 +52,8 @@ backlog. `issues: read` is what stops that; `contents: read` is what lets `actio
 | `output-dir`   | no       | `.atlas-out`           | Where the built site is written, relative to the calling workflow's working directory unless given as an absolute path. Wired straight into a later step — `actions/upload-pages-artifact`, an Azure Static Web Apps deploy — that publishes it. |
 | `github-token` | no       | *(none)*               | A token used to fetch each workstream's open issues and pull requests. There is no safe default, so it is left unset rather than defaulted: without it, the build still succeeds — `src/github.mjs` tolerates GitHub being unreachable — but the requests are unauthenticated and subject to GitHub's public rate limit. Pass `${{ github.token }}`, as above, to authenticate as the workflow's own run. |
 
-Per decision 46, the version tags (`v1.0.0`, and the `v1` major tag moved forward to it) live in
-**this** repository. A consuming project holds none of its own — nothing to bump, nothing to keep
+Per decision 46, the version tags (a `vX.Y.Z` per release, and the `v1` major tag moved forward to
+the newest compatible one) live in **this** repository. A consuming project holds none of its own — nothing to bump, nothing to keep
 in sync — it only ever points at Atlas's.
 
 ## Running it yourself
@@ -234,8 +234,8 @@ by everyone who can reach the site should not be under `docs/`. The only excepti
 `workstream.json` manifests, which are read rather than served, and dot-files and dot-directories,
 which are skipped.
 
-Alongside the pages, every build writes three files of its own: `state.json` (above), `tokens.css`
-and `order.js` from the theme, and `staticwebapp.config.json`.
+Alongside the pages, every build writes four files of its own: `state.json` (above), `tokens.css`
+and `order.js` copied from the theme, and `staticwebapp.config.json` (below).
 
 ## Who can read the site
 

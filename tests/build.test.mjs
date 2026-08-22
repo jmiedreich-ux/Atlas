@@ -972,6 +972,46 @@ test('build: two builds into one output directory — at most one may report suc
   );
 });
 
+test('package.json: the generator says which version of itself this is', () => {
+  // Decision 46 puts the release tags in this repository, and a tag is cut from a commit whose
+  // package.json is the thing anyone reads to find out what they have. It went out at 1.0.0 and
+  // stayed there through a milestone that changed the manifest vocabulary and rebuilt a surface —
+  // so it is asserted as a shape and as "not the version M1 shipped", which is what actually went
+  // wrong.
+  const manifest = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  assert.match(manifest.version, /^\d+\.\d+\.\d+$/, `not a version: ${manifest.version}`);
+  assert.notEqual(manifest.version, '1.0.0', 'still claiming to be the version M1 shipped');
+
+  // The major stays 1: `uses: <owner>/atlas@v1` resolves against the moving major tag, and this
+  // milestone is additive for a project that already builds — a manifest saying `gated` fails, and
+  // that is a vocabulary change the README documents rather than a new contract.
+  assert.equal(manifest.version.split('.')[0], '1');
+});
+
+test('README: the files it says a build writes are the files a build writes', () => {
+  // It said "three files" and then listed four. Counted against the output rather than read,
+  // because a number in prose beside a list is exactly what drifts when the list grows.
+  const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
+
+  const generated = ['state.json', 'tokens.css', 'order.js', 'staticwebapp.config.json'];
+  const written = listFiles(OUT).filter(
+    (file) => !file.endsWith('.html') && !state.assets.some((asset) => asset.path === file),
+  );
+  assert.deepEqual(written.sort(), [...generated].sort(), 'the build writes a different set than this test knows');
+
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six'];
+  const claimed = /every build writes (\w+) files of its own/.exec(readme);
+  assert.ok(claimed, 'the README no longer says how many files a build writes');
+  assert.equal(
+    words.indexOf(claimed[1]),
+    generated.length,
+    `the README says "${claimed[1]}" files and the build writes ${generated.length}`,
+  );
+  for (const file of generated) {
+    assert.ok(readme.includes(`\`${file}\``), `the README never names ${file}`);
+  }
+});
+
 test('build: the site is gated by default — a project that configures nothing is not public', () => {
   // #780's top generator gap. The gate on the one live Atlas site is a file that project's own
   // workflow copies in, so any OTHER project adopting the generator published its records to the

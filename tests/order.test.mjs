@@ -4,7 +4,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { ORDER_KEY, dropIndex, layout, moveSlug, orderSlugs, readOrder, writeOrder } from '../theme/order.js';
+import {
+  ORDER_KEY,
+  announce,
+  dropIndex,
+  layout,
+  moveSlug,
+  orderSlugs,
+  readOrder,
+  writeOrder,
+} from '../theme/order.js';
 
 // The reordering the owner asked for, and the three ways a remembered order goes stale.
 //
@@ -117,6 +126,20 @@ test('order: a drag lands on the nearest column, and cannot leave the row', () =
   assert.equal(dropIndex(1, -260, 240, 4), 0);
   assert.equal(dropIndex(1, -9000, 240, 4), 0, 'dragged off the left, it stops at the left');
   assert.equal(dropIndex(1, 9000, 240, 4), 3, 'dragged off the right, it stops at the right');
+});
+
+// --- saying it out loud ------------------------------------------------------------------------------
+
+test('order: a keyboard move is said out loud, because moving a lane is silent otherwise', () => {
+  // A move rewrites a `transform` on an SVG group, which a screen reader has no reason to
+  // announce. Without this a reader pressing an arrow key gets silence and cannot tell whether
+  // the key did anything.
+  assert.equal(announce(GENERATED, 'mast', 'Mast'), 'Mast moved to position 2 of 4.');
+  assert.equal(announce(GENERATED, 'keel', 'Keel'), 'Keel moved to position 1 of 4.');
+  assert.equal(announce(GENERATED, 'tiller', 'Tiller'), 'Tiller moved to position 4 of 4.');
+  // Its own name, not its slug: the reader is looking at the codename on the header.
+  assert.ok(!announce(GENERATED, 'mast', 'Mast').includes('mast'));
+  assert.equal(announce(GENERATED, 'nobody', 'Nobody'), '');
 });
 
 // --- storage, which is allowed to fail --------------------------------------------------------------
