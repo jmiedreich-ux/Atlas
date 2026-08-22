@@ -140,7 +140,14 @@ export function buildState(site) {
 
     // Decision 10: copied byte-for-byte, never rendered. Listed separately for exactly that
     // reason — an agent must not mistake one for a page Atlas produced.
-    assets: site.assets.map((asset) => ({ path: asset.path, url: asset.url })),
+    // `isDocument` separates the standalone documents decision 10 is about — an `.html` file a
+    // reader opens — from the files those documents load. Both are copied and served; only the
+    // first is something to send a reader to.
+    assets: site.assets.map((asset) => ({
+      path: asset.path,
+      url: asset.url,
+      isDocument: asset.isDocument,
+    })),
   };
 }
 

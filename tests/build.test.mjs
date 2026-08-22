@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, readdirSync, statSync, rmSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
+import {
+  readFileSync,
+  existsSync,
+  readdirSync,
+  statSync,
+  rmSync,
+  mkdirSync,
+  cpSync,
+  writeFileSync,
+} from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -411,6 +420,27 @@ test('build: an output directory inside the project is refused before anything i
   assert.ok(existsSync(path.join(inside, 'reference.html')));
 });
 
+test('build: an output directory inside the project but holding nothing it reads is allowed', async () => {
+  // `<project>/_site` — the conventional output location for a static site generator, and what a
+  // composite action does: `atlas $GITHUB_WORKSPACE $GITHUB_WORKSPACE/_site`. It holds nothing the
+  // build reads, so replacing it costs nothing.
+  //
+  // This is the case a guard phrased as "the output must not be inside the project" refuses, which
+  // would make Atlas unusable in the one shape decision 39 says it always runs in. The guard is
+  // scoped to the paths the build actually reads instead.
+  const projectRoot = fixtureCopy('outdir-site');
+  const site = path.join(projectRoot, '_site');
+
+  await build(projectRoot, site, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+
+  assert.deepEqual(listFiles(site), EXPECTED_FILES, 'the build into _site produced the wrong tree');
+  // And the project it was built from is entirely intact.
+  assert.ok(existsSync(path.join(projectRoot, 'atlas.config.json')));
+  assert.ok(existsSync(path.join(projectRoot, 'ROADMAP.md')));
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'features', 'beacon', 'workstream.json')));
+  assert.ok(existsSync(path.join(projectRoot, 'docs', 'reference.html')));
+});
+
 test('build: an output directory containing the project is refused too', async () => {
   const projectRoot = fixtureCopy('outdir-containing');
   const error = await build(projectRoot, path.dirname(projectRoot), {
@@ -425,14 +455,9 @@ test('build: an output directory containing the project is refused too', async (
 });
 
 test('build: a build that fails on a broken reference leaves the published site untouched', async () => {
-  // This covers the decision-32 failures, which happen before anything is written anywhere.
-  //
-  // The other half of the contract — a failure DURING RENDERING, after the point where a
-  // wipe-then-refill would already have destroyed the published site — is what the staging swap
-  // in `build()` exists for, and it is NOT asserted here: inducing a render failure means putting
-  // a throwing template where Eleventy will find it, which is the generator's own `theme/`
-  // directory, and `node --test` runs test files in parallel processes. A test that did that
-  // would race every other file's build. It is verified by hand instead; see the task report.
+  // The decision-32 half of the contract: these failures happen before anything is written
+  // anywhere. The render-failure half — after the point where a wipe-then-refill would already
+  // have destroyed the published site — is the test below this one.
   const out = freshDir('swap');
   await build(FIXTURE_ROOT, out, { fetchImpl: stubFetch, quiet: true });
   const published = hashTree(out);
@@ -465,19 +490,90 @@ test('build: an unknown flag is rejected rather than silently ignored', async ()
   assert.ok(!existsSync(path.join(TMP_ROOT, 'typo-out')), 'a rejected invocation still wrote a site');
 });
 
+test('build: a failure DURING RENDERING leaves the published site exactly as it was', async () => {
+  // The half of the swap contract the previous round could not automate. My reasoning then had a
+  // false step: I assumed the throwing template had to go in the *shared* `theme/`, which would
+  // race the other files `node --test` runs in parallel. It does not. `GENERATOR_ROOT` derives
+  // from `import.meta.url`, so a private copy of the generator brings its own theme — plant the
+  // throw there and spawn that copy. Nothing shared is mutated, so nothing can race.
+  //
+  // (Adapted from the test the reviewer wrote to demonstrate the point.)
+  const out = freshDir('render-failure');
+
+  // Publish a good site with the real generator.
+  await build(FIXTURE_ROOT, out, { fetchImpl: stubFetch, quiet: true });
+  const published = hashTree(out);
+  assert.ok(Object.keys(published).length > 0, 'nothing was published to begin with');
+
+  // A private copy of the generator whose document layout throws part-way through rendering.
+  const broken = path.join(TMP_ROOT, 'broken-generator');
+  rmSync(broken, { recursive: true, force: true });
+  mkdirSync(broken, { recursive: true });
+  for (const entry of ['src', 'theme', '.eleventy.js', 'package.json']) {
+    cpSync(path.join(REPO_ROOT, entry), path.join(broken, entry), { recursive: true });
+  }
+  // No `node_modules` is copied or linked. The copy lives under the repository, so Node resolves
+  // `@11ty/eleventy` by walking up to the real one; `package.json` comes along only for its
+  // `"type": "module"`, which `.eleventy.js` needs. (A symlink here fails EPERM on Windows, and
+  // this test should not be the one place the suite stops being portable.)
+
+  // A filter that does not exist. Nunjucks renders undefined property access as empty rather than
+  // throwing — `{{ nope.boom }}` will not fail a build, which cost me an iteration — but an
+  // unknown filter throws. It throws at render time, which is after the assets and the stylesheet
+  // have already been written: precisely the window the staging swap exists to cover.
+  const layout = path.join(broken, 'theme', '_includes', 'document.njk');
+  writeFileSync(layout, readFileSync(layout, 'utf8').replace('{{ record | safe }}', '{{ record | no_such_filter }}'));
+
+  const { spawnSync } = await import('node:child_process');
+  const result = spawnSync(
+    process.execPath,
+    [path.join(broken, 'src', 'build.mjs'), FIXTURE_ROOT, out, '--offline', '--quiet'],
+    { encoding: 'utf8', cwd: TMP_ROOT },
+  );
+
+  assert.notEqual(result.status, 0, 'the broken generator reported success');
+  assert.match(result.stderr, /build failed/, 'the failure was not reported');
+
+  // The contract in build()'s JSDoc: outDir is untouched when it throws.
+  assert.deepEqual(hashTree(out), published, 'a render failure damaged the site that was already published');
+  assert.ok(!existsSync(`${out}.atlas-staging`), 'the staging directory was left behind');
+});
+
 // --- the records are reachable ---------------------------------------------------------------------
 
-test('build: the records index lists every record, and every surface links to it', () => {
+// Both kinds of record a reader can open: the Markdown Atlas renders, and the standalone documents
+// decision 10 has it copy byte-for-byte. A reader cannot tell the difference from the outside, and
+// cannot reach either one if it is not listed.
+//
+// The copied files that are NOT documents — `support.js` and its like — are deliberately excluded:
+// they are loaded by a document, not opened by a person, and the test below asserts that
+// separately and differently.
+const everyRecord = () => [
+  ...state.documents.map((doc) => ({ path: doc.path, url: doc.url, kind: 'rendered' })),
+  ...state.assets
+    .filter((asset) => asset.isDocument)
+    .map((asset) => ({ path: asset.path, url: asset.url, kind: 'copied' })),
+];
+
+test('build: the records index lists every record of both kinds, and every surface links to it', () => {
   const index = read('records/index.html');
 
-  for (const doc of state.documents) {
-    assert.ok(index.includes(`href="${doc.url}"`), `the records index never links ${doc.path}`);
+  for (const record of everyRecord()) {
+    assert.ok(
+      index.includes(`href="${record.url}"`),
+      `the records index never links the ${record.kind} record ${record.path}`,
+    );
   }
 
-  // Exactly the records, not a superset: an entry pointing at a page no longer written is the
-  // same failure in the other direction.
-  const linked = [...index.matchAll(/<li><a href="([^"]+)">/g)].map((m) => m[1]).sort();
-  assert.deepEqual(linked, state.documents.map((d) => d.url).sort());
+  // Exactly the records, not a superset: an entry pointing at something the build did not write
+  // is the same failure in the other direction.
+  const linked = [...index.matchAll(/<li[^>]*><a href="([^"]+)">/g)].map((m) => m[1]).sort();
+  assert.deepEqual(linked, everyRecord().map((r) => r.url).sort());
+
+  // The two kinds are distinguished, because following one lands on a page Atlas made and
+  // following the other lands on the document its author made.
+  assert.match(index, /data-kind="rendered"/);
+  assert.match(index, /data-kind="copied"/);
 
   // And it is reachable, not merely findable by URL.
   for (const page of ['index.html', 'mobile/index.html', 'workstream/beacon/index.html', 'ROADMAP/index.html']) {
@@ -485,17 +581,51 @@ test('build: the records index lists every record, and every surface links to it
   }
 });
 
-test('build: no rendered record page is an orphan', () => {
-  // Decision 1 makes the site the way to read the project. A record rendered at a URL nothing
-  // links to fails that invisibly — the page exists, so nothing looks broken.
+test('build: no record is an orphan — neither the rendered ones nor the copied ones', () => {
+  // Decision 1 makes the site the way to read the project. A record published at a URL nothing
+  // links to fails that invisibly: the page exists, so nothing looks broken.
+  //
+  // The copied standalone documents are the half this test originally missed, because it iterated
+  // `state.documents` alone. `docs/reference.html` was reachable from nowhere; `docs/field
+  // notes.html` only by luck, because a cross-reference inside a Markdown record happened to
+  // point at it. In the real corpus that is thirty-two documents.
   const everyPage = listFiles(OUT)
     .filter((file) => file.endsWith('.html'))
     .map((file) => read(file))
     .join('\n');
 
-  for (const doc of state.documents) {
-    assert.ok(everyPage.includes(`href="${doc.url}"`), `${doc.path} is rendered but nothing links to it`);
+  for (const record of everyRecord()) {
+    assert.ok(
+      everyPage.includes(`href="${record.url}"`),
+      `${record.path} is published (${record.kind}) but nothing on the site links to it`,
+    );
   }
+});
+
+test('build: a copied document keeps the supporting files it loads, at the paths it loads them from', () => {
+  // The other half of decision 10, and the reason the sibling files are copied at all: ten of the
+  // real corpus's thirty-two standalone documents load a `support.js`. These are not listed in the
+  // records index — a reader opens the document, not its script — so what has to be true of them
+  // is that the document's own reference still resolves.
+  const supporting = state.assets.filter((asset) => !asset.isDocument);
+  assert.ok(supporting.length > 0, 'the fixture no longer exercises a document with a sibling file');
+
+  for (const file of supporting) {
+    assert.ok(existsSync(path.join(OUT, file.path)), `${file.path} was not copied`);
+
+    // Referenced by at least one copied document, from the same directory, exactly as written.
+    const referrers = state.assets
+      .filter((asset) => asset.isDocument)
+      .map((asset) => readFileSync(path.join(OUT, asset.path), 'utf8'));
+    const name = path.posix.basename(file.path);
+    assert.ok(
+      referrers.some((html) => html.includes(name)),
+      `${file.path} is copied but no standalone document loads it`,
+    );
+  }
+
+  // And the document that loads it was not rewritten to point somewhere else (decision 10).
+  assert.match(read('docs/reference.html'), /src="\.\/support\.js"/);
 });
 
 test('build: a milestone page links its plan and its acceptance record', () => {

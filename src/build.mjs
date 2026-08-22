@@ -50,6 +50,7 @@ const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
 const STYLESHEET = 'tokens.css';
 
 // Decision 40: the fixed convention a project provides, and nothing else.
+const CONFIG_FILENAME = 'atlas.config.json';
 const ROADMAP = 'ROADMAP.md';
 const DOCS_DIRNAME = 'docs';
 const MANIFEST_FILENAME = 'workstream.json';
@@ -117,44 +118,55 @@ function assertRoadmapExists(projectRoot) {
 }
 
 // The output directory is replaced wholesale by every build, so a page whose record was deleted
-// does not live on forever. That is a destructive act on a path a caller supplied, so it refuses
-// any output directory that overlaps the project or the generator **in either direction**.
+// does not live on forever. That is a destructive act on a path a caller supplied, so one rule
+// governs it:
 //
-// Both directions matter, and only one of them is obvious. `atlas <project> /` would delete the
-// project, which is easy to picture. `atlas <project> <project>/docs` is the one that actually
-// happens — someone building "into the docs folder" — and it deletes every record in the
-// repository before failing anyway, because the records it was about to render are the files it
-// just removed.
+//   **nothing the build reads may overlap what the build replaces** — in either direction.
+//
+// The rule is checked against the things the build actually reads, one by one, rather than against
+// the project and generator directories wholesale. That distinction is not pedantry; it is what
+// separates the two cases below, which a coarser rule cannot tell apart:
+//
+//   * `atlas <project> <project>/docs` — the destructive one, and the one that actually happens
+//     ("build into the docs folder"). Every record the build was about to render is deleted first,
+//     and then the build fails anyway because it just removed its own inputs.
+//   * `atlas <project> <project>/_site` — harmless, and the conventional invocation for a static
+//     site generator. It is also what a composite action does: `atlas $GITHUB_WORKSPACE
+//     $GITHUB_WORKSPACE/_site`. `_site` holds nothing the build reads, so replacing it costs
+//     nothing. A rule phrased as "the output must not be inside the project" refuses this, which
+//     would make Atlas unusable in the one shape decision 39 says it always runs in.
 function assertOutputDirIsSafe(projectRoot, outDir) {
   const contains = (parent, child) => child === parent || child.startsWith(`${parent}${path.sep}`);
 
-  // Nothing the build reads may sit inside what the build replaces. That is one rule, and it has
-  // to be checked in both directions.
+  // Every path the build reads. `atlas.config.json`, `ROADMAP.md` and `docs/` are the project's
+  // side of the convention (decision 40); the theme is the generator's own, and is named rather
+  // than the whole generator repository so that `<generator>/.out` — the ordinary local
+  // invocation, and this suite's own scratch directory — keeps working.
   const readsFrom = [
-    [projectRoot, 'the project'],
-    // Not the whole generator repository: building into `<generator>/.out` is the ordinary case
-    // and must keep working. What the build actually reads from the generator is the theme.
+    [path.join(projectRoot, CONFIG_FILENAME), "the project's config"],
+    [path.join(projectRoot, ROADMAP), "the project's roadmap"],
+    [path.join(projectRoot, DOCS_DIRNAME), "the project's records"],
     [THEME_DIR, "Atlas's own theme"],
   ];
 
-  for (const [root, name] of readsFrom) {
-    if (outDir === root) {
+  for (const [source, name] of readsFrom) {
+    if (outDir === source) {
       throw new Error(
         `refusing to build into ${outDir}: that is ${name}, and the build replaces its output directory`,
       );
     }
-    // The obvious direction: `atlas <project> /` would take the project with it.
-    if (contains(outDir, root)) {
+    // `atlas <project> /`, or `atlas <project> <project>` — the output would take the input with it.
+    if (contains(outDir, source)) {
       throw new Error(
-        `refusing to build into ${outDir}: it contains ${name} (${root}), and the build replaces its output directory`,
+        `refusing to build into ${outDir}: it contains ${name} (${source}), and the build replaces ` +
+          `its output directory`,
       );
     }
-    // The direction that actually happens: someone builds "into the docs folder", and every
-    // record the build was about to render is deleted first.
-    if (contains(root, outDir)) {
+    // `atlas <project> <project>/docs` — the records are deleted before they can be read.
+    if (contains(source, outDir)) {
       throw new Error(
-        `refusing to build into ${outDir}: it is inside ${name} (${root}), and the build replaces its ` +
-          `output directory — every file under it would be deleted before it could be read`,
+        `refusing to build into ${outDir}: it is inside ${name} (${source}), and the build replaces ` +
+          `its output directory — every file under it would be deleted before it could be read`,
       );
     }
   }
@@ -198,12 +210,24 @@ function collectDocuments(projectRoot) {
 // Decision 10: the standalone documents under `docs/` — thirty-two of them in the real corpus, ten
 // loading a sibling `support.js` — and any other file they need. Copied verbatim to the same
 // relative location, so a link written for the repository still resolves on the site.
+//
+// Two kinds, distinguished by `isDocument`, because they are read by different readers. An `.html`
+// file is a complete document somebody opens, and decision 10 exists for it; a `support.js`, a
+// stylesheet or an image is something such a document *loads*, and is reached by the document
+// rather than by a person. Only the first kind belongs in an index of records — listing the second
+// would offer a reader a link to raw JavaScript, and in a real corpus would bury the documents
+// under their own dependencies.
 function collectAssets(projectRoot) {
   return filesUnder(path.join(projectRoot, DOCS_DIRNAME))
     .filter((file) => !file.endsWith('.md') && path.basename(file) !== MANIFEST_FILENAME)
     .map((source) => {
       const relative = relPath(projectRoot, source);
-      return { source, path: relative, url: `/${encodeUrlPath(relative)}` };
+      return {
+        source,
+        path: relative,
+        url: `/${encodeUrlPath(relative)}`,
+        isDocument: /\.html?$/i.test(relative),
+      };
     });
 }
 
@@ -298,20 +322,47 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
 // --- the pages -------------------------------------------------------------------------------------
 
-// The records index, grouped by the directory each record lives in — the repository's own shape,
-// which is the only grouping Atlas is entitled to invent. Group order and record order both follow
-// the already-sorted document list, so the page is stable between builds.
-function groupRecordsByDirectory(documents) {
-  const groups = new Map();
+// The records index, grouped by the directory each file lives in — the repository's own shape,
+// which is the only grouping Atlas is entitled to invent.
+//
+// BOTH kinds of record, because a reader cannot reach what is not listed and the distinction
+// between them is invisible from the outside: the Markdown records Atlas renders (decision 15),
+// and the standalone documents it copies byte-for-byte and never templates (decision 10). In this
+// project's real corpus the second kind is thirty-two files, which is the whole reason decision 10
+// exists — listing only the first kind leaves all thirty-two reachable by luck or not at all.
+//
+// Entries carry `kind` so the page can say which is which. Group order follows the repository
+// path; within a group the two kinds are interleaved in path order, because a reader looking for
+// a file knows where it lives, not how Atlas chose to put it on the site.
+function groupRecordsByDirectory(documents, assets) {
+  const entries = [
+    ...documents.map((doc) => ({ title: doc.title, path: doc.path, url: doc.url, kind: 'rendered' })),
+    // Only the copied files that are documents in their own right. The files those documents load
+    // — `support.js` and its like — are reached through the document, not by a reader, and an
+    // index that offered a link to raw JavaScript would be worse than one that did not.
+    //
+    // A copied document has no heading for Atlas to read, because Atlas never parses it, so its
+    // file name is its name. Anything else would be Atlas inventing a title for a file it does not
+    // render, which is the opposite of decision 2.
+    ...assets
+      .filter((asset) => asset.isDocument)
+      .map((asset) => ({
+        title: path.posix.basename(asset.path),
+        path: asset.path,
+        url: asset.url,
+        kind: 'copied',
+      })),
+  ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 
-  for (const doc of documents) {
-    const dirname = path.posix.dirname(doc.path);
+  const groups = new Map();
+  for (const entry of entries) {
+    const dirname = path.posix.dirname(entry.path);
     const dir = dirname === '.' ? '/' : `${dirname}/`;
     if (!groups.has(dir)) groups.set(dir, []);
-    groups.get(dir).push({ title: doc.title, path: doc.path, url: doc.url });
+    groups.get(dir).push(entry);
   }
 
-  return [...groups].map(([dir, records]) => ({ dir, records }));
+  return [...groups].map(([dir, grouped]) => ({ dir, entries: grouped }));
 }
 
 // Every page as { input, content, data }. `input` is a virtual path inside the generator's theme
@@ -378,7 +429,7 @@ function planPages(site) {
       ...shell,
       permalink: '/records/index.html',
       title: 'Records',
-      groups: groupRecordsByDirectory(site.documents),
+      groups: groupRecordsByDirectory(site.documents, site.assets),
     },
   });
 
