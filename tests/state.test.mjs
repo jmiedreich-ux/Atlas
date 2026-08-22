@@ -1,0 +1,247 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { build } from '../src/build.mjs';
+import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
+
+// Decision 29: "the build emits state.json beside the pages. The same data, machine-readable."
+//
+// "The same data" is the whole point and the whole risk. Everything below compares state.json
+// against the HTML the build emitted in the same run — never against a second derivation from the
+// manifests, which would prove only that two copies of the same bug agree.
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '..');
+const FIXTURE_ROOT = path.join(REPO_ROOT, 'fixture');
+const OUT = path.join(REPO_ROOT, '.tmp-tests', 'state-build');
+
+const ISSUES = JSON.parse(readFileSync(path.join(__dirname, 'fixtures', 'issues.json'), 'utf8'));
+
+rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+
+await build(FIXTURE_ROOT, OUT, {
+  quiet: true,
+  fetchImpl: () =>
+    Promise.resolve({ ok: true, status: 200, json: async () => JSON.parse(JSON.stringify(ISSUES)) }),
+});
+
+const read = (rel) => readFileSync(path.join(OUT, rel), 'utf8');
+const state = JSON.parse(read('state.json'));
+
+const config = loadConfig(FIXTURE_ROOT);
+const workstreams = resolveWorkstreams(config);
+
+// --- text helpers --------------------------------------------------------------------------------
+
+function attrValues(html, attribute) {
+  return [...html.matchAll(new RegExp(`${attribute}="([^"]*)"`, 'g'))].map((m) => m[1]);
+}
+
+// --- the file itself ------------------------------------------------------------------------------
+
+test('state: it is emitted beside the pages, as parseable JSON (decision 29)', () => {
+  assert.ok(existsSync(path.join(OUT, 'state.json')), 'no state.json in the output');
+  assert.equal(typeof state, 'object');
+  assert.equal(state.project, config.project);
+  assert.equal(state.repo, config.repo);
+});
+
+// --- the same workstreams the pages were rendered from --------------------------------------------
+
+test('state: the workstreams are the ones the depth chart drew, in the same order', () => {
+  const drawn = [...new Set(attrValues(read('index.html'), 'data-column'))];
+  assert.deepEqual(state.workstreams.map((w) => w.codename), drawn);
+  assert.deepEqual(state.workstreams.map((w) => w.slug), config.workstreams);
+});
+
+test('state: every workstream carries the position fields the manifest is the authority for', () => {
+  for (const stream of workstreams) {
+    const entry = state.workstreams.find((w) => w.slug === stream.slug);
+    assert.ok(entry, `state.json has no entry for ${stream.slug}`);
+
+    for (const field of ['codename', 'what', 'stage', 'position', 'gate', 'label']) {
+      assert.equal(entry[field], stream.manifest[field], `${stream.slug}.${field} disagrees with the manifest`);
+    }
+    assert.deepEqual(entry.design, stream.manifest.design);
+
+    // And every one of those values reached the page too.
+    const page = read(`workstream/${stream.slug}/index.html`);
+    assert.ok(page.includes(entry.codename), `${stream.slug}: the page and state disagree about the codename`);
+    assert.ok(page.includes(entry.gate), `${stream.slug}: the page and state disagree about the gate`);
+    assert.ok(page.includes(entry.position), `${stream.slug}: the page and state disagree about the position`);
+  }
+});
+
+test('state: every milestone matches the row the workstream page rendered for it', () => {
+  for (const stream of workstreams) {
+    const entry = state.workstreams.find((w) => w.slug === stream.slug);
+    const page = read(`workstream/${stream.slug}/index.html`);
+
+    // The milestone table, row by row, as the page actually rendered it.
+    const rows = [...page.matchAll(/<tr>\s*<th scope="row"[^>]*><a href="([^"]+)">([^<]+)<\/a><\/th>\s*<td>([^<]*)<\/td>\s*<td><span class="chip [^"]*" data-status="([^"]+)"/g)];
+    assert.equal(rows.length, entry.milestones.length, `${stream.slug}: state and page disagree on how many milestones there are`);
+
+    entry.milestones.forEach((milestone, i) => {
+      const [, url, label, title, status] = rows[i];
+      assert.equal(milestone.url, url, `${stream.slug} ${milestone.id}: state and page disagree about the page's URL`);
+      assert.equal(milestone.label, label, `${stream.slug} ${milestone.id}: label`);
+      assert.equal(milestone.title, title, `${stream.slug} ${milestone.id}: title`);
+      assert.equal(milestone.status, status, `${stream.slug} ${milestone.id}: status`);
+
+      // And against the manifest, which is the authority both of them answer to.
+      const source = stream.manifest.milestones[i];
+      assert.equal(milestone.id, source.id);
+      assert.equal(milestone.depth, source.depth);
+      assert.equal(milestone.plan, source.plan, 'decision 14 fixes "plan" as the manifest wrote it');
+      assert.equal(milestone.issue, source.issue);
+      assert.equal(milestone.pr, source.pr);
+      assert.deepEqual(milestone.acceptance, source.acceptance);
+    });
+  }
+});
+
+test('state: every URL it names is a page the same build actually wrote', () => {
+  const urls = [
+    ...state.workstreams.map((w) => w.url),
+    ...state.workstreams.flatMap((w) => w.milestones.map((m) => m.url)),
+    ...state.documents.map((d) => d.url),
+    ...state.surfaces.map((s) => s.url),
+  ];
+
+  assert.ok(urls.length > 0);
+  for (const url of urls) {
+    const file = path.join(OUT, decodeURIComponent(url).replace(/^\//, ''), 'index.html');
+    assert.ok(existsSync(file), `state.json names ${url}, which this build never wrote`);
+  }
+});
+
+test('state: every record path it names is a file in the project, not an absolute path', () => {
+  const paths = [
+    ...state.workstreams.map((w) => w.manifestPath),
+    ...state.workstreams.flatMap((w) => w.milestones.map((m) => m.planPath)),
+    ...state.documents.map((d) => d.path),
+    ...state.assets.map((a) => a.path),
+  ];
+
+  for (const rel of paths) {
+    assert.ok(!path.isAbsolute(rel), `${rel} is an absolute path — state.json must be portable`);
+    assert.ok(!rel.includes('\\'), `${rel} uses backslashes — state.json must read the same on any platform`);
+    assert.ok(existsSync(path.join(FIXTURE_ROOT, rel)), `state.json names ${rel}, which is not in the project`);
+  }
+});
+
+// --- the same issue buckets -----------------------------------------------------------------------
+
+test('state: the issue buckets are the ones the workstream pages listed', () => {
+  for (const stream of workstreams) {
+    const entry = state.workstreams.find((w) => w.slug === stream.slug);
+    const page = read(`workstream/${stream.slug}/index.html`);
+
+    const rendered = [...page.matchAll(/<li><a href="[^"]*"><span class="num">#(\d+)<\/span>/g)].map((m) =>
+      Number(m[1]),
+    );
+    assert.deepEqual(
+      entry.issues.map((issue) => issue.number),
+      rendered,
+      `${stream.slug}: state.json and the page disagree about which issues carry the label`,
+    );
+
+    // And the label bucket is the same list again, keyed by the label the manifest declares.
+    assert.deepEqual(
+      (state.issues.byLabel[stream.manifest.label] ?? []).map((issue) => issue.number),
+      rendered,
+      `${stream.slug}: the by-label bucket and the workstream's own list disagree`,
+    );
+  }
+});
+
+test('state: pull requests and unlabelled issues are kept in their own buckets', () => {
+  const expectedPrs = ISSUES.filter((item) => item.pull_request).map((item) => item.number);
+  const expectedUnlabelled = ISSUES.filter(
+    (item) => !item.pull_request && !(item.labels ?? []).some((l) => l.name.startsWith('workstream:')),
+  ).map((item) => item.number);
+
+  assert.deepEqual(state.issues.prs.map((p) => p.number), expectedPrs);
+  assert.deepEqual(state.issues.unlabelled.map((i) => i.number), expectedUnlabelled);
+
+  assert.ok(expectedPrs.length > 0, 'the issue fixture no longer exercises the pull-request bucket');
+  assert.ok(expectedUnlabelled.length > 0, 'the issue fixture no longer exercises the unlabelled bucket');
+});
+
+// --- the same triage the phone view showed ---------------------------------------------------------
+
+test('state: the triage order is the order the phone view put the cards in (decisions 27, 29)', () => {
+  const cards = attrValues(read('mobile/index.html'), 'data-workstream');
+  const states = attrValues(read('mobile/index.html'), 'data-triage').filter((_, i) => i % 2 === 0);
+
+  assert.deepEqual(state.triage.map((t) => t.codename), cards, 'state.json and the phone view disagree about the order');
+  assert.deepEqual(state.triage.map((t) => t.triage), states, 'state.json and the phone view disagree about the states');
+
+  // The same value again on the workstream entry itself, so an agent reading one workstream does
+  // not have to cross-reference the list.
+  for (const item of state.triage) {
+    const entry = state.workstreams.find((w) => w.slug === item.slug);
+    assert.equal(entry.triage, item.triage, `${item.slug}: the two places state.json records triage disagree`);
+  }
+});
+
+// --- the same ladder the chart drew -----------------------------------------------------------------
+
+test('state: the ladder is the one the chart drew, row for row and column for column', () => {
+  const html = read('index.html');
+  const rowIds = [...new Set(attrValues(html, 'data-row'))];
+  assert.deepEqual(state.ladder.rows.map((r) => r.id), rowIds);
+
+  assert.equal(state.ladder.columns.length, state.workstreams.length);
+  state.ladder.columns.forEach((column, i) => {
+    assert.equal(column.codename, state.workstreams[i].codename);
+    assert.ok(
+      state.ladder.rows.some((row) => row.id === column.headAt),
+      `${column.codename}: headAt "${column.headAt}" names no row on the ladder`,
+    );
+    assert.ok(
+      column.barTo === null || state.ladder.rows.some((row) => row.id === column.barTo),
+      `${column.codename}: barTo "${column.barTo}" names no row on the ladder`,
+    );
+    // The tip note is the workstream's gate, and it reached the chart.
+    assert.ok(html.includes(column.note), `${column.codename}: the note in state never reached the chart`);
+  });
+});
+
+// --- documents -------------------------------------------------------------------------------------
+
+test('state: every Markdown record the build rendered is listed, and nothing else is', () => {
+  const listed = state.documents.map((d) => d.path).sort();
+  assert.ok(listed.includes('ROADMAP.md'), 'the roadmap is not listed as a record');
+  assert.ok(listed.includes('docs/design/approved/lighthouse-decisions.md'));
+  assert.ok(listed.every((p) => p.endsWith('.md')), 'a non-Markdown file was listed as a rendered record');
+  assert.ok(!listed.some((p) => p.endsWith('workstream.json')), 'a manifest was listed as a record');
+
+  for (const doc of state.documents) {
+    assert.ok(doc.title && doc.title.trim().length > 0, `${doc.path} was listed with no title`);
+  }
+});
+
+test('state: the byte-for-byte copies are listed as copies, never as rendered records', () => {
+  const assets = state.assets.map((a) => a.path).sort();
+  assert.deepEqual(assets, ['docs/field notes.html', 'docs/reference.html', 'docs/support.js']);
+  assert.ok(!state.documents.some((d) => assets.includes(d.path)));
+
+  for (const asset of state.assets) {
+    assert.ok(existsSync(path.join(OUT, asset.path)), `${asset.path} is listed but was not copied`);
+  }
+});
+
+// --- and it is stable ------------------------------------------------------------------------------
+
+test('state: it is written in a stable key order, so a rebuild diffs to nothing', () => {
+  const text = read('state.json');
+  assert.equal(text, `${JSON.stringify(JSON.parse(text), null, 2)}\n`, 'state.json is not canonically formatted');
+
+  const labels = Object.keys(state.issues.byLabel);
+  assert.deepEqual(labels, [...labels].sort(), 'the by-label buckets are not in a stable order');
+});

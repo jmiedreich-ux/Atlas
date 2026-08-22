@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeLadder } from '../src/depth.mjs';
+import { computeLadder, assertLadderResolves } from '../src/depth.mjs';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -297,4 +297,62 @@ test('computeLadder: Anchor, the fixture\'s one fully-done workstream, puts the 
   // never the shared row's bare number.
   assert.equal(anchor.tipLabel, 'M5');
   assert.notEqual(anchor.tipLabel, rowById(rows, anchor.headAt).label);
+});
+
+// --- decision 32: the ladder's own invariant, asserted where code can throw ----------------------
+
+// `theme/depth.njk` resolves barTo and headAt to row indices by scanning ladder.rows. If either id
+// were ever absent, the indices would stay -1 and the column would render with no bar and no head:
+// a silently blank column rather than a failure. A template cannot throw, so the invariant is
+// asserted here, in code that can, and the build calls it before it renders anything.
+//
+// Nothing a manifest can say produces an unresolvable ladder while computeLadder is correct — the
+// row set is derived from the same depths the columns are. That is exactly why this is worth
+// asserting: it is the check that catches computeLadder itself regressing.
+
+test('assertLadderResolves: a ladder whose ids all name real rows passes through unchanged', () => {
+  const ladder = computeLadder([
+    entry('alpha', { codename: 'Alpha', milestones: [milestone({ status: 'done' })] }),
+  ]);
+  assert.equal(assertLadderResolves(ladder), ladder);
+});
+
+test('assertLadderResolves: a headAt naming no row fails loudly, naming the column and the id', () => {
+  const ladder = computeLadder([
+    entry('alpha', { codename: 'Alpha', milestones: [milestone({ status: 'done' })] }),
+  ]);
+  ladder.columns[0].headAt = 'depth-99';
+
+  assert.throws(
+    () => assertLadderResolves(ladder),
+    (err) => {
+      assert.match(err.message, /Alpha/, 'the failure never named the column');
+      assert.match(err.message, /depth-99/, 'the failure never named the row id that does not exist');
+      assert.match(err.message, /headAt/, 'the failure never said which end of the column was broken');
+      return true;
+    },
+  );
+});
+
+test('assertLadderResolves: a barTo naming no row fails loudly too', () => {
+  const ladder = computeLadder([
+    entry('alpha', { codename: 'Alpha', milestones: [milestone({ status: 'done' })] }),
+  ]);
+  ladder.columns[0].barTo = 'not-a-row';
+
+  assert.throws(
+    () => assertLadderResolves(ladder),
+    (err) => {
+      assert.match(err.message, /Alpha/);
+      assert.match(err.message, /barTo/);
+      assert.match(err.message, /not-a-row/);
+      return true;
+    },
+  );
+});
+
+test('assertLadderResolves: a null barTo is a column with nothing complete yet, not a broken one', () => {
+  const ladder = computeLadder([entry('alpha', { codename: 'Alpha', stage: 'not-started', milestones: [] })]);
+  assert.equal(ladder.columns[0].barTo, null);
+  assert.doesNotThrow(() => assertLadderResolves(ladder));
 });

@@ -1,6 +1,12 @@
 node_modules/
 .out/
+.atlas-out/
 .superpowers/
+
+# Build output the test suite writes. Deliberately beside the repository rather than in
+# os.tmpdir(), which on a WSL checkout sits on a different filesystem root and degrades
+# path.relative() to an absolute path.
+.tmp-tests/
 
 # Controller-staged reference copies of the plan and spec (not part of the generator).
 .m1-plan.md

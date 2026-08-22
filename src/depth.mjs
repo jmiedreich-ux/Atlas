@@ -112,3 +112,43 @@ export function computeLadder(workstreams) {
 
   return { rows, columns };
 }
+
+/**
+ * Assert that every column's `barTo` and `headAt` names a row that is actually on the ladder,
+ * and fail loudly if one does not (decision 32).
+ *
+ * `theme/depth.njk` finds each end of a column by scanning `ladder.rows` for the id `computeLadder`
+ * named. If an id were ever absent the scan would leave the index at -1, and the column would
+ * render with no bar and no arrowhead — a blank column that looks like a workstream that has not
+ * started, rather than a build that broke. A template cannot throw, so the invariant is checked
+ * here, before anything renders.
+ *
+ * Nothing a manifest can say reaches this: the ladder's rows are derived from the very depths its
+ * columns point at. That is the point — this is the check that catches `computeLadder` itself
+ * regressing, in the one place a regression would otherwise be silent.
+ *
+ * @param {ReturnType<typeof computeLadder>} ladder
+ * @returns {ReturnType<typeof computeLadder>} the same ladder, so this can wrap a call.
+ * @throws {Error} naming the column, the end, and the id that resolves to nothing.
+ */
+export function assertLadderResolves(ladder) {
+  const rowIds = new Set(ladder.rows.map((row) => row.id));
+
+  for (const column of ladder.columns) {
+    // A null barTo is a column with nothing complete yet — the pre-milestone case, not a break.
+    if (column.barTo !== null && !rowIds.has(column.barTo)) {
+      throw new Error(
+        `the depth chart is broken: column "${column.codename}" has barTo "${column.barTo}", ` +
+          `which names no row on the ladder (rows: ${[...rowIds].join(', ')})`,
+      );
+    }
+    if (!rowIds.has(column.headAt)) {
+      throw new Error(
+        `the depth chart is broken: column "${column.codename}" has headAt "${column.headAt}", ` +
+          `which names no row on the ladder (rows: ${[...rowIds].join(', ')})`,
+      );
+    }
+  }
+
+  return ladder;
+}

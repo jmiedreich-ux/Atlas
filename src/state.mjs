@@ -1,0 +1,148 @@
+// `state.json` — the one thing Atlas offers agents (decisions 4, 29).
+//
+// Decision 4 says Atlas is for the owner, not for agents, because a rendered page is a worse
+// input than the Markdown it came from. Decision 29 is the single exception: a session's
+// orientation read becomes one guaranteed-current file instead of six.
+//
+// The rule that makes it worth having is that it is not a second derivation. `buildState` is
+// handed the very objects the pages were rendered from — the same manifests, the same ladder, the
+// same triage call, the same issue buckets — and projects them. It reads nothing from disk, calls
+// no other module, and computes nothing that a page computed separately. If the site and this file
+// ever disagree, it is because something was recomputed here instead of passed in.
+//
+// Two rules about what goes in it:
+//
+//   * Every path is repository-relative and slash-separated. Decision 2 says Atlas is never the
+//     record: an agent reads `state.json` to find out *which file to open*, and an absolute path
+//     from a CI runner is no use to anyone. It also keeps a rebuild byte-identical across
+//     machines.
+//   * Nothing is dated. A build stamp would make every rebuild differ from the last, which would
+//     destroy the only property that lets a reader trust the file is current.
+
+function issueRef(issue) {
+  return { number: issue.number, title: issue.title, url: issue.html_url };
+}
+
+/**
+ * Project the assembled site model into the agent-facing state document.
+ *
+ * @param {object} site - the model `src/build.mjs` rendered the pages from.
+ * @returns {object} a plain, JSON-serialisable object.
+ */
+export function buildState(site) {
+  // Object key order is insertion order, and this is the only place labels are inserted, so
+  // sorting here is what makes the file diff to nothing between two identical builds.
+  const byLabel = {};
+  for (const label of [...site.issues.byLabel.keys()].sort()) {
+    byLabel[label] = site.issues.byLabel.get(label).map(issueRef);
+  }
+
+  return {
+    project: site.project,
+    repo: site.repo,
+
+    // Decision 22: three purpose-built surfaces. Two of them are whole-project views; the third,
+    // a record, is one page per document and is listed under `documents`.
+    surfaces: [
+      { id: 'depth', title: 'Project depth', url: '/' },
+      { id: 'triage', title: 'What needs you', url: '/mobile/' },
+    ],
+
+    workstreams: site.workstreams.map((stream) => ({
+      slug: stream.slug,
+      codename: stream.manifest.codename,
+      what: stream.manifest.what,
+      stage: stream.manifest.stage,
+      position: stream.manifest.position,
+      gate: stream.manifest.gate,
+      label: stream.manifest.label,
+      // Decision 27's state, from the same call the phone view rendered from.
+      triage: stream.triage,
+      url: stream.url,
+      dir: stream.relDir,
+      manifestPath: stream.relManifestPath,
+      // Decision 21: named, never linked. The name is all there is to give.
+      design: stream.manifest.design.map((reference) => ({
+        name: reference.name,
+        where: reference.where,
+      })),
+      // Decision 24: both ends of this workstream's column, as the chart drew them.
+      depth: {
+        barTo: stream.column.barTo,
+        headAt: stream.column.headAt,
+        tipLabel: stream.column.tipLabel,
+        note: stream.column.note,
+      },
+      milestones: stream.milestones.map((entry) => ({
+        // Decision 17: `id` is durable and unchanging, `label` is the display form. Both.
+        id: entry.manifest.id,
+        label: entry.manifest.label,
+        depth: entry.manifest.depth,
+        title: entry.manifest.title,
+        status: entry.manifest.status,
+        // `plan` verbatim as decision 14 fixes it — relative to the workstream's own directory —
+        // and `planPath` as the file an agent actually opens.
+        plan: entry.manifest.plan,
+        planPath: entry.planPath,
+        issue: entry.manifest.issue,
+        pr: entry.manifest.pr,
+        acceptance: {
+          kind: entry.manifest.acceptance.kind,
+          record: entry.manifest.acceptance.record,
+        },
+        url: entry.url,
+      })),
+      issues: stream.issues.map(issueRef),
+    })),
+
+    // Decision 27's order, as the phone view laid the cards out.
+    triage: site.triaged.map((stream) => ({
+      slug: stream.slug,
+      codename: stream.manifest.codename,
+      triage: stream.triage,
+    })),
+
+    // Decisions 20, 23, 24: the shared ladder, exactly as the chart drew it.
+    ladder: {
+      rows: site.ladder.rows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        label: row.label,
+        depth: row.depth,
+      })),
+      columns: site.ladder.columns.map((column) => ({
+        codename: column.codename,
+        stage: column.stage,
+        barTo: column.barTo,
+        headAt: column.headAt,
+        tipLabel: column.tipLabel,
+        note: column.note,
+      })),
+    },
+
+    issues: {
+      byLabel,
+      unlabelled: site.issues.unlabelled.map(issueRef),
+      prs: site.issues.prs.map(issueRef),
+    },
+
+    // Decision 15: Markdown is the authority for content. These are the records Atlas rendered,
+    // and the path is where the record itself lives.
+    documents: site.documents.map((doc) => ({ title: doc.title, path: doc.path, url: doc.url })),
+
+    // Decision 10: copied byte-for-byte, never rendered. Listed separately for exactly that
+    // reason — an agent must not mistake one for a page Atlas produced.
+    assets: site.assets.map((asset) => ({ path: asset.path, url: asset.url })),
+  };
+}
+
+/**
+ * `state.json`'s bytes: two-space JSON with a trailing newline, and no key whose order was decided
+ * by anything but this module.
+ *
+ * @param {object} state
+ * @returns {string}
+ */
+export function serialiseState(state) {
+  return `${JSON.stringify(state, null, 2)}\n`;
+}
