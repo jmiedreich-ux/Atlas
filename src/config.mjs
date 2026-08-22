@@ -87,9 +87,14 @@ export function resolveWorkstreams(config) {
   return config.workstreams.map((slug) => {
     const dir = path.join(config.workstreamsRoot, slug);
 
-    if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    if (!existsSync(dir)) {
       throw new Error(
         `workstream "${slug}" is declared in atlas.config.json but its directory does not exist: ${dir}`,
+      );
+    }
+    if (!statSync(dir).isDirectory()) {
+      throw new Error(
+        `workstream "${slug}" is declared in atlas.config.json but ${dir} is not a directory`,
       );
     }
 
