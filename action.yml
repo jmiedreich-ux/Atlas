@@ -1,0 +1,67 @@
+name: "Atlas"
+description: >-
+  Builds a project's always-current site from its own Markdown and GitHub issues (decision 1).
+  Consumed as `uses: jmiedreich-ux/atlas@v1` by a project that follows Atlas's convention
+  (decision 40) — this action holds no project content of its own.
+author: "jmiedreich-ux"
+
+inputs:
+  project-path:
+    description: >-
+      Path to the project repository to build — the checkout that carries `atlas.config.json`,
+      `ROADMAP.md` and `docs/` (decision 40). Defaults to the calling workflow's own workspace,
+      because the action's checkout of Atlas itself (`${{ github.action_path }}`) is a different
+      directory from the project being built and must never be used as this input.
+    required: false
+    default: ${{ github.workspace }}
+  output-dir:
+    description: >-
+      Where the built site is written, resolved relative to the calling workflow's working
+      directory unless given as an absolute path. Replaced wholesale on every successful build
+      (decision 32); never point this at a directory the project reads from — `atlas.config.json`,
+      `ROADMAP.md` or `docs/` — the build refuses to run if it overlaps any of them. Defaults to
+      `.atlas-out`, the same default the generator's own command line uses when no output
+      directory is given.
+    required: false
+    default: ".atlas-out"
+  github-token:
+    description: >-
+      A GitHub token used to fetch each workstream's open issues and pull requests (decision 1).
+      There is no safe default: this input is left optional rather than defaulted, so a consuming
+      workflow decides explicitly whether to authenticate. Without it, `src/github.mjs` still
+      succeeds — GitHub being unreachable is the one failure this generator tolerates — but the
+      requests are unauthenticated and subject to GitHub's public rate limit, which matters on
+      decision 30's six-hourly schedule. Pass `${{ github.token }}` (or a token with broader
+      access, for a private repository) from the calling workflow to authenticate as that run.
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+
+    # Atlas's own dependencies (@11ty/eleventy, markdown-it — decision 9), installed from the
+    # action's checkout of itself, not the project's. `--prefix` runs npm as though its cwd were
+    # that directory, regardless of what directory this step actually starts in.
+    - name: Install Atlas's dependencies
+      shell: bash
+      run: npm ci --prefix "${{ github.action_path }}"
+
+    # The generator lives at ${{ github.action_path }}, so it is invoked by that absolute path
+    # rather than assumed to be on the caller's checkout. Its two positional arguments come
+    # straight from this action's inputs: `project-path` (defaulting to $GITHUB_WORKSPACE, the
+    # project's own checkout) and `output-dir` — never a path relative to the action's own
+    # directory, which is not the project being built.
+    - name: Build the site
+      shell: bash
+      run: |
+        node "${{ github.action_path }}/src/build.mjs" "${{ inputs.project-path }}" "${{ inputs.output-dir }}"
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+
+branding:
+  icon: "map"
+  color: "blue"
