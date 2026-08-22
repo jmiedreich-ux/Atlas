@@ -1,0 +1,13 @@
+{
+  "name": "atlas",
+  "version": "0.0.0",
+  "description": "Atlas — a reusable generator that turns a project repository into a static site.",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
