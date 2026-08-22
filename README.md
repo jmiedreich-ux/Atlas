@@ -199,7 +199,7 @@ fixed convention, at its own root:
   blank chip (decision 32):
 
   - workstream **`stage`** ∈ `not-started, designing, planned, shipping`
-  - milestone **`status`** ∈ `done, next, gated, parked, unplanned`
+  - milestone **`status`** ∈ `done, next, blocked, parked, unplanned`
 
 - **The plan and acceptance files a manifest names** — `m1-plan.md` and the rest, beside
   `workstream.json` in the same workstream directory; a manifest pointing at one that doesn't

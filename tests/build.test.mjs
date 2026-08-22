@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { build } from '../src/build.mjs';
+import { MILESTONE_STATUSES } from '../src/schema.mjs';
 
 // Everything here runs against `fixture/`, the invented nautical project, and writes into
 // `.tmp-tests/` — deliberately beside the repository rather than in `os.tmpdir()`. Where the two
@@ -1081,7 +1082,13 @@ test('build: an unknown milestone status fails the build, naming the value', asy
 
   assert.ok(error, 'the build accepted a status outside the closed vocabulary');
   assert.match(error.message, /"shipped"/, 'the failure never named the offending value');
-  assert.match(error.message, /done|next|gated|parked|unplanned/, 'the failure never named what is allowed');
+  // The whole closed vocabulary, in order, not an alternation any one of whose branches passing
+  // would satisfy it — `/done|next|.../` matched on "done" alone and could not tell a reader
+  // whether the rest of the list was still being offered.
+  assert.ok(
+    error.message.includes(MILESTONE_STATUSES.join(', ')),
+    `the failure never named what is allowed: ${error.message}`,
+  );
 });
 
 test('build: a workstream with no gate fails the build (decision 32)', async () => {

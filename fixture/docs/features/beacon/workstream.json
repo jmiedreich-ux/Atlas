@@ -56,7 +56,7 @@
       "label": "M5",
       "depth": 5,
       "title": "Remote dimming",
-      "status": "gated",
+      "status": "blocked",
       "plan": "m5-plan.md",
       "issue": null,
       "pr": null,

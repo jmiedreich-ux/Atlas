@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { validateWorkstream, validateConfig } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, validateWorkstream, validateConfig } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file only — the generator holds no
 // project content of its own (decision 40).
@@ -457,4 +457,35 @@ test('validateConfig: ordinary directory names are still accepted, punctuation i
   });
   assert.equal(result.ok, true, JSON.stringify(result.errors));
   assert.deepEqual(result.value.workstreams, fine);
+});
+
+// --- M2.1, from #780: `gated` becomes `blocked` -------------------------------------------------
+
+test('schema: the closed milestone vocabulary says "blocked", and no longer says "gated"', () => {
+  // #780: "Drop the word 'gated'." It describes a gate the owner holds, which is what the
+  // workstream's own `gate` field is for; on a milestone the fact is simply that it cannot start.
+  // The phone view already had a `blocked` triage state reading "Blocked", so this leaves one word
+  // in the product rather than two that nearly mean the same thing.
+  assert.deepEqual([...MILESTONE_STATUSES], ['done', 'next', 'blocked', 'parked', 'unplanned']);
+});
+
+test('schema: a manifest still saying "gated" is refused by name, not quietly accepted', () => {
+  const manifest = validManifest();
+  manifest.milestones[0].status = 'gated';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'the retired word was accepted');
+
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /"gated"/, 'the failure never quotes the value that is wrong');
+  assert.match(message, /blocked/, 'the failure never names the word to use instead');
+});
+
+test('schema: "blocked" is accepted on a milestone', () => {
+  const manifest = validManifest();
+  manifest.milestones[0].status = 'blocked';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, `blocked was refused: ${JSON.stringify(result.errors)}`);
+  assert.equal(result.value.milestones[0].status, 'blocked');
 });

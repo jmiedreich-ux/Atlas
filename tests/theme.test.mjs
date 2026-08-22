@@ -819,8 +819,9 @@ const OCCURRING_PAIRS = [
   ['.depth-chart caption', '.depth-chart'],
   ['.ladder-cell', '.ladder-cell'],
   ['.chip-done', '.chip-done'],
-  ['.chip-gated', '.chip-gated'],
+  ['.chip-awaiting-decision', '.chip-awaiting-decision'],
   ['.chip-parked', '.chip-parked'],
+  ['.chip-blocked', '.chip-blocked'],
   ['.chip-designing', '.chip-designing'],
   ['.chip-next', '.chip-next'],
   ['.chip-unplanned', '.chip-unplanned'],
@@ -1309,7 +1310,7 @@ test('chips: every value in the closed vocabularies renders its own human label'
   const statusLabels = {
     done: 'Done',
     next: 'Next',
-    gated: 'Gated',
+    blocked: 'Blocked',
     parked: 'Parked',
     unplanned: 'Unplanned',
   };

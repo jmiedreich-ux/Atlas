@@ -9,7 +9,12 @@
 // Decision 32: the status vocabulary is closed. An unknown value is rejected by name rather
 // than rendered as a blank chip.
 export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'planned', 'shipping']);
-export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'gated', 'parked', 'unplanned']);
+//
+// `blocked`, not `gated` (#780): the word "gate" belongs to the workstream's own `gate` field —
+// the thing the owner holds — and what a milestone is recording is simply that it cannot start.
+// The phone view's triage vocabulary already said `blocked`, so the product now has one word for
+// this rather than two that nearly mean the same thing.
+export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'parked', 'unplanned']);
 
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

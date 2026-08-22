@@ -422,7 +422,6 @@ h3 {
   color: var(--sky-badge-text);
 }
 
-.chip-gated,
 .chip-awaiting-decision {
   background: var(--sky-color-warning-surface);
   color: var(--sky-warning-text);
