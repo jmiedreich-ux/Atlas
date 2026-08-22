@@ -17,7 +17,7 @@
 
 import { createSign } from 'node:crypto';
 
-import { GitHubError } from './github.mjs';
+import { GitHubError, withoutUrls } from './github.mjs';
 
 const GITHUB_API_ROOT = 'https://api.github.com';
 
@@ -65,7 +65,7 @@ export function signAppJwt({ appId, privateKey, nowSeconds }) {
     throw new GitHubError(
       `the GitHub App's private key could not be used to sign: the ` +
         `ATLAS_GITHUB_APP_PRIVATE_KEY application setting does not hold a PEM private key ` +
-        `(${error.message}).`,
+        `(${withoutUrls(error.message)}).`,
       { status: 503, code: 'credential-unusable' },
     );
   }
@@ -109,7 +109,9 @@ export async function fetchInstallationToken({
   } catch (error) {
     // The assertion is a bearer credential. It must not reach a log line, and the only way to be
     // sure of that is for no failure path to interpolate it.
-    throw new GitHubError(`Atlas could not reach GitHub to authenticate: ${error.message}`);
+    throw new GitHubError(
+      `Atlas could not reach GitHub to authenticate: ${withoutUrls(error.message)}`,
+    );
   }
 
   let payload = null;
@@ -120,7 +122,7 @@ export async function fetchInstallationToken({
   }
 
   if (!response.ok || typeof payload?.token !== 'string') {
-    const detail = typeof payload?.message === 'string' ? `: ${payload.message}` : '';
+    const detail = withoutUrls(payload?.message) ? `: ${withoutUrls(payload.message)}` : '';
     throw new GitHubError(
       `GitHub would not issue an installation token for Atlas's GitHub App ` +
         `(${response.status})${detail}. Check that the App is installed on the repository and ` +

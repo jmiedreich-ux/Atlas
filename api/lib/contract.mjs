@@ -26,6 +26,16 @@ export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'pla
 // leaves the rename to be carried across by hand to here.
 export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'parked', 'unplanned']);
 
+// The Static Web Apps role a WRITE requires (decisions 35 to 37). Deliberately not `reader`: being
+// able to read the records is not being able to commit to them.
+//
+// It lives here because this module is the one place a value shared by the generator and the
+// Function is allowed to live. `api/lib/principal.mjs` checks it on every request and `src/swa.mjs`
+// puts it in the emitted `/api/*` route rule, and those are the door and the lock — two literals
+// with an equality test between them is a site where one lets somebody through and the other
+// refuses them.
+export const WRITE_ROLE = 'author';
+
 // Decision 35's second writable thing. Two values and no third: `waived`, `blocked` and `done` are
 // judgements about a milestone's POSITION — the last two are literally milestone statuses, three
 // lines above — and decision 35 assigns those to the project's own operations console rather than
@@ -54,11 +64,27 @@ export const MANIFEST_FILENAME = 'workstream.json';
  * @param {unknown} repositoryRelative
  * @returns {string} a sentence completing "…, and it <reason>", or '' when the path is fine.
  */
-export function whyNotAWritableRecord(repositoryRelative) {
-  if (typeof repositoryRelative !== 'string' || repositoryRelative.trim() === '') {
-    return 'is not a path';
+export function whyNotAWritableRecord(path) {
+  if (typeof path !== 'string' || path === '') return 'is not a path';
+
+  // THE STRING THIS VALIDATES IS THE STRING THE CALLER USES. There is no trimming, no normalising
+  // and no canonical value returned, because the first version of this rule validated
+  // `record.trim()` while the handler went on to use `record` — so `" docs/x.md"` validated as
+  // `docs/…` and was then requested as `%20docs/x.md`, and the stated invariant "Atlas writes under
+  // docs/ and nowhere else" was false as written: the first segment could be `" docs"`.
+  //
+  // Returning a canonical value would have left the same trap for the next caller who forgot to
+  // use it. Refusing an untrimmed path means the two strings cannot differ, because there is only
+  // ever one of them. `String.prototype.trim` strips every Unicode whitespace character and the
+  // byte-order mark, which is exactly the set that needs refusing here.
+  if (path.trim() !== path) {
+    return (
+      'has leading or trailing whitespace, and Atlas writes to the path a manifest names rather ' +
+      'than to a tidied-up version of it'
+    );
   }
-  const path = repositoryRelative.trim();
+  if (path.trim() === '') return 'is not a path';
+
   if (path.includes('\\')) return 'contains a backslash, and a repository path uses forward slashes';
   if (path.startsWith('/')) return 'is absolute, and a repository path is not';
   if (path.endsWith('/')) return 'names a directory rather than a record';
@@ -70,7 +96,10 @@ export function whyNotAWritableRecord(repositoryRelative) {
   if (segments[0] !== RECORDS_ROOT || segments.length < 2) {
     return `is outside ${RECORDS_ROOT}/, and Atlas only ever writes to a project's records`;
   }
-  if (segments[segments.length - 1] === MANIFEST_FILENAME) {
+  // Case-insensitively: `WORKSTREAM.JSON` is the same file as `workstream.json` on a
+  // case-insensitive checkout, and the rule exists to keep manifests out of Atlas entirely rather
+  // than to keep one spelling of them out.
+  if (segments[segments.length - 1].toLowerCase() === MANIFEST_FILENAME) {
     return 'is a workstream manifest, and decision 35 keeps manifests out of Atlas entirely';
   }
   return '';

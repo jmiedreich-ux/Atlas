@@ -254,3 +254,74 @@ test('contents: no request this client makes can name a repository other than th
   });
   assert.equal(fetchImpl.calls.length, 0, 'a request was made for a path that should never be requested');
 });
+
+// --- relayed upstream text carries no URL, and so no repository slug ------------------------------
+
+test('contents: GitHub\'s own error text is relayed with any URL taken out of it', async () => {
+  // GitHub's 4xx bodies carry a `documentation_url`, and its messages sometimes carry the API URL
+  // — which contains `owner/repo`. undici's network errors do the same by another route. The text
+  // is worth relaying because it is often the only clue about what went wrong; the URLs in it are
+  // not, and they are the part that names the deployment's repository.
+  const fetchImpl = stubFetch({
+    status: 403,
+    json: {
+      message:
+        'Resource not accessible by integration — see ' +
+        'https://api.github.com/repos/an-owner/a-repo/contents/docs/x.md',
+      documentation_url: 'https://docs.github.com/rest',
+    },
+  });
+
+  await assert.rejects(client(fetchImpl).read('docs/x.md', 'master'), (error) => {
+    assert.match(error.message, /Resource not accessible by integration/, 'the useful text was dropped');
+    assert.ok(!error.message.includes('an-owner/a-repo'), `the repository leaked: ${error.message}`);
+    assert.ok(!/https?:\/\//.test(error.message), `a URL leaked: ${error.message}`);
+    return true;
+  });
+});
+
+test('contents: a network error message is relayed the same way', async () => {
+  const fetchImpl = stubFetch(
+    new TypeError('fetch failed: connect ECONNREFUSED https://api.github.com/repos/an-owner/a-repo/contents/x'),
+  );
+  await assert.rejects(client(fetchImpl).read('docs/x.md', 'master'), (error) => {
+    assert.ok(!error.message.includes('an-owner/a-repo'), `the repository leaked: ${error.message}`);
+    assert.ok(!/https?:\/\//.test(error.message), `a URL leaked: ${error.message}`);
+    return true;
+  });
+});
+
+test('app token: the same, on the two paths that report an App failure', async () => {
+  const refused = stubFetch({
+    status: 401,
+    json: { message: 'Bad credentials for https://api.github.com/repos/an-owner/a-repo' },
+  });
+  await assert.rejects(
+    fetchInstallationToken({ appId: '1', installationId: '2', privateKey, nowSeconds: NOW, fetchImpl: refused }),
+    (error) => {
+      assert.ok(!/https?:\/\//.test(error.message), `a URL leaked: ${error.message}`);
+      return true;
+    },
+  );
+
+  const unreachable = stubFetch(
+    new TypeError('fetch failed https://api.github.com/app/installations/2/access_tokens'),
+  );
+  await assert.rejects(
+    fetchInstallationToken({ appId: '1', installationId: '2', privateKey, nowSeconds: NOW, fetchImpl: unreachable }),
+    (error) => {
+      assert.ok(!/https?:\/\//.test(error.message), `a URL leaked: ${error.message}`);
+      return true;
+    },
+  );
+});
+
+test('app token: a key that will not sign is reported without quoting a URL either', () => {
+  assert.throws(
+    () => signAppJwt({ appId: '1', privateKey: 'not a key at all', nowSeconds: NOW }),
+    (error) => {
+      assert.ok(!/https?:\/\//.test(error.message), `a URL leaked: ${error.message}`);
+      return true;
+    },
+  );
+});

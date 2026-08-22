@@ -57,8 +57,28 @@ async function readJson(response) {
   }
 }
 
+/**
+ * Upstream text, with anything URL-shaped taken out of it.
+ *
+ * GitHub's 4xx bodies carry a `documentation_url` and its messages sometimes quote the API URL,
+ * which contains `owner/repo`; undici's network errors quote the URL they failed to reach. The
+ * text itself is worth relaying — it is often the only clue about what actually went wrong — but
+ * the URLs in it are not, and they are the part that names the deployment's repository back to
+ * whoever asked.
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+export function withoutUrls(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '(a URL)')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function messageFrom(payload) {
-  return typeof payload?.message === 'string' ? payload.message : '';
+  return withoutUrls(payload?.message);
 }
 
 // GitHub answers a stale SHA with a 409, and — for some paths through the same check — a 422 whose
@@ -91,7 +111,7 @@ export function createContentsClient({ repo, token, fetchImpl = fetch, apiRoot =
     try {
       return await fetchImpl(url, init);
     } catch (error) {
-      throw new GitHubError(`Atlas could not reach GitHub: ${error.message}`);
+      throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
     }
   }
 

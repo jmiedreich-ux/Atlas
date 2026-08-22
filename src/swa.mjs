@@ -33,11 +33,15 @@ export const ACCESS_ROLE = 'reader';
 // Decision 7's provider. `aad` is SWA's built-in Microsoft one.
 export const LOGIN_PROVIDER = 'aad';
 
-// The role a WRITE requires (decisions 35 to 37), separate from `ACCESS_ROLE` so that being able
-// to read the records is not being able to commit to them. It has to be the same string
-// `api/lib/principal.mjs` checks, and a test asserts the two are one value — two spellings of one
-// role is a site where the door and the lock disagree.
-export const WRITE_ROLE = 'author';
+// The role a WRITE requires (decisions 35 to 37), separate from `ACCESS_ROLE` so that being able to
+// read the records is not being able to commit to them.
+//
+// Re-exported from `api/lib/contract.mjs` rather than written again here. The Function checks this
+// value on every request and this file puts it in the emitted route rule: they are the door and the
+// lock, and two literals with a test asserting they match is a weaker thing than one value.
+export { WRITE_ROLE } from '../api/lib/contract.mjs';
+
+import { WRITE_ROLE } from '../api/lib/contract.mjs';
 
 // The runtime Static Web Apps runs the managed Function on.
 //

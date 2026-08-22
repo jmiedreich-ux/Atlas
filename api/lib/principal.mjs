@@ -12,8 +12,16 @@
 // Reading the site needs `reader`, and writing needs `author`. Two roles rather than one, so that
 // everyone invited to read the records is not thereby able to commit to them.
 
-/** The role a write requires. Deliberately not `reader`. */
-export const AUTHOR_ROLE = 'author';
+/**
+ * The role a write requires. Deliberately not `reader`.
+ *
+ * Defined in `./contract.mjs`, which is where a value the generator and the Function both need
+ * lives, and re-exported under this module's own name because this is where a reader of the write
+ * path looks for it. `src/swa.mjs` puts the same value in the emitted `/api/*` route rule.
+ */
+export { WRITE_ROLE as AUTHOR_ROLE } from './contract.mjs';
+
+import { WRITE_ROLE as AUTHOR_ROLE } from './contract.mjs';
 
 const HEADER = 'x-ms-client-principal';
 

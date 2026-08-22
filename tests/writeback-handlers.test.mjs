@@ -775,3 +775,64 @@ test('no refusal quotes the configured repository back to whoever asked', async 
     );
   }
 });
+
+// --- the string that is validated and the string that is used are one string ---------------------
+
+test('acceptance: the two whitespace records from the re-review are refused, and nothing is PUT', async () => {
+  // Executed against the previous implementation with a valid `author` principal, these gave:
+  //   " docs/x.md"  -> 200, PUT to .../contents/%20docs/x.md
+  //   "docs/x.md "  -> 200, PUT to .../contents/docs/x.md%20
+  // because the rule validated `record.trim()` and the handler then used `record`.
+  for (const record of [' docs/x.md', 'docs/x.md ']) {
+    const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+    const github = gitHub({ [MANIFEST_PATH]: manifest, [record]: '# A record\n', 'docs/x.md': '# A record\n' });
+
+    const response = await handleAcceptance(
+      post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+      deps(github),
+    );
+
+    assert.equal(response.status, 409, `${JSON.stringify(record)} was accepted`);
+    assert.equal(response.body.error, 'unwritable-record');
+    assert.match(response.body.message, /whitespace/i);
+    assert.equal(
+      github.calls.filter((c) => c.method === 'PUT').length,
+      0,
+      `${JSON.stringify(record)} was written to`,
+    );
+  }
+});
+
+test('acceptance: every whitespace spelling is refused, not just the two that were tried', async () => {
+  for (const record of ['\ndocs/x.md', '\tdocs/x.md', ' docs/x.md', '﻿docs/x.md', 'docs/x.md\n']) {
+    const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+    const github = gitHub({ [MANIFEST_PATH]: manifest, 'docs/x.md': '# A record\n' });
+
+    const response = await handleAcceptance(
+      post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+      deps(github),
+    );
+
+    assert.ok(response.status >= 400, `${JSON.stringify(record)} was accepted`);
+    assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+  }
+});
+
+test('acceptance: whatever path is written is byte-for-byte the path the rule approved', async () => {
+  // The property behind the two tests above, stated once: the URL that gets a PUT contains exactly
+  // the record the manifest named, with no normalising in between for a later reader to overlook.
+  const record = 'docs/features/a-stream/m1-demo.md';
+  const manifest = JSON.stringify({ milestones: [{ id: 'M1', acceptance: { kind: 'k', record } }] });
+  const github = gitHub({ [MANIFEST_PATH]: manifest, [record]: DEMO });
+
+  const response = await handleAcceptance(
+    post(AUTHOR, { workstream: 'a-stream', milestone: 'M1', result: 'pass' }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.path, record);
+  const [put] = github.calls.filter((c) => c.method === 'PUT');
+  assert.ok(put.url.endsWith(`/contents/${record.split('/').map(encodeURIComponent).join('/')}`), put.url);
+  assert.ok(!/%20|%09|%0A|%EF%BB%BF/i.test(put.url), `the written path was not the approved one: ${put.url}`);
+});

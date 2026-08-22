@@ -1,5 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 import {
   ACCESS_ROLE,
@@ -111,6 +116,30 @@ test('swa: the role the Function checks and the role the route requires are one 
   // Two spellings of the same role is a site where the door and the lock disagree: the route lets
   // somebody through and the Function refuses them, or worse, the other way round.
   assert.equal(WRITE_ROLE, AUTHOR_ROLE);
+
+  // …and that assertion is now trivially true, because both names resolve to one binding in
+  // `api/lib/contract.mjs`. What is worth checking is that it STAYS one: the string appears as a
+  // literal exactly once in everything Atlas ships, and any second spelling of it is the drift
+  // this test exists to forbid.
+  const shipped = [];
+  const walk = (dir, prefix) => {
+    for (const name of readdirSync(dir).sort()) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full, `${prefix}${name}/`);
+      else if (name.endsWith('.mjs') || name.endsWith('.js'))
+        shipped.push({ name: `${prefix}${name}`, text: readFileSync(full, 'utf8') });
+    }
+  };
+  walk(path.join(REPO_ROOT, 'api'), 'api/');
+  walk(path.join(REPO_ROOT, 'src'), 'src/');
+  assert.ok(shipped.length > 10, `expected to scan the shipped modules, saw ${shipped.length}`);
+
+  const declaring = shipped.filter((file) => file.text.includes(`= '${WRITE_ROLE}'`));
+  assert.deepEqual(
+    declaring.map((file) => file.name),
+    ['api/lib/contract.mjs'],
+    'the write role is spelled out somewhere other than the one module that defines it',
+  );
 });
 
 test('swa: the managed Function runtime is declared, because SWA will not guess it', () => {
