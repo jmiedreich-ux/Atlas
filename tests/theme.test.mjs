@@ -4,6 +4,10 @@ import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Nunjucks is not a dependency of this package and is deliberately not added as one: it arrives
+// with @11ty/eleventy, which bundles it as the engine decision 9 names, and npm hoists it to
+// the top of node_modules. If this import ever stops resolving, the cause is a change to
+// Eleventy's own engine or dependency layout, not a missing entry in package.json.
 import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
@@ -235,6 +239,16 @@ const BARE_ROOT_TOKENS = new Set(
 
 const VARS_USED = new Set([...TOKENS_CSS.matchAll(/var\(\s*(--[\w-]+)/g)].map((m) => m[1]));
 
+// The four blocks whose whole job is to define the palette, matched exactly rather than by
+// prefix: `:root .empty` and `:root[data-theme="dark"] .card` are component rules that merely
+// start with `:root`, and a literal colour in either is the bug this distinction exists to catch.
+const PALETTE_SELECTORS = new Set([
+  ':root',
+  ':root:not([data-theme="light"])',
+  ':root[data-theme="dark"]',
+  ':root[data-theme="light"]',
+]);
+
 // --- decision 28: three-state dark mode, done at token level -----------------------------------
 
 test('tokens.css: every var() the stylesheet uses resolves to a token defined on bare :root', () => {
@@ -292,6 +306,39 @@ test('tokens.css: all three theme states are present — bare :root, a guarded m
   );
 });
 
+test('tokens.css: the dark blocks redefine tokens and nothing else', () => {
+  // "Only tokens are redefined here" is the rule that keeps the three states honest. A component
+  // rule smuggled into the prefers-color-scheme block would style dark differently from an
+  // explicitly-chosen dark, and no other test in this file would notice.
+  const mediaRule = CSS_RULES.find(
+    (r) => r.isAtRule && /@media[^{]*prefers-color-scheme\s*:\s*dark/.test(r.selector),
+  );
+  assert.ok(mediaRule, 'no (prefers-color-scheme: dark) block');
+
+  const inside = parseRules(mediaRule.body).filter((r) => !r.isAtRule);
+  assert.ok(inside.length > 0, 'the prefers-color-scheme block is empty');
+
+  const strays = inside
+    .map((r) => r.selector.trim())
+    .filter((selector) => selector !== ':root:not([data-theme="light"])');
+  assert.deepEqual(
+    strays,
+    [],
+    `the prefers-color-scheme block must hold nothing but the guarded palette; it also styles: ${strays.join(', ')}`,
+  );
+
+  // The same rule stated the other way round: what those blocks declare is tokens, plus the one
+  // UA-facing property tokens cannot reach.
+  for (const selector of [':root:not([data-theme="light"])', ':root[data-theme="dark"]']) {
+    const block = DECLARATION_RULES.find((r) => r.selector.trim() === selector);
+    assert.ok(block, `no ${selector} block`);
+    const notAToken = declarationsIn(block.body)
+      .map(([property]) => property)
+      .filter((property) => !property.startsWith('--') && property !== 'color-scheme');
+    assert.deepEqual(notAToken, [], `${selector} declares more than tokens: ${notAToken.join(', ')}`);
+  }
+});
+
 test('tokens.css: the two dark blocks define exactly the same tokens, to the same values', () => {
   // The three-state rule forces the dark palette to be written twice — once behind
   // prefers-color-scheme and once behind an explicit choice. Nothing in CSS keeps the two in
@@ -312,6 +359,84 @@ test('tokens.css: the two dark blocks define exactly the same tokens, to the sam
     declarationsIn(explicit.body),
     'the system-dark palette and the explicitly-chosen dark palette have drifted apart',
   );
+});
+
+test('tokens.css: an explicit theme choice swaps color-scheme too, not just the tokens', () => {
+  // The one part of the three-state story tokens cannot reach: scrollbars and default form-control
+  // chrome are painted by the UA from color-scheme. With data-theme="dark" stamped under a light
+  // system setting, a page whose color-scheme still said "light dark" would resolve to light and
+  // paint light chrome on a dark page.
+  function schemeOf(selector) {
+    const rule = DECLARATION_RULES.find((r) => r.selector.trim() === selector);
+    assert.ok(rule, `no ${selector} block`);
+    const found = declarationsIn(rule.body).find(([property]) => property === 'color-scheme');
+    assert.ok(found, `${selector} never sets color-scheme`);
+    return found[1];
+  }
+
+  assert.equal(schemeOf(':root'), 'light dark', 'the default state must let the system decide');
+  assert.equal(schemeOf(':root:not([data-theme="light"])'), 'dark');
+  assert.equal(schemeOf(':root[data-theme="dark"]'), 'dark');
+  assert.equal(schemeOf(':root[data-theme="light"]'), 'light');
+});
+
+test('tokens.css: the chart owns both scrolls, so its sticky headers have a scrollport to stick to', () => {
+  // Per CSS Overflow 3, a non-visible value on one axis computes the other to auto, so
+  // `overflow-x: auto` already makes .chart-scroll a scroll container on BOTH axes. With no height
+  // bound it never scrolls vertically, and `position: sticky; top: 0` inside it resolves against a
+  // scrollport that cannot move — the headers would silently never stick.
+  const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((x) => x.trim() === '.chart-scroll'));
+  assert.ok(scroller, 'no .chart-scroll rule');
+
+  const declarations = new Map(declarationsIn(scroller.body));
+  assert.ok(
+    declarations.has('max-height'),
+    '.chart-scroll must bound its own height, or nothing inside it can stick to the top of it',
+  );
+
+  // Anything claiming the top of that scrollport must actually be sticky. Resolved across every
+  // rule for the selector, as the cascade would, since the stacking order is stated separately
+  // from the appearance.
+  const claimsTop = new Set(
+    DECLARATION_RULES.filter((r) => declarationsIn(r.body).some(([p, v]) => p === 'top' && v === '0'))
+      .flatMap((r) => r.selector.split(',').map((x) => x.trim())),
+  );
+  assert.ok(claimsTop.size > 0, 'nothing claims the top of the chart');
+  for (const selector of claimsTop) {
+    const sticky = DECLARATION_RULES.filter((r) =>
+      r.selector.split(',').some((x) => x.trim() === selector),
+    ).some((r) => /position\s*:\s*sticky/.test(r.body));
+    assert.ok(sticky, `${selector} sets top: 0 without position: sticky, which does nothing`);
+  }
+});
+
+test('tokens.css: the sticky cells stack deliberately, and each paints on an opaque ground', () => {
+  // Sticky cells overlap each other as the chart scrolls. At z-index: auto they paint in DOM
+  // order, so the column headers slide over the sticky corner. The order is fixed here: the
+  // corner above the column headers, the column headers above the ladder column.
+  // Last declaration wins, as the cascade would resolve it, so the order holds however the rules
+  // are split up.
+  function zIndexOf(selector) {
+    const declared = DECLARATION_RULES.filter((r) =>
+      r.selector.split(',').some((x) => x.trim() === selector),
+    ).flatMap((r) => declarationsIn(r.body).filter(([property]) => property === 'z-index'));
+    assert.ok(declared.length > 0, `${selector} is sticky but sets no z-index, so it paints in DOM order`);
+    return Number(declared[declared.length - 1][1]);
+  }
+
+  const corner = zIndexOf('.ladder-head');
+  const columns = zIndexOf('.column-head');
+  const ladder = zIndexOf('.ladder-cell');
+  assert.ok(corner > columns, `the sticky corner (${corner}) must paint above the column headers (${columns})`);
+  assert.ok(columns > ladder, `the column headers (${columns}) must paint above the ladder column (${ladder})`);
+
+  // A sticky cell with a transparent ground shows the content it is meant to cover sliding under it.
+  for (const selector of ['.ladder-head', '.ladder-cell', '.column-head']) {
+    const opaque = DECLARATION_RULES.filter((r) =>
+      r.selector.split(',').some((x) => x.trim() === selector),
+    ).some((r) => /background\s*:\s*var\(\s*--[\w-]+\s*\)/.test(r.body));
+    assert.ok(opaque, `${selector} is sticky but has no opaque background`);
+  }
 });
 
 test('tokens.css: body sets an explicit background from a token', () => {
@@ -335,7 +460,7 @@ test('tokens.css: body sets an explicit background from a token', () => {
 test('tokens.css: no rule outside :root carries a literal colour', () => {
   // Values only: `white-space` is a property name, not a colour.
   const literal = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\b(white|black|red|green|blue|grey|gray|silver|navy|teal|orange|yellow|purple)\b/;
-  const offenders = DECLARATION_RULES.filter((r) => !r.selector.startsWith(':root'))
+  const offenders = DECLARATION_RULES.filter((r) => !PALETTE_SELECTORS.has(r.selector.trim()))
     .filter((r) => declarationsIn(r.body).some(([, value]) => literal.test(value)))
     .map((r) => r.selector);
   assert.deepEqual(
@@ -604,6 +729,32 @@ test('workstream: every milestone links to its own page, and open issues are lis
   }
 });
 
+test('milestone: the heading spells out "Milestone" and never mangles a label that is not M<n>', () => {
+  // Decision 19: headings spell "Milestone 6.3" and the bare id is reserved for chips and cells.
+  // Turning "M6.3" into "6.3" must therefore strip a leading M only when a number follows it — an
+  // unanchored strip eats the M in "PM3", and a merely anchored one eats the M in "MVP".
+  function headingFor(label) {
+    const html = env.render('milestone.njk', {
+      ...site,
+      title: label,
+      workstream: beacon,
+      milestone: { ...beacon.manifest.milestones[0], label },
+      content: '',
+      anchors: [],
+    });
+    const match = /<h1>([\s\S]*?)<\/h1>/.exec(html);
+    assert.ok(match, `no h1 rendered for ${label}`);
+    return stripTags(match[1]);
+  }
+
+  assert.ok(headingFor('M1').startsWith('Milestone 1 ·'), headingFor('M1'));
+  assert.ok(headingFor('M6.3').startsWith('Milestone 6.3 ·'), headingFor('M6.3'));
+
+  // Neither of these follows the M<n> convention, so neither may be cut into.
+  assert.ok(headingFor('MVP').startsWith('Milestone MVP ·'), headingFor('MVP'));
+  assert.ok(headingFor('PM3').startsWith('Milestone PM3 ·'), headingFor('PM3'));
+});
+
 test('document: rendered Markdown is emitted as HTML, not escaped into visible tags', () => {
   for (const [name, html] of [
     ['document.njk', documentHtml],
@@ -648,13 +799,37 @@ test('base: the digits the layouts line up in columns are marked for tabular num
     'a milestone id in a chart cell was rendered without .num, so ids will not line up down a column',
   );
 
+  // Exactly the cards that have milestones, not "at least three": a floor stays true while a
+  // card quietly loses its marking.
+  const withMilestones = workstreams.filter((w) => w.manifest.milestones.length > 0).length;
   const counts = [...mobileHtml.matchAll(
     /<p class="track-count"><span class="num">\d+<\/span> of <span class="num">\d+<\/span>/g,
   )];
-  assert.ok(counts.length >= 3, `the mobile cards' depth counts must be tabular, saw ${counts.length}`);
+  assert.equal(
+    counts.length,
+    withMilestones,
+    `every card with milestones must show a tabular depth count, saw ${counts.length} of ${withMilestones}`,
+  );
 
-  const issueNumbers = [...workstreamHtml.matchAll(/<td class="num">/g)];
-  assert.ok(issueNumbers.length >= 4, `issue and pull-request numbers must be tabular, saw ${issueNumbers.length}`);
+  // Every row of the milestone table, column by column, rather than a count of marked cells
+  // across the whole page: the milestone-id column and both number columns are checked on the
+  // row they belong to.
+  const rows = [...workstreamHtml.matchAll(/<tr>\s*<th scope="row"([^>]*)>([\s\S]*?)<\/tr>/g)];
+  assert.equal(rows.length, beacon.manifest.milestones.length, 'expected one table row per milestone');
+  rows.forEach(([whole, thAttributes], i) => {
+    const id = beacon.manifest.milestones[i].label;
+    assert.match(
+      thAttributes,
+      /class="[^"]*\bnum\b[^"]*"/,
+      `${id}: the milestone-id column stacks down the table, so it must be tabular`,
+    );
+    const numberCells = [...whole.matchAll(/<td class="[^"]*\bnum\b[^"]*">/g)];
+    assert.equal(
+      numberCells.length,
+      2,
+      `${id}: both the issue and the pull-request column must be tabular, saw ${numberCells.length}`,
+    );
+  });
 });
 
 // --- decision 40: the generator holds no project content ------------------------------------------

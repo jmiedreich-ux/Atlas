@@ -85,6 +85,7 @@
   /* Guarded: without :not([data-theme="light"]) an explicit light choice would lose to the
    * system setting. Only tokens are redefined here — never a component rule. */
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --sky-canvas: #0e141c;
     --sky-surface: #161e29;
     --sky-sunken: #111823;
@@ -119,6 +120,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --sky-canvas: #0e141c;
   --sky-surface: #161e29;
   --sky-sunken: #111823;
@@ -149,6 +151,14 @@
   --sky-tone-idle-ink: #adbccc;
   --sky-tone-exploring-bg: #241f3d;
   --sky-tone-exploring-ink: #c3b6ef;
+}
+
+/* An explicit light choice needs no tokens — the bare :root palette is already the light one —
+ * but it does need this. Without it a viewer who chose light under a dark system setting keeps
+ * `color-scheme: light dark`, which resolves to dark, and the UA paints dark scrollbars and dark
+ * form-control chrome on a light page. */
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -210,15 +220,6 @@ pre {
 td.num,
 th.num {
   font-variant-numeric: tabular-nums;
-}
-
-.visually-hidden {
-  clip-path: inset(50%);
-  height: 1px;
-  overflow: hidden;
-  position: absolute;
-  white-space: nowrap;
-  width: 1px;
 }
 
 .skip-link {
@@ -365,11 +366,20 @@ h3 {
 
 /* --- surface one: the desktop depth chart ------------------------------------------------------ */
 
+/* `overflow-x: auto` alone already makes this a scroll container on BOTH axes — CSS Overflow 3
+ * computes a `visible` sibling axis to `auto` — but with no height bound the vertical scrollport
+ * can never move, and `position: sticky; top: 0` on the column headers inside it would silently
+ * do nothing. The ladder can grow without bound, because decision 20 makes it the union of every
+ * workstream's depth, so the fix is to bound the box rather than give up the sticky headers: the
+ * chart owns both scrolls, and the ladder column and the column headers both stay in view. The
+ * bound only engages when the chart is taller than the space left under the page furniture. */
 .chart-scroll {
   border: 1px solid var(--sky-border);
   border-radius: var(--sky-radius-md);
+  max-height: calc(100vh - 12rem);
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: auto;
 }
 
 .depth-chart {
@@ -420,6 +430,25 @@ h3 {
   min-width: var(--sky-ladder-width);
   position: sticky;
   white-space: nowrap;
+}
+
+/* Three sticky things overlap inside that scrollport, and at `z-index: auto` they would paint in
+ * DOM order — which puts the column headers over the corner cell they are supposed to slide
+ * under. The order is stated rather than inherited: the corner is stuck on both axes and sits
+ * above everything, the column headers above the ladder column, the ladder column above the
+ * ordinary cells. Each of the three already paints on an opaque token ground, which is what stops
+ * the content underneath showing through as it passes. */
+.ladder-head {
+  top: 0;
+  z-index: 3;
+}
+
+.column-head {
+  z-index: 2;
+}
+
+.ladder-cell {
+  z-index: 1;
 }
 
 .cell {
