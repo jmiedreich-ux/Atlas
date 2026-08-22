@@ -65,7 +65,7 @@ function arena() {
   writeFileSync(path.join(project, 'ROADMAP.md'), '# Roadmap\n');
   writeFileSync(path.join(project, 'docs', 'a-record.md'), '# A record\n');
 
-  for (const dir of ['theme', 'src', 'node_modules', 'tests', 'fixture']) {
+  for (const dir of ['theme', 'src', 'api', 'node_modules', 'tests', 'fixture']) {
     mkdirSync(path.join(generator, dir), { recursive: true });
     writeFileSync(path.join(generator, dir, 'a-file.txt'), 'content\n');
   }
@@ -240,7 +240,9 @@ test('guard: the same, one level down, and through a symlink named like the reco
 test('guard: every path the build reads is protected, the generator\'s own code included', () => {
   const { project, generator } = arena();
 
-  for (const readPath of ['theme', 'src', 'node_modules', '.eleventy.js', 'package.json']) {
+  // `api` is on this list for the same reason `src` is: `src/schema.mjs` imports the closed
+  // vocabularies out of `api/lib/contract.mjs`, so the build reads that directory on every run.
+  for (const readPath of ['theme', 'src', 'api', 'node_modules', '.eleventy.js', 'package.json']) {
     refuses(
       project,
       path.join(generator, readPath),
