@@ -333,6 +333,13 @@ refused by name, along with every other field Atlas does not expect.
 write is invited with `reader,author` in one go. Inviting them with `author` alone takes `reader`
 away, and every page then refuses them into a login loop.
 
+**An invitation also names an identity provider, and it has to be the one the deployed site signs
+people in with.** Atlas emits Microsoft (`aad`), which is decision 7's — but a project that
+overwrites `staticwebapp.config.json` chooses its own, and an invitation issued for the wrong one
+grants roles to an identity that never signs in there. Read the `responseOverrides` block of the
+`staticwebapp.config.json` the site is actually running: whatever `/.auth/login/<provider>` it
+redirects to is the provider to invite with.
+
 **What a refusal looks like from outside is not always the status the Function returned.** The
 emitted config turns a 401 into a `302` to the sign-in page — that is what stops an unauthorised
 visitor seeing a bare 401 they cannot act on — and the `/api/*` rule refuses a caller without
@@ -401,6 +408,17 @@ on whatever Static Web Apps offers managed Functions, and `API_RUNTIME` in `src/
 line that says which — currently `node:20`. Raise it to `node:22` when the platform offers it; the
 Function's code is plain ESM and runs unchanged on any of them.
 
-**If the endpoints 404 or 500 after a deploy, check the runtime declaration first.** A missing or
-unsupported `platform.apiRuntime` is the most common reason a managed Function deploys and then
-does not answer, and it fails with nothing useful in the log.
+**If the endpoints 404 or 500 after a deploy, check two things, in this order.**
+
+1. **Was an API deployed at all?** If the workflow passes no `api_location` — or passes one that
+   does not resolve inside the checkout — Static Web Apps publishes the site with no Functions, and
+   every `/api/*` request is a plain 404 from the static host. This is the more likely of the two,
+   and it looks identical from outside to a Function that failed to start.
+2. **Is `platform.apiRuntime` in the config the site is actually running?** A project that
+   overwrites `staticwebapp.config.json` after the build discards the emitted one, and with it both
+   the runtime declaration and the `/api/*` rule. A missing or unsupported runtime is the most
+   common reason a managed Function deploys and then does not answer, and it fails with nothing
+   useful in the log.
+
+Fetch `https://<the site>/staticwebapp.config.json` — it is not served, so read it from the
+deployment or from whatever step wrote it — rather than assuming the emitted file is the live one.
