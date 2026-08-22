@@ -50,6 +50,7 @@ backlog. `issues: read` is what stops that; `contents: read` is what lets `actio
 | -------------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `project-path` | no       | `${{ github.workspace }}` | The project to build — the checkout that carries `atlas.config.json`, `ROADMAP.md` and `docs/`. The default is the calling workflow's own workspace, which is correct for the ordinary case above and rarely needs overriding. |
 | `output-dir`   | no       | `.atlas-out`           | Where the built site is written, relative to the calling workflow's working directory unless given as an absolute path. Wired straight into a later step — `actions/upload-pages-artifact`, an Azure Static Web Apps deploy — that publishes it. |
+| `api-dir`      | no       | `.atlas-api`           | Where the write-back Function is placed, so a workflow can name it as an Azure Static Web Apps `api_location`. Resolved like `output-dir`, replaced wholesale each run, and refused if it overlaps `output-dir` or anything the build reads. Set it to an empty string for a project publishing the site without the endpoints. The action's `api-path` output holds where it landed — see **Write-back**, below. |
 | `github-token` | no       | *(none)*               | A token used to fetch each workstream's open issues and pull requests. There is no safe default, so it is left unset rather than defaulted: without it, the build still succeeds — `src/github.mjs` tolerates GitHub being unreachable — but the requests are unauthenticated and subject to GitHub's public rate limit. Pass `${{ github.token }}`, as above, to authenticate as the workflow's own run. |
 
 Per decision 46, the version tags (`v1.0.0`, and the `v1` major tag moved forward to it) live in
@@ -224,3 +225,127 @@ its own and makes no judgement about what belongs on the site; a file that shoul
 by everyone who can reach the site should not be under `docs/`. The only exceptions Atlas makes are
 `workstream.json` manifests, which are read rather than served, and dot-files and dot-directories,
 which are skipped.
+
+## Write-back — answering, not only reading
+
+Decisions 34 to 37. Two endpoints ship beside the site as Azure Static Web Apps **managed
+Functions**, in the same deployable and behind the same auth — which is what decision 5 chose
+Static Web Apps for, and what the Free tier includes.
+
+| Endpoint               | What it writes                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `POST /api/answer`     | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
+| `POST /api/acceptance` | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
+
+**And nothing else.** Decision 35 gives creating issues, approving milestones, editing manifests
+and triggering work to the project's own operations console: *two consoles that both act is how
+they diverge*. There is no endpoint that sets a milestone's status, and adding one is a decision
+rather than a feature.
+
+Atlas keeps no state of its own (decision 37). A write is a commit; the page is rebuilt from that
+commit by the ordinary build workflow. There is no database, no cache, no queue and no pending
+list — the answer is in the repository or it does not exist.
+
+### Wiring it into a deploy
+
+The action places the Function where a deploy step can name it, and says where:
+
+```yaml
+      - uses: jmiedreich-ux/atlas@v1
+        id: atlas
+        with:
+          github-token: ${{ github.token }}
+
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: .atlas-out
+          api_location: ${{ steps.atlas.outputs.api-path }}
+          output_location: ""
+          skip_app_build: true
+```
+
+Set `api-dir` to an empty string for a project that publishes the site without the endpoints, and
+nothing is placed.
+
+### The credential, which may be empty
+
+Writes go through a **GitHub App**, never `GITHUB_TOKEN` (decision 36). The reason is mechanical
+rather than a matter of security posture: *a push made with the Actions token does not trigger
+workflows*, so the site would never rebuild after its own write and would sit stale, showing the
+reader the answer it had just failed to render.
+
+The App's installation credentials live in the Static Web App's **application settings**, and never
+in the repository, in a build artifact, or in `state.json`:
+
+| Setting                            | What it holds                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ATLAS_GITHUB_APP_ID`              | The App's numeric id.                                                                                                                        |
+| `ATLAS_GITHUB_APP_INSTALLATION_ID` | The id of the App's installation on the repository.                                                                                          |
+| `ATLAS_GITHUB_APP_PRIVATE_KEY`     | The App's private key, PEM. A key pasted into the portal's single-line box with literal `\n`, or one wrapped in base64, is repaired on read.  |
+| `ATLAS_REPO`                       | `owner/name`. The only repository a write can reach; no request can name another.                                                            |
+| `ATLAS_BRANCH`                     | Optional. Defaults to `master`, which decision 1 builds from.                                                                                |
+
+**Until they are set, the endpoints refuse with `503 credential-unavailable`, naming the settings
+that are unset, and the site stays completely readable.** Nothing about reading depends on any of
+it: the site is static files that were built before any of it ran.
+
+### Who may write
+
+Reading needs the `reader` role. Writing needs `author` — a separate invitation, so that being able
+to read the records is not being able to commit to them.
+
+The caller's identity comes from the `x-ms-client-principal` header Static Web Apps injects, and
+from nowhere else. A body field naming a user, or a role, is a value the caller chose; it is
+refused by name, along with every other field Atlas does not expect.
+
+### Concurrency
+
+`PUT /repos/{owner}/{repo}/contents/{path}` carries the SHA the record had when Atlas read it,
+which both commits and gives optimistic concurrency for free. A stale SHA is a **conflict** — `409`,
+saying so — and never a silent overwrite of somebody else's commit. A request may also carry the
+`sha` its page was rendered from, and then a record that moved on in between is refused before
+anything is attempted.
+
+### The register's shape
+
+A question is a heading whose first word is its id:
+
+```markdown
+## Q1 · Does the cutover run per tenant or per environment?
+
+Raised while planning the second milestone.
+```
+
+An answer is written into that question's own section, between HTML comments that GitHub renders as
+nothing:
+
+```markdown
+<!-- atlas:answer -->
+**Answer** (someone@example.com):
+
+Per tenant.
+<!-- /atlas:answer -->
+```
+
+Answering again replaces that block rather than adding a second — the register says what is
+settled, and git already holds how it got there. Nothing outside the block is touched, and nothing
+in the write path reads the clock.
+
+### The routes, in `staticwebapp.config.json`
+
+The role check that gates a write lives in the Function, and is what actually refuses a caller
+without `author`. The route rules below are defence in depth, and belong in whichever
+`staticwebapp.config.json` the project publishes:
+
+```json
+{
+  "routes": [
+    { "route": "/api/answer", "methods": ["POST"], "allowedRoles": ["author"] },
+    { "route": "/api/acceptance", "methods": ["POST"], "allowedRoles": ["author"] },
+    { "route": "/api/*", "allowedRoles": ["author"] }
+  ],
+  "platform": { "apiRuntime": "node:20" }
+}
+```
