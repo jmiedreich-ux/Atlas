@@ -5,7 +5,12 @@
   "position": "Four milestones shipped; the third was parked and the work went round it",
   "gate": "Nothing gates the shipped work; M3 needs a decision on the parked survey before it can restart",
   "label": "workstream:reef",
-  "design": [{ "name": "lighthouse/Reef Survey v1", "where": "design-project" }],
+  "design": [
+    {
+      "name": "lighthouse/Reef Survey v1",
+      "where": "design-project"
+    }
+  ],
   "milestones": [
     {
       "id": "M1",
@@ -13,10 +18,15 @@
       "depth": 1,
       "title": "Sounding contract",
       "status": "done",
+      "started": "2026-05-04",
+      "completed": "2026-05-08",
       "plan": "m1-plan.md",
       "issue": 701,
       "pr": 801,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M2",
@@ -24,10 +34,15 @@
       "depth": 2,
       "title": "Chart overlay",
       "status": "done",
+      "started": "2026-05-11",
+      "completed": "2026-05-15",
       "plan": "m2-plan.md",
       "issue": 702,
       "pr": 802,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M3",
@@ -35,10 +50,14 @@
       "depth": 3,
       "title": "Diver survey",
       "status": "parked",
+      "started": "2026-05-18",
       "plan": "m3-plan.md",
       "issue": 703,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M4",
@@ -46,10 +65,15 @@
       "depth": 4,
       "title": "Hazard alerting",
       "status": "done",
+      "started": "2026-06-01",
+      "completed": "2026-06-10",
       "plan": "m4-plan.md",
       "issue": 704,
       "pr": 804,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M5",
@@ -57,10 +81,15 @@
       "depth": 5,
       "title": "Seasonal re-survey schedule",
       "status": "done",
+      "started": "2026-06-11",
+      "completed": "2026-06-30",
       "plan": "m5-plan.md",
       "issue": 705,
       "pr": 805,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     }
   ]
 }

@@ -322,6 +322,46 @@ test('state: the byte-for-byte copies are listed as copies, never as rendered re
   }
 });
 
+// --- M2.1, from #780: the stored dates travel with the milestone ----------------------------------
+
+test('state: a milestone carries the days it started and closed, exactly as recorded', () => {
+  const bySlug = Object.fromEntries(state.workstreams.map((w) => [w.slug, w]));
+  const milestone = (slug, id) => bySlug[slug].milestones.find((m) => m.id === id);
+
+  // Closed: both days, and both from the manifest rather than from anything Atlas worked out.
+  const manifests = Object.fromEntries(workstreams.map((w) => [w.slug, w.manifest]));
+  const recorded = manifests.reef.milestones.find((m) => m.id === 'M1');
+  assert.equal(milestone('reef', 'M1').started, recorded.started);
+  assert.equal(milestone('reef', 'M1').completed, recorded.completed);
+
+  // In flight: a start day and no close day.
+  assert.equal(milestone('tide', 'M2').started, '2026-04-06');
+  assert.equal(milestone('tide', 'M2').completed, null);
+
+  // Never recorded at all: null, not absent, so a reader never has to tell the two apart.
+  assert.equal(milestone('tide', 'M3').started, null);
+  assert.equal(milestone('tide', 'M3').completed, null);
+  assert.equal(milestone('anchor', 'M1').started, null, 'Anchor records no dates, and still renders');
+
+  for (const workstream of state.workstreams) {
+    for (const entry of workstream.milestones) {
+      assert.ok('started' in entry && 'completed' in entry, `${entry.id} is missing a date key`);
+    }
+  }
+});
+
+test('state: the two new date keys are additive, so the document stays at version 1', () => {
+  // The rule this pins, from the module's own comment: "bumped only when a change would break a
+  // reader that understood the previous version — a new optional key does not." A reader coded
+  // against v1 still finds every key it knew, unchanged.
+  assert.equal(state.version, 1);
+  assert.equal(STATE_VERSION, 1);
+
+  // And nothing dated by the BUILD got in alongside them: these are facts on record, not stamps.
+  const text = read('state.json');
+  assert.ok(!/"(generated|built|builtAt|generatedAt|timestamp)"/i.test(text), 'state.json stamps a build time');
+});
+
 // --- and it is stable ------------------------------------------------------------------------------
 
 test('state: it is written in a stable key order, so a rebuild diffs to nothing', () => {

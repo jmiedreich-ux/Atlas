@@ -110,6 +110,15 @@ export function buildState(site) {
         depth: entry.manifest.depth,
         title: entry.manifest.title,
         status: entry.manifest.status,
+        // M2.1, from #780. Stored facts, both: the day it began and the day it closed. Nothing
+        // here is derived from today — a closed milestone carries both, one in flight carries a
+        // start day alone, one not yet begun carries neither. `null` rather than absent, so a
+        // reader never has to tell "no date recorded" from "key not emitted".
+        //
+        // ADDITIVE, which is why `version` above is still 1: a reader that understood the
+        // previous shape finds every key it knew, unchanged.
+        started: entry.manifest.started ?? null,
+        completed: entry.manifest.completed ?? null,
         // `plan` verbatim as decision 14 fixes it — relative to the workstream's own directory —
         // and `planPath` as the file an agent actually opens.
         plan: entry.manifest.plan,

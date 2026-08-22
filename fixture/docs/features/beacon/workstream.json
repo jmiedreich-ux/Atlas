@@ -5,7 +5,12 @@
   "position": "Three milestones shipped, fourth in flight",
   "gate": "Owner sign-off on the M4 demo before M5 starts",
   "label": "workstream:beacon",
-  "design": [{ "name": "lighthouse/Beacon Overview v1", "where": "design-project" }],
+  "design": [
+    {
+      "name": "lighthouse/Beacon Overview v1",
+      "where": "design-project"
+    }
+  ],
   "milestones": [
     {
       "id": "M1",
@@ -13,10 +18,15 @@
       "depth": 1,
       "title": "Signal contract",
       "status": "done",
+      "started": "2026-03-02",
+      "completed": "2026-03-05",
       "plan": "m1-plan.md",
       "issue": 101,
       "pr": 201,
-      "acceptance": { "kind": "demo-script", "record": "docs/features/beacon/m1-demo.md" }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": "docs/features/beacon/m1-demo.md"
+      }
     },
     {
       "id": "M2",
@@ -24,10 +34,15 @@
       "depth": 2,
       "title": "Lamp rotation service",
       "status": "done",
+      "started": "2026-03-06",
+      "completed": "2026-03-06",
       "plan": "m2-plan.md",
       "issue": 102,
       "pr": 202,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M3",
@@ -35,10 +50,15 @@
       "depth": 3,
       "title": "Fog-horn scheduling",
       "status": "done",
+      "started": "2026-03-09",
+      "completed": "2026-03-20",
       "plan": "m3-plan.md",
       "issue": 103,
       "pr": 203,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M4",
@@ -46,10 +66,14 @@
       "depth": 4,
       "title": "Keeper console",
       "status": "next",
+      "started": "2026-03-23",
       "plan": "m4-plan.md",
       "issue": 104,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M5",
@@ -60,7 +84,10 @@
       "plan": "m5-plan.md",
       "issue": null,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M6",
@@ -71,7 +98,10 @@
       "plan": "m6-plan.md",
       "issue": null,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     }
   ]
 }

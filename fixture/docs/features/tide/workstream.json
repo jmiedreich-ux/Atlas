@@ -5,7 +5,12 @@
   "position": "First milestone shipped, second in flight",
   "gate": "Owner review of tide-table accuracy before M3",
   "label": "workstream:tide",
-  "design": [{ "name": "lighthouse/Tide Overview v1", "where": "design-project" }],
+  "design": [
+    {
+      "name": "lighthouse/Tide Overview v1",
+      "where": "design-project"
+    }
+  ],
   "milestones": [
     {
       "id": "M1",
@@ -13,10 +18,15 @@
       "depth": 1,
       "title": "Tide-table ingestion",
       "status": "done",
+      "started": "2026-04-01",
+      "completed": "2026-04-02",
       "plan": "m1-plan.md",
       "issue": 301,
       "pr": 401,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M2",
@@ -24,10 +34,14 @@
       "depth": 2,
       "title": "Buoy telemetry",
       "status": "next",
+      "started": "2026-04-06",
       "plan": "m2-plan.md",
       "issue": 302,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     },
     {
       "id": "M3",
@@ -38,7 +52,10 @@
       "plan": "m3-plan.md",
       "issue": null,
       "pr": null,
-      "acceptance": { "kind": "demo-script", "record": null }
+      "acceptance": {
+        "kind": "demo-script",
+        "record": null
+      }
     }
   ]
 }

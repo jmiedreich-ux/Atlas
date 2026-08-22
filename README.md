@@ -120,6 +120,7 @@ projects them, so the site and this file cannot disagree.
     "depth": { "barTo": "…", "headAt": "…", "tipLabel": "…", "note": "…",
                "completedCount": 3, "milestoneCount": 6 },
     "milestones": [ { "id": "M1", "label": "M1", "depth": 1, "status": "done",
+                      "started": "2026-03-02", "completed": "2026-03-05",  // stored days, or null
                       "plan": "m1-plan.md", "planPath": "docs/features/…/m1-plan.md",
                       "acceptance": { "kind": "…", "record": "…" }, "url": "/workstream/…/m1/" } ],
     "issues": [ { "number": 101, "title": "…", "url": "…" } ]
@@ -180,12 +181,13 @@ fixed convention, at its own root:
     "design": [{ "name": "lighthouse/Beacon Overview v1", "where": "design-project" }],
     "milestones": [
       { "id": "M1", "label": "M1", "depth": 1, "title": "Signal contract",
-        "status": "done", "plan": "m1-plan.md", "issue": 101, "pr": 201,
+        "status": "done", "started": "2026-03-02", "completed": "2026-03-05",
+        "plan": "m1-plan.md", "issue": 101, "pr": 201,
         "acceptance": { "kind": "demo-script", "record": "docs/features/beacon/m1-demo.md" } }
     ] }
   ```
 
-  Every field is required. `id` is the durable, never-renamed identifier (decision 17); `label` is
+  Every field is required except `started` and `completed`. `id` is the durable, never-renamed identifier (decision 17); `label` is
   its normalised display form, and the two are allowed — expected — to differ. `plan` is a
   filename resolved relative to the workstream's own directory (`docs/features/beacon/m1-plan.md`
   above); it must exist. `issue` and `pr` are GitHub numbers or `null`. `acceptance.record` is
@@ -200,6 +202,13 @@ fixed convention, at its own root:
 
   - workstream **`stage`** ∈ `not-started, designing, planned, shipping`
   - milestone **`status`** ∈ `done, next, blocked, parked, unplanned`
+
+  `started` and `completed` are optional and are stored calendar days, written `YYYY-MM-DD` — the
+  day the milestone began and the day it closed. Both are facts recorded when they happened;
+  nothing on the site is ever computed from today's date, which is what keeps two builds of one
+  input byte-identical. A closed milestone shows both days and how long it took, one in flight
+  shows its start day alone, and one not yet begun shows nothing. `completed` may not be recorded
+  without `started`, and may not be earlier than it.
 
 - **The plan and acceptance files a manifest names** — `m1-plan.md` and the rest, beside
   `workstream.json` in the same workstream directory; a manifest pointing at one that doesn't
