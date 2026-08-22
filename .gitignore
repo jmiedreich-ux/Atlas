@@ -1,3 +1,7 @@
 node_modules/
 .out/
 .superpowers/
+
+# Controller-staged reference copies of the plan and spec (not part of the generator).
+.m1-plan.md
+.atlas-decisions.md
