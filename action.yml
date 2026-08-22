@@ -47,15 +47,18 @@ inputs:
       action's own checkout, so the deployable is copied to somewhere the workflow can name; set
       this to an empty string for a project that publishes the site without the endpoints, and
       nothing is copied. It must not be the same directory as `output-dir`: the build replaces that
-      one wholesale and the Function would go with it.
+      one wholesale and the Function would go with it. It must be inside the CHECKOUT, which is
+      what `api_location` is resolved against — but it need not be inside `project-path`, because a
+      project may sit in a subdirectory of its checkout and still want its API at the root.
     required: false
     default: ".atlas-api"
 
 outputs:
   api-path:
     description: >-
-      The directory the write-back Function was copied to, or empty when `api-dir` was. Pass it to
-      the Static Web Apps deploy step as `api_location`.
+      The directory the write-back Function was copied to, relative to the checkout — the same frame
+      of reference `app_location` is read in — or empty when `api-dir` was. Pass it to the Static
+      Web Apps deploy step as `api_location`.
     value: ${{ steps.atlas-api.outputs.path }}
 
 runs:

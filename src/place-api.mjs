@@ -23,24 +23,47 @@ const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const API_SOURCE = path.join(GENERATOR_ROOT, 'api');
 
 /**
+ * The checkout `api_location` is resolved against.
+ *
+ * `$GITHUB_WORKSPACE` on a runner; otherwise the directory the build was invoked from, which is
+ * what a person running this by hand means by "here".
+ *
+ * **This is not the project root, and the difference is the whole of what this function gets
+ * wrong when it is got wrong.** A project may sit in a subdirectory of its checkout — Atlas's own
+ * CI builds `fixture/` — and an API directory at the checkout root is then outside the project,
+ * inside the checkout, and completely legitimate. Measuring against the project happens to agree
+ * whenever a project sits at the repository root, which is why a wrong rule passed for the one
+ * consumer that does and was caught by the action's own CI, which does not.
+ */
+function defaultCheckoutRoot() {
+  return path.resolve(process.env.GITHUB_WORKSPACE || process.cwd());
+}
+
+/**
  * Copy the write-back Function to `apiDir`, replacing whatever is there.
  *
- * @param {string} projectRoot - the project being built, which on a runner is the workspace.
+ * @param {string} projectRoot - the project being built. Not necessarily the checkout: it is
+ *   whatever directory holds `atlas.config.json`, which may be a subdirectory.
  * @param {string} apiDir - where the Function goes. An empty string places nothing.
  * @param {string} outDir - where the site is being written, so the two cannot be the same place.
- * @returns {string} the path the Function was placed at, **relative to `projectRoot`** and with
- *   forward slashes, or '' when `apiDir` was empty. Relative because that is what this value is
- *   for: `Azure/static-web-apps-deploy` runs in a container with the checkout mounted at
- *   `/github/workspace` and reads `api_location` as repository-relative, so an absolute path from
- *   the runner does not resolve inside it — and `app_location` beside it is relative too, so the
- *   two would not even have been in the same frame of reference.
+ * @param {object} [options]
+ * @param {string} [options.checkoutRoot] - the checkout `api_location` is resolved against.
+ *   Defaults to `$GITHUB_WORKSPACE`, then to the working directory. Injected so tests can build a
+ *   checkout on disk and say which directory it is, rather than depending on where they were run.
+ * @returns {string} the path the Function was placed at, **relative to the CHECKOUT** and with
+ *   forward slashes, or '' when `apiDir` was empty. Relative to the checkout because that is what
+ *   the value is for: `Azure/static-web-apps-deploy` runs in a container with the checkout mounted
+ *   at `/github/workspace` and reads `api_location` against it, so an absolute path from the runner
+ *   does not resolve inside it — and `app_location` beside it is read the same way, so the two
+ *   would not even have been in the same frame of reference.
  * @throws {Error} naming what the destination would have destroyed, or saying that it lies outside
- *   the workspace and so could never be deployed.
+ *   the checkout — and which checkout it measured against — and so could never be deployed.
  */
-export function placeApi(projectRoot, apiDir, outDir) {
+export function placeApi(projectRoot, apiDir, outDir, { checkoutRoot } = {}) {
   if (!apiDir) return '';
 
   const root = path.resolve(projectRoot);
+  const checkout = checkoutRoot ? path.resolve(checkoutRoot) : defaultCheckoutRoot();
   const destination = path.resolve(apiDir);
 
   // The same guard the output directory gets, and for the same reason: this call ends in an
@@ -62,16 +85,19 @@ export function placeApi(projectRoot, apiDir, outDir) {
     );
   }
 
-  // The answer this returns has to be usable as an `api_location`, and that is a repository path.
-  // A destination outside the workspace would be placed perfectly well and then be unusable, which
-  // is a failure that surfaces as a deploy quietly shipping no API — so it is refused here, where
-  // the message can say why.
-  const relative = path.relative(root, destination).split(path.sep).join('/');
+  // The answer this returns has to be usable as an `api_location`, which is a path inside the
+  // CHECKOUT — not inside the project. A destination outside the checkout would be placed
+  // perfectly well and then be unusable, a failure that surfaces as a deploy quietly shipping no
+  // API, so it is refused here where the message can say why. A destination outside the PROJECT is
+  // not a failure at all: `.atlas-api` beside a project in `fixture/` is what this action's own CI
+  // does.
+  const relative = path.relative(checkout, destination).split(path.sep).join('/');
   if (relative === '' || relative.startsWith('../')) {
     throw new Error(
-      `refusing to place the write-back Function at ${destination}: it is outside the project at ` +
-        `${root}, and a Static Web Apps \`api_location\` is a path inside the checkout. Give it a ` +
-        `directory within the project.`,
+      `refusing to place the write-back Function at ${destination}: it is outside the checkout at ` +
+        `${checkout}, which is what a Static Web Apps \`api_location\` is resolved against. Give it ` +
+        `a directory inside the checkout. (The project being built is ${root}; the API directory ` +
+        `does not have to be inside it, only inside the checkout.)`,
     );
   }
 
@@ -94,7 +120,7 @@ async function main(argv) {
     if (where === '') {
       console.log('atlas: api-dir is empty, so the write-back Function was not placed');
     } else {
-      console.log(`atlas: placed the write-back Function at ${where}, relative to the project`);
+      console.log(`atlas: placed the write-back Function at ${where}, relative to the checkout`);
     }
     // The action reads this to fill its `api-path` output.
     console.log(`::atlas-api-path::${where}`);

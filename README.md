@@ -50,7 +50,7 @@ backlog. `issues: read` is what stops that; `contents: read` is what lets `actio
 | -------------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `project-path` | no       | `${{ github.workspace }}` | The project to build — the checkout that carries `atlas.config.json`, `ROADMAP.md` and `docs/`. The default is the calling workflow's own workspace, which is correct for the ordinary case above and rarely needs overriding. |
 | `output-dir`   | no       | `.atlas-out`           | Where the built site is written, relative to the calling workflow's working directory unless given as an absolute path. Wired straight into a later step — `actions/upload-pages-artifact`, an Azure Static Web Apps deploy — that publishes it. |
-| `api-dir`      | no       | `.atlas-api`           | Where the write-back Function is placed, so a workflow can name it as an Azure Static Web Apps `api_location`. Resolved like `output-dir`, replaced wholesale each run, and refused if it overlaps `output-dir` or anything the build reads. Set it to an empty string for a project publishing the site without the endpoints. The action's `api-path` output holds where it landed — see **Write-back**, below. |
+| `api-dir`      | no       | `.atlas-api`           | Where the write-back Function is placed, so a workflow can name it as an Azure Static Web Apps `api_location`. Resolved like `output-dir`, replaced wholesale each run, and refused if it overlaps `output-dir` or anything the build reads, or if it falls outside the checkout — it has to be somewhere `api_location` can name. It does **not** have to be inside `project-path`: a project in a subdirectory can put its API at the checkout root, which is what Atlas's own CI does. Set it to an empty string for a project publishing the site without the endpoints. The action's `api-path` output holds where it landed — see **Write-back**, below. |
 | `github-token` | no       | *(none)*               | A token used to fetch each workstream's open issues and pull requests. There is no safe default, so it is left unset rather than defaulted: without it, the build still succeeds — `src/github.mjs` tolerates GitHub being unreachable — but the requests are unauthenticated and subject to GitHub's public rate limit. Pass `${{ github.token }}`, as above, to authenticate as the workflow's own run. |
 
 Per decision 46, the version tags (a `vX.Y.Z` per release, and the `v1` major tag moved forward to
@@ -297,6 +297,11 @@ The action places the Function where a deploy step can name it, and says where:
 
 Set `api-dir` to an empty string for a project that publishes the site without the endpoints, and
 nothing is placed.
+
+`api-path` is relative to the **checkout**, not to `project-path`, because that is how the deploy
+action reads `api_location` — the same frame of reference as `app_location` beside it. The two are
+the same directory only when a project sits at the repository root; a project in a subdirectory
+still places its API wherever in the checkout it likes.
 
 ### The credential, which may be empty
 
