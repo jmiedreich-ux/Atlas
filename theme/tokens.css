@@ -1,11 +1,56 @@
-/* Atlas — the theme (decision 28: Sky UI tokens, Segoe UI typography, three-state dark mode).
+/* Atlas — the theme (decision 28: the product's own locked palette, Segoe UI typography,
+ * three-state dark mode).
  *
  * The generator holds no project content (decision 40): nothing below names a project, a
  * workstream or a milestone. It styles the vocabulary the manifest schema closes — five milestone
  * statuses, four workstream stages — and the three surfaces decision 22 asks for.
  *
- * THREE STATES, NOT TWO. A viewer is in one of three states, and the third is the one that gets
- * forgotten:
+ * ============================================================================================
+ * WHERE THE COLOURS COME FROM
+ * ============================================================================================
+ *
+ * Decision 28 asks for the product's own **locked palette**, so that Atlas reads as a sibling of
+ * the applications it sits beside. Until this file was rewritten it carried an invented
+ * palette that shared not one token name or value with the real thing, while colliding with it on
+ * the `--sky-` prefix — `--sky-surface` meant something different in each. A sibling that agrees
+ * with nobody about what `--sky-surface` is is not a sibling.
+ *
+ * So every `--sky-*` token below is **the locked Sky UI design-token contract**, by name, with its
+ * light value copied exactly. Atlas's own additions are `--atlas-*`, and the split is the point:
+ * the prefix now tells you which of the two files a token belongs to, and nothing means two
+ * things.
+ *
+ * Two consequences worth stating rather than leaving implicit:
+ *
+ *   * **This puts a product's design contract into a generator decision 40 says holds no project
+ *     content.** Token names and hex values are not project names — nothing here says who the
+ *     product is, and the generator still renders any project's repository — but the tension is
+ *     real, and decision 28 is what resolves it: Atlas is asked to look like a sibling, and a
+ *     sibling shares the palette or it does not.
+ *   * **The contract has rules of its own, and they are honoured here.** "Sky is a fill/focus
+ *     accent, never text on light" — so `--sky-color-primary` appears only as a fill (the
+ *     arrowhead's ring, a filled track segment) and never as a text colour; link text uses the
+ *     contract's own `--sky-action-link-text` and the arrowhead glyph uses `--sky-focus-color`.
+ *     "Always pair these with a label or icon" for the status colours — every chip carries a text
+ *     label, and every coloured chart cell carries either a milestone id or the word "Passed".
+ *
+ * **The one deliberate divergence: typography.** The contract's `--sky-font-family` leads with
+ * Inter. Atlas does not adopt it. Decision 28 names **Segoe UI**, says it needs no webfont on the
+ * machines this is read on, and the owner has confirmed that choice is deliberate and preferred.
+ * It is therefore `--atlas-font-sans` — Atlas's own token, not a redefinition of the contract's —
+ * so that nobody "corrects" it back later on the grounds that the locked file says Inter. It does;
+ * Atlas knowingly departs from it here and nowhere else.
+ *
+ * **Dark.** The contract's default `:root` is `color-scheme: light`; it carries a dark set under
+ * `:root[data-sky-theme="midnight"]`, and every token below that midnight defines takes ITS value
+ * exactly too. Seven tokens Atlas uses are absent from midnight, and only those are derived — each
+ * marked DERIVED at its definition, with what it was derived from.
+ *
+ * ============================================================================================
+ * THREE STATES, NOT TWO
+ * ============================================================================================
+ *
+ * A viewer is in one of three states, and the third is the one that gets forgotten:
  *
  *   1. explicit light   — the root carries data-theme="light"
  *   2. explicit dark    — the root carries data-theme="dark"
@@ -26,131 +71,158 @@
 :root {
   color-scheme: light dark;
 
-  /* Type. Segoe needs no webfont on the machines this is read on (decision 28). */
-  --sky-font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
-  --sky-font-mono: "Cascadia Mono", Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* --- the locked contract: palette ---------------------------------------------------------
+   * Names and light values exactly as the Sky UI token contract has them. Sky is a fill/focus
+   * accent, never text on light. */
+  --sky-color-primary: #87ceeb;
+  --sky-color-surface: #f8fafc;
+  --sky-color-surface-raised: #ffffff;
+  --sky-color-ink: #0f172a;
+  --sky-color-secondary: #e0f2fe;
+  --sky-color-border: #e2e8f0;
+  --sky-color-text-secondary: #475569;
+  --sky-color-text-muted: #64748b;
 
-  /* Space and shape. */
+  /* Reserved status colors. Always pair these with a label or icon. */
+  --sky-color-live-surface: #e0f4e9;
+  --sky-color-off-surface: #fbe7e5;
+  --sky-color-warning-surface: #fdf1dc;
+  --sky-color-promotion: #7c5cbf;
+  --sky-positive-text: #18603f;
+  --sky-danger-text: #8a2929;
+  --sky-warning-text: #7d5911;
+
+  /* Neutrals the palette does not cover: the page behind a frame, subtle fills, and the control
+   * hairline a stronger rule needs. */
+  --sky-color-shell: #e8eef4;
+  --sky-color-fill-subtle: #f4f7fa;
+  --sky-color-border-control: #cbd5e1;
+
+  /* --- the locked contract: semantic aliases ------------------------------------------------
+   * Defined as the contract defines them — as `var()` of a palette token, so a dark block that
+   * redefines the palette token moves the alias with it and never has to restate it. */
+  --sky-page-background: var(--sky-color-surface);
+  --sky-card-background: var(--sky-color-surface-raised);
+  --sky-text-primary: var(--sky-color-ink);
+  --sky-text-secondary: var(--sky-color-text-secondary);
+  --sky-text-muted: var(--sky-color-text-muted);
+  --sky-action-link-text: #1d6fb8;
+  --sky-badge-background: var(--sky-color-secondary);
+  --sky-badge-text: var(--sky-color-ink);
+  --sky-focus-color: #096f91;
+  --sky-focus-width: 2px;
+  --sky-focus-offset: 2px;
+  --sky-focus-ring: var(--sky-focus-width) solid var(--sky-focus-color);
+
+  /* Elevation. The contract defines one panel shadow; a card needs less. */
+  --sky-shadow-card: 0 1px 2px rgb(15 23 42 / 0.09), 0 10px 24px rgb(15 23 42 / 0.10);
+
+  /* --- the locked contract: spacing and shape ----------------------------------------------- */
   --sky-space-1: 0.25rem;
   --sky-space-2: 0.5rem;
   --sky-space-3: 0.75rem;
   --sky-space-4: 1rem;
   --sky-space-5: 1.5rem;
-  --sky-space-6: 2.5rem;
-  --sky-radius-sm: 4px;
-  --sky-radius-md: 8px;
-  --sky-measure: 42rem;
-  --sky-column-width: 11.5rem;
-  --sky-ladder-width: 7rem;
+  --sky-space-6: 2rem;
+  --sky-space-7: 3rem;
+  --sky-radius-sm: 0.5rem;
+  --sky-radius-md: 0.75rem;
+  --sky-radius-lg: 1rem;
+  --sky-radius-pill: 999px;
+  --sky-card-radius: var(--sky-radius-lg);
 
-  /* Ground and ink. */
-  --sky-canvas: #f3f6fa;
-  --sky-surface: #ffffff;
-  --sky-sunken: #e8eef6;
-  --sky-raised: #ffffff;
-  --sky-border: #d5dee9;
-  --sky-border-strong: #b3c1d1;
-  --sky-ink: #15202e;
-  --sky-ink-muted: #48596d;
-  --sky-ink-subtle: #6a7b90;
-  --sky-accent: #1c6ca8;
-  --sky-accent-ink: #ffffff;
-  --sky-accent-soft: #e4eefa;
-  --sky-focus: #1c6ca8;
-  --sky-shadow: rgba(21, 32, 46, 0.10);
+  /* --- Atlas's own ---------------------------------------------------------------------------
+   * Everything the contract has no name for. `--atlas-`, never `--sky-`: a token that is not in
+   * the locked file must not look as though it is.
+   *
+   * TYPOGRAPHY IS A DELIBERATE DIVERGENCE. The contract's `--sky-font-family` leads with Inter.
+   * Decision 28 names Segoe UI and says it needs no webfont on the machines this is read on, and
+   * the owner has confirmed that preference. This is Atlas's own token by design, so the
+   * divergence is visible rather than looking like a stale copy of the contract. Do not "correct"
+   * it to the contract's stack. */
+  --atlas-font-sans: "Segoe UI", "Segoe UI Variable Text", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+  --atlas-font-mono: "Cascadia Mono", Consolas, ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* The depth chart's own three grounds: the completed bar, the arrowhead, the empty track. */
-  --sky-bar: #cfe3f5;
-  --sky-bar-ink: #123a5c;
-  --sky-head: #1c6ca8;
-  --sky-track: #eaeff6;
+  /* Layout measures. Lengths, not colours; nothing in the contract covers them. */
+  --atlas-measure: 42rem;
+  --atlas-column-width: 11.5rem;
+  --atlas-ladder-width: 7rem;
 
-  /* Chip tones. Six tones carry every value in both closed vocabularies, so a milestone status
-   * and the stage or triage state that means the same thing read the same. */
-  --sky-tone-positive-bg: #dff1e5;
-  --sky-tone-positive-ink: #1a5533;
-  --sky-tone-active-bg: #dfeafb;
-  --sky-tone-active-ink: #144a78;
-  --sky-tone-waiting-bg: #fbeeda;
-  --sky-tone-waiting-ink: #74490f;
-  --sky-tone-halted-bg: #fae3e3;
-  --sky-tone-halted-ink: #7d2727;
-  --sky-tone-idle-bg: #e9edf3;
-  --sky-tone-idle-ink: #4b5c70;
-  --sky-tone-exploring-bg: #ece8f8;
-  --sky-tone-exploring-ink: #4b3d7c;
+  /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
+   * surface beside it, and the `designing`/`planned` chips need one. */
+  --atlas-tone-exploring-bg: #efeafa;
 }
 
 @media (prefers-color-scheme: dark) {
   /* Guarded: without :not([data-theme="light"]) an explicit light choice would lose to the
-   * system setting. Only tokens are redefined here — never a component rule. */
+   * system setting. Only tokens are redefined here — never a component rule.
+   *
+   * Values are the contract's own `[data-sky-theme="midnight"]` set. The ones marked DERIVED are
+   * the tokens midnight does not define. */
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --sky-canvas: #0e141c;
-    --sky-surface: #161e29;
-    --sky-sunken: #111823;
-    --sky-raised: #1b2632;
-    --sky-border: #2a3644;
-    --sky-border-strong: #3e4d5f;
-    --sky-ink: #e7eef6;
-    --sky-ink-muted: #a9b8c8;
-    --sky-ink-subtle: #8597aa;
-    --sky-accent: #6db3e8;
-    --sky-accent-ink: #0e141c;
-    --sky-accent-soft: #17293a;
-    --sky-focus: #6db3e8;
-    --sky-shadow: rgba(0, 0, 0, 0.45);
-    --sky-bar: #1e3d57;
-    --sky-bar-ink: #d7e8f7;
-    --sky-head: #6db3e8;
-    --sky-track: #141d27;
-    --sky-tone-positive-bg: #16331f;
-    --sky-tone-positive-ink: #a9dfbc;
-    --sky-tone-active-bg: #142c44;
-    --sky-tone-active-ink: #a8cff2;
-    --sky-tone-waiting-bg: #3a2c11;
-    --sky-tone-waiting-ink: #ecc888;
-    --sky-tone-halted-bg: #3a1c1c;
-    --sky-tone-halted-ink: #eeaaaa;
-    --sky-tone-idle-bg: #1c2531;
-    --sky-tone-idle-ink: #adbccc;
-    --sky-tone-exploring-bg: #241f3d;
-    --sky-tone-exploring-ink: #c3b6ef;
+    --sky-color-surface: #111827;
+    --sky-color-surface-raised: #1e293b;
+    --sky-color-ink: #f8fafc;
+    --sky-color-secondary: #17344a;
+    --sky-color-border: #475569;
+    --sky-color-text-secondary: #cbd5e1;
+    --sky-color-text-muted: #94a3b8;
+    --sky-color-live-surface: #123d2d;
+    --sky-color-off-surface: #4a2024;
+    --sky-color-warning-surface: #493518;
+    --sky-positive-text: #65d99c;
+    --sky-danger-text: #ff8a83;
+    --sky-warning-text: #f4c15d;
+    --sky-badge-text: #f8fafc;
+    --sky-focus-color: #38bdf8;
+    /* DERIVED: midnight carries the sky accent through unchanged and lightens the inks; the
+     * promotion violet is lightened onto the same ramp its light value sits on. */
+    --sky-color-promotion: #c3b6ef;
+    /* DERIVED: the page behind a frame, one step under midnight's --sky-color-surface (#111827),
+     * mirroring the gap the light set has between --sky-color-shell and --sky-color-surface. */
+    --sky-color-shell: #0d1523;
+    /* DERIVED: a subtle fill, one step over midnight's --sky-color-surface, as the light set's
+     * --sky-color-fill-subtle sits one step under its own surface. */
+    --sky-color-fill-subtle: #182234;
+    /* DERIVED: the control hairline, between midnight's --sky-color-border (#475569) and its
+     * --sky-color-text-muted (#94a3b8), as the light set's sits between its own two. */
+    --sky-color-border-control: #6b7c93;
+    /* DERIVED: midnight replaces the panel shadow's slate tint with black at a higher alpha
+     * (rgb(0 0 0 / 0.34) for rgb(15 23 42 / 0.12)); the card shadow follows the same rule. */
+    --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+    /* DERIVED: the contract's link blue is #1d6fb8, unreadable on a dark ground. Lightened into
+     * the same family midnight already uses for --sky-focus-color (#38bdf8). */
+    --sky-action-link-text: #7dd3fc;
+    /* DERIVED: Atlas's own, alongside --sky-color-promotion above. */
+    --atlas-tone-exploring-bg: #2a2247;
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --sky-canvas: #0e141c;
-  --sky-surface: #161e29;
-  --sky-sunken: #111823;
-  --sky-raised: #1b2632;
-  --sky-border: #2a3644;
-  --sky-border-strong: #3e4d5f;
-  --sky-ink: #e7eef6;
-  --sky-ink-muted: #a9b8c8;
-  --sky-ink-subtle: #8597aa;
-  --sky-accent: #6db3e8;
-  --sky-accent-ink: #0e141c;
-  --sky-accent-soft: #17293a;
-  --sky-focus: #6db3e8;
-  --sky-shadow: rgba(0, 0, 0, 0.45);
-  --sky-bar: #1e3d57;
-  --sky-bar-ink: #d7e8f7;
-  --sky-head: #6db3e8;
-  --sky-track: #141d27;
-  --sky-tone-positive-bg: #16331f;
-  --sky-tone-positive-ink: #a9dfbc;
-  --sky-tone-active-bg: #142c44;
-  --sky-tone-active-ink: #a8cff2;
-  --sky-tone-waiting-bg: #3a2c11;
-  --sky-tone-waiting-ink: #ecc888;
-  --sky-tone-halted-bg: #3a1c1c;
-  --sky-tone-halted-ink: #eeaaaa;
-  --sky-tone-idle-bg: #1c2531;
-  --sky-tone-idle-ink: #adbccc;
-  --sky-tone-exploring-bg: #241f3d;
-  --sky-tone-exploring-ink: #c3b6ef;
+  --sky-color-surface: #111827;
+  --sky-color-surface-raised: #1e293b;
+  --sky-color-ink: #f8fafc;
+  --sky-color-secondary: #17344a;
+  --sky-color-border: #475569;
+  --sky-color-text-secondary: #cbd5e1;
+  --sky-color-text-muted: #94a3b8;
+  --sky-color-live-surface: #123d2d;
+  --sky-color-off-surface: #4a2024;
+  --sky-color-warning-surface: #493518;
+  --sky-positive-text: #65d99c;
+  --sky-danger-text: #ff8a83;
+  --sky-warning-text: #f4c15d;
+  --sky-badge-text: #f8fafc;
+  --sky-focus-color: #38bdf8;
+  --sky-color-promotion: #c3b6ef;
+  --sky-color-shell: #0d1523;
+  --sky-color-fill-subtle: #182234;
+  --sky-color-border-control: #6b7c93;
+  --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+  --sky-action-link-text: #7dd3fc;
+  --atlas-tone-exploring-bg: #2a2247;
 }
 
 /* An explicit light choice needs no tokens — the bare :root palette is already the light one —
@@ -177,9 +249,9 @@ html {
 
 body {
   /* An explicit ground: a transparent body silently borrows whatever the host paints behind it. */
-  background: var(--sky-canvas);
-  color: var(--sky-ink);
-  font-family: var(--sky-font-sans);
+  background: var(--sky-page-background);
+  color: var(--sky-text-primary);
+  font-family: var(--atlas-font-sans);
   font-size: 16px;
   line-height: 1.5;
   margin: 0;
@@ -188,28 +260,30 @@ body {
 }
 
 a {
-  color: var(--sky-accent);
+  /* The contract's own link colour. NOT --sky-color-primary: "Sky is a fill/focus accent, never
+   * text on light". */
+  color: var(--sky-action-link-text);
 }
 
 a:hover {
-  color: var(--sky-ink);
+  color: var(--sky-text-primary);
 }
 
 :focus-visible {
-  outline: 2px solid var(--sky-focus);
-  outline-offset: 2px;
+  outline: var(--sky-focus-ring);
+  outline-offset: var(--sky-focus-offset);
 }
 
 code,
 pre,
 kbd {
-  font-family: var(--sky-font-mono);
+  font-family: var(--atlas-font-mono);
   font-size: 0.9em;
 }
 
 pre {
-  background: var(--sky-sunken);
-  border: 1px solid var(--sky-border);
+  background: var(--sky-color-fill-subtle);
+  border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-md);
   overflow-x: auto;
   padding: var(--sky-space-3);
@@ -223,13 +297,13 @@ th.num {
 }
 
 .skip-link {
-  background: var(--sky-surface);
-  border: 1px solid var(--sky-border);
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-sm);
   left: var(--sky-space-2);
   padding: var(--sky-space-2) var(--sky-space-3);
   position: absolute;
-  top: calc(-1 * var(--sky-space-6));
+  top: calc(-1 * var(--sky-space-7));
 }
 
 .skip-link:focus {
@@ -241,8 +315,8 @@ th.num {
 
 .site-head {
   align-items: baseline;
-  background: var(--sky-surface);
-  border-bottom: 1px solid var(--sky-border);
+  background: var(--sky-card-background);
+  border-bottom: 1px solid var(--sky-color-border);
   display: flex;
   flex-wrap: wrap;
   gap: var(--sky-space-4);
@@ -269,10 +343,10 @@ th.num {
 }
 
 .theme-toggle {
-  background: var(--sky-surface);
-  border: 1px solid var(--sky-border);
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-sm);
-  color: var(--sky-ink-muted);
+  color: var(--sky-text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 0.85rem;
@@ -285,10 +359,10 @@ th.num {
 }
 
 .site-foot {
-  border-top: 1px solid var(--sky-border);
-  color: var(--sky-ink-subtle);
+  border-top: 1px solid var(--sky-color-border);
+  color: var(--sky-text-muted);
   font-size: 0.85rem;
-  margin-top: var(--sky-space-6);
+  margin-top: var(--sky-space-7);
   padding: var(--sky-space-4);
 }
 
@@ -309,17 +383,21 @@ h3 {
 }
 
 .lede {
-  color: var(--sky-ink-muted);
+  color: var(--sky-text-secondary);
   margin: 0 0 var(--sky-space-5);
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
 }
 
-/* --- chips: status is never colour alone ------------------------------------------------------- */
+/* --- chips: status is never colour alone -------------------------------------------------------
+ * Six tones carry every value in both closed vocabularies, so a milestone status and the stage or
+ * triage state that means the same thing read the same. Each is one of the contract's reserved
+ * status pairs, and the contract's rule for them — "always pair these with a label or icon" — is
+ * satisfied by the chip macro, which always emits a text label. */
 
 .chip {
-  background: var(--sky-tone-idle-bg);
-  border-radius: 999px;
-  color: var(--sky-tone-idle-ink);
+  background: var(--sky-color-shell);
+  border-radius: var(--sky-radius-pill);
+  color: var(--sky-text-secondary);
   display: inline-block;
   font-size: 0.75rem;
   font-weight: 600;
@@ -329,39 +407,39 @@ h3 {
 }
 
 .chip-done {
-  background: var(--sky-tone-positive-bg);
-  color: var(--sky-tone-positive-ink);
+  background: var(--sky-color-live-surface);
+  color: var(--sky-positive-text);
 }
 
 .chip-next,
 .chip-shipping,
 .chip-moving {
-  background: var(--sky-tone-active-bg);
-  color: var(--sky-tone-active-ink);
+  background: var(--sky-badge-background);
+  color: var(--sky-badge-text);
 }
 
 .chip-gated,
 .chip-awaiting-decision {
-  background: var(--sky-tone-waiting-bg);
-  color: var(--sky-tone-waiting-ink);
+  background: var(--sky-color-warning-surface);
+  color: var(--sky-warning-text);
 }
 
 .chip-parked,
 .chip-blocked {
-  background: var(--sky-tone-halted-bg);
-  color: var(--sky-tone-halted-ink);
+  background: var(--sky-color-off-surface);
+  color: var(--sky-danger-text);
 }
 
 .chip-designing,
 .chip-planned {
-  background: var(--sky-tone-exploring-bg);
-  color: var(--sky-tone-exploring-ink);
+  background: var(--atlas-tone-exploring-bg);
+  color: var(--sky-color-promotion);
 }
 
 .chip-unplanned,
 .chip-not-started {
-  background: var(--sky-tone-idle-bg);
-  color: var(--sky-tone-idle-ink);
+  background: var(--sky-color-shell);
+  color: var(--sky-text-secondary);
 }
 
 /* --- surface one: the desktop depth chart ------------------------------------------------------ */
@@ -374,7 +452,7 @@ h3 {
  * chart owns both scrolls, and the ladder column and the column headers both stay in view. The
  * bound only engages when the chart is taller than the space left under the page furniture. */
 .chart-scroll {
-  border: 1px solid var(--sky-border);
+  border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-md);
   max-height: calc(100vh - 12rem);
   max-width: 100%;
@@ -383,7 +461,7 @@ h3 {
 }
 
 .depth-chart {
-  background: var(--sky-surface);
+  background: var(--sky-card-background);
   border-collapse: separate;
   border-spacing: 0;
   min-width: 100%;
@@ -392,7 +470,7 @@ h3 {
 
 .depth-chart caption {
   caption-side: top;
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.85rem;
   padding: var(--sky-space-3) var(--sky-space-4);
   text-align: left;
@@ -400,15 +478,15 @@ h3 {
 
 .depth-chart th,
 .depth-chart td {
-  border-bottom: 1px solid var(--sky-border);
+  border-bottom: 1px solid var(--sky-color-border);
   padding: var(--sky-space-2) var(--sky-space-3);
   vertical-align: top;
 }
 
 .column-head {
-  background: var(--sky-surface);
-  border-bottom: 2px solid var(--sky-border-strong);
-  min-width: var(--sky-column-width);
+  background: var(--sky-card-background);
+  border-bottom: 2px solid var(--sky-color-border-control);
+  min-width: var(--atlas-column-width);
   position: sticky;
   top: 0;
 }
@@ -422,12 +500,12 @@ h3 {
 
 .ladder-head,
 .ladder-cell {
-  background: var(--sky-sunken);
-  color: var(--sky-ink-muted);
+  background: var(--sky-color-shell);
+  color: var(--sky-text-secondary);
   font-size: 0.85rem;
   font-weight: 600;
   left: 0;
-  min-width: var(--sky-ladder-width);
+  min-width: var(--atlas-ladder-width);
   position: sticky;
   white-space: nowrap;
 }
@@ -452,21 +530,25 @@ h3 {
 }
 
 .cell {
-  min-width: var(--sky-column-width);
+  min-width: var(--atlas-column-width);
 }
 
+/* Complete. The contract's positive pair, and the cell always carries a milestone id or the word
+ * "Passed" beside it — the contract's own rule for its status colours. */
 .cell-covered {
-  background: var(--sky-bar);
-  color: var(--sky-bar-ink);
+  background: var(--sky-color-live-surface);
+  color: var(--sky-positive-text);
 }
 
 .cell-beyond {
-  background: var(--sky-track);
+  background: var(--sky-color-fill-subtle);
 }
 
+/* The arrowhead's cell. The ring is --sky-color-primary because a ring is a fill; the glyph
+ * inside it is text, and takes the focus colour instead. */
 .cell-head {
-  background: var(--sky-accent-soft);
-  box-shadow: inset 0 0 0 2px var(--sky-head);
+  background: var(--sky-color-secondary);
+  box-shadow: inset 0 0 0 2px var(--sky-color-primary);
 }
 
 .cell-label {
@@ -476,19 +558,20 @@ h3 {
 }
 
 .cell-state {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.75rem;
 }
 
 .head-mark {
-  color: var(--sky-head);
+  /* Text on a light ground, so NOT --sky-color-primary. */
+  color: var(--sky-focus-color);
   display: block;
   font-size: 1rem;
   line-height: 1;
 }
 
 .head-next {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   display: block;
   font-size: 0.7rem;
   letter-spacing: 0.08em;
@@ -496,7 +579,7 @@ h3 {
 }
 
 .tip-note {
-  color: var(--sky-ink-muted);
+  color: var(--sky-text-secondary);
   font-size: 0.8rem;
   margin: var(--sky-space-2) 0 0;
   white-space: normal;
@@ -515,10 +598,10 @@ h3 {
 }
 
 .card {
-  background: var(--sky-surface);
-  border: 1px solid var(--sky-border);
-  border-radius: var(--sky-radius-md);
-  box-shadow: 0 1px 2px var(--sky-shadow);
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-card-radius);
+  box-shadow: var(--sky-shadow-card);
   padding: var(--sky-space-4);
 }
 
@@ -544,7 +627,7 @@ h3 {
 }
 
 .card-what {
-  color: var(--sky-ink-muted);
+  color: var(--sky-text-secondary);
   font-size: 0.9rem;
 }
 
@@ -559,24 +642,25 @@ h3 {
 }
 
 .track-seg {
-  background: var(--sky-track);
+  background: var(--sky-color-border);
   border-radius: 2px;
   flex: 1 1 0;
   height: 8px;
 }
 
+/* A fill, which is what the contract reserves Sky for. */
 .track-seg.is-filled {
-  background: var(--sky-head);
+  background: var(--sky-color-primary);
 }
 
 .track-count {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.8rem;
 }
 
 .card-gate {
-  border-top: 1px solid var(--sky-border);
-  color: var(--sky-ink-muted);
+  border-top: 1px solid var(--sky-color-border);
+  color: var(--sky-text-secondary);
   font-size: 0.9rem;
   margin-top: var(--sky-space-3);
   padding-top: var(--sky-space-3);
@@ -584,7 +668,7 @@ h3 {
 
 .card-gate-label,
 .meta-label {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   display: block;
   font-size: 0.7rem;
   letter-spacing: 0.08em;
@@ -594,7 +678,7 @@ h3 {
 /* --- surface three: the document pages ---------------------------------------------------------- */
 
 .doc {
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
 }
 
 .doc img {
@@ -602,8 +686,8 @@ h3 {
 }
 
 .doc blockquote {
-  border-left: 3px solid var(--sky-border-strong);
-  color: var(--sky-ink-muted);
+  border-left: 3px solid var(--sky-color-border-control);
+  color: var(--sky-text-secondary);
   margin-left: 0;
   padding-left: var(--sky-space-4);
 }
@@ -623,18 +707,18 @@ h3 {
 .md-table-scroll td,
 .records th,
 .records td {
-  border-bottom: 1px solid var(--sky-border);
+  border-bottom: 1px solid var(--sky-color-border);
   padding: var(--sky-space-2) var(--sky-space-3);
   text-align: left;
   vertical-align: top;
 }
 
 .contents {
-  background: var(--sky-sunken);
+  background: var(--sky-color-fill-subtle);
   border-radius: var(--sky-radius-md);
   font-size: 0.9rem;
   margin-bottom: var(--sky-space-5);
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
   padding: var(--sky-space-3) var(--sky-space-4);
 }
 
@@ -659,11 +743,11 @@ h3 {
 }
 
 .gate-callout {
-  background: var(--sky-tone-waiting-bg);
+  background: var(--sky-color-warning-surface);
   border-radius: var(--sky-radius-md);
-  color: var(--sky-tone-waiting-ink);
+  color: var(--sky-warning-text);
   margin: var(--sky-space-4) 0;
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
   padding: var(--sky-space-3) var(--sky-space-4);
 }
 
@@ -680,29 +764,29 @@ h3 {
 .issue-list {
   list-style: none;
   margin: 0;
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
   padding: 0;
 }
 
 .named-refs li,
 .issue-list li {
-  border-bottom: 1px solid var(--sky-border);
+  border-bottom: 1px solid var(--sky-color-border);
   padding: var(--sky-space-2) 0;
 }
 
 .named-refs .where {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.8rem;
 }
 
 /* The records index: one section per directory the repository already has. */
 .record-group {
   margin: var(--sky-space-5) 0;
-  max-width: var(--sky-measure);
+  max-width: var(--atlas-measure);
 }
 
 .record-group h2 {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.85rem;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -715,12 +799,12 @@ h3 {
 }
 
 .empty {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-style: italic;
 }
 
 .breadcrumb {
-  color: var(--sky-ink-subtle);
+  color: var(--sky-text-muted);
   font-size: 0.85rem;
   margin: 0 0 var(--sky-space-2);
 }

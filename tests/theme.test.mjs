@@ -388,6 +388,178 @@ test('tokens.css: an explicit theme choice swaps color-scheme too, not just the 
   assert.equal(schemeOf(':root[data-theme="light"]'), 'light');
 });
 
+// --- decision 28: the palette is the locked contract's, not an invented one -----------------------
+
+// The Sky UI design-token contract's own light values, transcribed from the locked file. This is a
+// second, independent copy on purpose: the point of decision 28 is that Atlas does not drift away
+// from the contract, and a test that read the values back out of `tokens.css` would agree with any
+// drift. If the contract changes, this table and `tokens.css` both change, deliberately.
+const CONTRACT_LIGHT = {
+  '--sky-color-primary': '#87ceeb',
+  '--sky-color-surface': '#f8fafc',
+  '--sky-color-surface-raised': '#ffffff',
+  '--sky-color-ink': '#0f172a',
+  '--sky-color-secondary': '#e0f2fe',
+  '--sky-color-border': '#e2e8f0',
+  '--sky-color-text-secondary': '#475569',
+  '--sky-color-text-muted': '#64748b',
+  '--sky-color-live-surface': '#e0f4e9',
+  '--sky-color-off-surface': '#fbe7e5',
+  '--sky-color-warning-surface': '#fdf1dc',
+  '--sky-color-promotion': '#7c5cbf',
+  '--sky-positive-text': '#18603f',
+  '--sky-danger-text': '#8a2929',
+  '--sky-warning-text': '#7d5911',
+  '--sky-color-shell': '#e8eef4',
+  '--sky-color-fill-subtle': '#f4f7fa',
+  '--sky-color-border-control': '#cbd5e1',
+  '--sky-action-link-text': '#1d6fb8',
+  '--sky-focus-color': '#096f91',
+  '--sky-focus-width': '2px',
+  '--sky-focus-offset': '2px',
+  // The semantic aliases are `var()` of a palette token in the contract, and must stay that way:
+  // an alias flattened to a hex stops following the dark palette.
+  '--sky-page-background': 'var(--sky-color-surface)',
+  '--sky-card-background': 'var(--sky-color-surface-raised)',
+  '--sky-text-primary': 'var(--sky-color-ink)',
+  '--sky-text-secondary': 'var(--sky-color-text-secondary)',
+  '--sky-text-muted': 'var(--sky-color-text-muted)',
+  '--sky-badge-background': 'var(--sky-color-secondary)',
+  '--sky-badge-text': 'var(--sky-color-ink)',
+  '--sky-focus-ring': 'var(--sky-focus-width) solid var(--sky-focus-color)',
+  // Spacing and shape, which the contract also fixes. Atlas used to carry three of these names at
+  // different values, which is the same collision the colours had.
+  '--sky-space-1': '0.25rem',
+  '--sky-space-2': '0.5rem',
+  '--sky-space-3': '0.75rem',
+  '--sky-space-4': '1rem',
+  '--sky-space-5': '1.5rem',
+  '--sky-space-6': '2rem',
+  '--sky-space-7': '3rem',
+  '--sky-radius-sm': '0.5rem',
+  '--sky-radius-md': '0.75rem',
+  '--sky-radius-lg': '1rem',
+  '--sky-radius-pill': '999px',
+  '--sky-card-radius': 'var(--sky-radius-lg)',
+};
+
+// The one shadow the contract does not define at this weight; its light value is the contract's
+// card elevation, checked separately because its value is a list rather than a single token.
+const CONTRACT_SHADOW = '--sky-shadow-card';
+
+function bareRootDeclarations() {
+  const rule = DECLARATION_RULES.find((r) => !r.insideAtRule && r.selector === ':root');
+  assert.ok(rule, 'no bare :root block');
+  return new Map(declarationsIn(rule.body));
+}
+
+test('tokens.css: every --sky- token carries the locked contract\'s own light value', () => {
+  const declared = bareRootDeclarations();
+
+  for (const [name, expected] of Object.entries(CONTRACT_LIGHT)) {
+    assert.equal(
+      declared.get(name),
+      expected,
+      `${name} does not match the locked design-token contract, which is what decision 28 asks for`,
+    );
+  }
+});
+
+test('tokens.css: nothing invented is smuggled into the contract\'s namespace', () => {
+  // The defect this replaces: an invented palette using the `--sky-` prefix, so two files
+  // disagreed about what `--sky-surface` meant. A token Atlas made up must be `--atlas-`.
+  const known = new Set([...Object.keys(CONTRACT_LIGHT), CONTRACT_SHADOW]);
+  const invented = [...bareRootDeclarations().keys()]
+    .filter((name) => name.startsWith('--sky-'))
+    .filter((name) => !known.has(name))
+    .sort();
+
+  assert.deepEqual(
+    invented,
+    [],
+    `these are not names the locked contract defines, so they must be --atlas-: ${invented.join(', ')}`,
+  );
+
+  // And the converse: Atlas's own tokens exist, and are the only ones outside the contract.
+  const atlasOwn = [...bareRootDeclarations().keys()].filter((name) => name.startsWith('--atlas-'));
+  assert.ok(atlasOwn.length > 0, "Atlas's own tokens must be namespaced --atlas-");
+
+  const strays = [...bareRootDeclarations().keys()]
+    .filter((name) => name.startsWith('--'))
+    .filter((name) => !name.startsWith('--sky-') && !name.startsWith('--atlas-'));
+  assert.deepEqual(strays, [], `a token in neither namespace: ${strays.join(', ')}`);
+});
+
+test('tokens.css: Segoe is kept, as a deliberate divergence that is written down', () => {
+  // The contract's --sky-font-family leads with Inter. Decision 28 names Segoe UI, and the owner
+  // has confirmed that preference. It is deliberately Atlas's OWN token rather than a
+  // redefinition of the contract's, so a later reader cannot mistake it for a stale copy — and
+  // the reason is in the file, so nobody "corrects" it back.
+  const declared = bareRootDeclarations();
+
+  assert.ok(
+    declared.get('--atlas-font-sans')?.startsWith('"Segoe UI"'),
+    `the body face must lead with Segoe UI (decision 28); saw ${declared.get('--atlas-font-sans')}`,
+  );
+  assert.equal(
+    declared.get('--sky-font-family'),
+    undefined,
+    'the contract\'s own font token must not be redefined here: the divergence has to be visible',
+  );
+  assert.ok(
+    /deliberate divergence/i.test(TOKENS_CSS) && /Inter/.test(TOKENS_CSS),
+    'the divergence from the contract must be recorded in the file, or it reads as an oversight',
+  );
+  // No webfont: decision 28's stated reason for choosing it.
+  assert.ok(!/@import|@font-face|fonts\.googleapis/.test(TOKENS_CSS), 'Segoe needs no webfont');
+});
+
+test('tokens.css: Sky is a fill/focus accent, never text on light', () => {
+  // The contract's own rule, in its own words. `--sky-color-primary` is #87ceeb, which cannot
+  // carry text on any of the light grounds in this file.
+  const asText = DECLARATION_RULES.filter((rule) =>
+    declarationsIn(rule.body).some(
+      ([property, value]) =>
+        /(^|-)color$/.test(property) &&
+        property !== 'background-color' &&
+        property !== 'border-color' &&
+        /var\(\s*--sky-color-primary\s*\)/.test(value),
+    ),
+  ).map((rule) => rule.selector.trim());
+
+  assert.deepEqual(
+    asText,
+    [],
+    `the contract reserves Sky for fills and focus; these use it as text: ${asText.join(', ')}`,
+  );
+
+  // And it IS used as a fill somewhere, or the accent has simply been dropped.
+  assert.ok(
+    /var\(\s*--sky-color-primary\s*\)/.test(TOKENS_CSS.slice(TOKENS_CSS.indexOf('box-sizing'))),
+    'the Sky accent is defined but never used as a fill',
+  );
+});
+
+test('tokens.css: every token the dark set derives is one the contract has no dark value for', () => {
+  // The contract's dark set is `[data-sky-theme="midnight"]`. Everything Atlas redefines for dark
+  // is either taken from it verbatim or marked DERIVED with what it was derived from — so a
+  // reader can tell an invented colour from a quoted one.
+  const explicit = DECLARATION_RULES.find((r) =>
+    /^:root\[data-theme=["']?dark["']?\]$/.test(r.selector.trim()),
+  );
+  assert.ok(explicit, 'no :root[data-theme="dark"] block');
+
+  const redefined = declarationsIn(explicit.body)
+    .map(([property]) => property)
+    .filter((property) => property.startsWith('--'));
+  assert.ok(redefined.length > 10, 'the dark palette must actually redefine the palette');
+
+  // Every DERIVED marker in the file names a token, and every token it names is redefined in dark.
+  const derivedNote = /DERIVED:/g;
+  const notes = TOKENS_CSS.match(derivedNote) ?? [];
+  assert.ok(notes.length > 0, 'a derived dark value with no note is an invented colour nobody can audit');
+});
+
 test('tokens.css: the chart owns both scrolls, so its sticky headers have a scrollport to stick to', () => {
   // Per CSS Overflow 3, a non-visible value on one axis computes the other to auto, so
   // `overflow-x: auto` already makes .chart-scroll a scroll container on BOTH axes. With no height
