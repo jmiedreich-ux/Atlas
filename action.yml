@@ -10,8 +10,12 @@ inputs:
     description: >-
       Path to the project repository to build — the checkout that carries `atlas.config.json`,
       `ROADMAP.md` and `docs/` (decision 40). Defaults to the calling workflow's own workspace,
-      because the action's checkout of Atlas itself (`${{ github.action_path }}`) is a different
-      directory from the project being built and must never be used as this input.
+      because the action's own checkout of Atlas — its action path — is a different directory from
+      the project being built and must never be used as this input.
+      No description in this file may contain expression syntax. GitHub parses every string in an
+      action manifest at load time, when the github context does not yet exist, so an expression in
+      prose fails the whole action before any step runs, for every consumer. Expressions belong in
+      `runs.steps`, where they are evaluated, and nowhere else.
     required: false
     default: ${{ github.workspace }}
   output-dir:
@@ -31,8 +35,9 @@ inputs:
       workflow decides explicitly whether to authenticate. Without it, `src/github.mjs` still
       succeeds — GitHub being unreachable is the one failure this generator tolerates — but the
       requests are unauthenticated and subject to GitHub's public rate limit, which matters on
-      decision 30's six-hourly schedule. Pass `${{ github.token }}` (or a token with broader
-      access, for a private repository) from the calling workflow to authenticate as that run.
+      decision 30's six-hourly schedule. Pass the calling workflow's own github.token — or a token
+      with broader access, for a private repository — to authenticate as that run. The README's
+      example workflow shows the exact expression to write.
     required: false
 
 runs:
