@@ -229,6 +229,7 @@ const EXPECTED_FILES = [
   'docs/support.js',
   'index.html',
   'mobile/index.html',
+  'order.js',
   'records/index.html',
   'state.json',
   'tokens.css',
@@ -271,7 +272,7 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
   // the includes directory set to `.`, Eleventy skipped that exclusion entirely — it never
   // ignores the input directory — and discovered all six. Six extra files appear here, and the
   // count no longer matches what `planPages` produced.
-  const copied = new Set([...state.assets.map((asset) => asset.path), 'tokens.css', 'state.json']);
+  const copied = new Set([...state.assets.map((asset) => asset.path), 'tokens.css', 'order.js', 'state.json']);
   const rendered = listFiles(OUT).filter((file) => !copied.has(file));
 
   assert.equal(
@@ -963,14 +964,24 @@ test('build: two builds into one output directory — at most one may report suc
   );
 });
 
-test('build: the theme stylesheet is served where every page links to it', () => {
-  assert.ok(existsSync(path.join(OUT, 'tokens.css')), 'no /tokens.css, so every page is unstyled');
-  assert.equal(
-    sha256(path.join(OUT, 'tokens.css')),
-    sha256(path.join(REPO_ROOT, 'theme', 'tokens.css')),
-    'the stylesheet was altered on its way out',
-  );
+test("build: the theme's own files are served where the layouts link to them", () => {
+  // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
+  // `njk` and nothing else, so neither can be picked up as a page of its own.
+  for (const file of ['tokens.css', 'order.js']) {
+    assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
+    assert.equal(
+      sha256(path.join(OUT, file)),
+      sha256(path.join(REPO_ROOT, 'theme', file)),
+      `${file} was altered on its way out`,
+    );
+  }
   assert.match(read('index.html'), /href="\/tokens\.css"/);
+  assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
+
+  // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
+  // up behaviour it has no use for.
+  assert.ok(!read('mobile/index.html').includes('order.js'), 'the phone view loads the ordering script');
+  assert.ok(!read('records/index.html').includes('order.js'), 'the records index loads the ordering script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {

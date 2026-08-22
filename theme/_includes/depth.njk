@@ -37,6 +37,13 @@
 <h1>Feature planning</h1>
 <p class="lede">One ribbon per feature, from the top of the ladder through the stages and on into the milestones. A solid arrow covers what has begun; where more is on record than has been started, a second, fainter arrow reaches as far as the records go. Both end in their own head.</p>
 
+{#- The owner's own request, and he knows what it is: an order remembered on THIS DEVICE. The page
+    says so in as many words rather than letting a reader discover it on their phone. -#}
+<div class="planning-order">
+<p class="order-note" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys. <strong>The order is remembered on this device only</strong> — it does not follow you to another browser, or to your phone. An order that travelled with you would have to be written back to the repository, which Atlas does not yet do.</p>
+<button type="button" class="order-reset" data-order-reset hidden>Back to the generated order</button>
+</div>
+
 <div class="chart-scroll" data-planning-scroll>
 <svg class="planning-ladder" width="{{ chart.ladderWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.ladderWidth }} {{ chart.height }}" aria-hidden="true" focusable="false">
 <rect class="ladder-ground" x="0" y="0" width="{{ chart.ladderWidth }}" height="{{ chart.height }}"/>
@@ -76,7 +83,9 @@
 {%- for lane in chart.lanes %}
 <g class="lane" data-slug="{{ lane.slug }}" transform="translate({{ lane.x }},0)">
 
-<g class="lane-head" data-lane-head>
+{#- The header is the drag handle, and it is focusable, because drag alone is not enough: the
+    arrow keys move a feature too. -#}
+<g class="lane-head" data-lane-head tabindex="0" role="button" aria-describedby="order-note" aria-label="{{ lane.codename }}. Press the left and right arrow keys to move this feature.">
 <rect class="lane-head-box" x="4" y="6" width="{{ chart.columnPitch - 16 }}" height="44" rx="8" ry="8"/>
 <rect class="lane-head-accent" x="4" y="6" width="5" height="44" rx="2" ry="2"/>
 <a href="{{ lane.url }}"><text class="col-h" x="18" y="26">{{ lane.codename }}</text></a>
@@ -152,4 +161,8 @@
 <li><span class="key-swatch tone-ahead"></span>on record, not started</li>
 <li><span class="key-swatch key-skip"></span>skipped — the work went round it</li>
 </ul>
+{% endblock %}
+
+{% block bodyScripts %}
+<script type="module" src="/order.js"></script>
 {% endblock %}

@@ -1165,6 +1165,29 @@ test('planning: the drawing sits inside a horizontally scrolling container, with
   assert.ok(ladderIndex < lanesIndex, 'the ladder must come before the lanes that scroll under it');
 });
 
+test('planning: a feature can be reordered by keyboard as well as by drag, and the page says where the order lives', () => {
+  // The owner's own request, and he knows what it is. What must not happen is a reader
+  // discovering on their phone that the order they set at their desk did not come with them.
+  assert.match(
+    depthHtml,
+    /remembered on this device only/i,
+    'the page does not say that the order is per-device',
+  );
+  assert.match(depthHtml, /<button[^>]*data-order-reset/, 'there is no visible way back to the generated order');
+
+  // Drag alone is not enough: every header is focusable and announces what the arrow keys do.
+  const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(handles.length, workstreams.length, 'expected one draggable header per feature');
+  for (const handle of handles) {
+    assert.match(handle, /tabindex="0"/, 'a feature header cannot be reached by keyboard');
+    assert.match(handle, /aria-label="[^"]*arrow keys[^"]*"/, 'a feature header does not say what the keys do');
+  }
+
+  // And the behaviour is one static file on this surface alone.
+  assert.match(depthHtml, /<script type="module" src="\/order\.js"><\/script>/);
+  assert.ok(!mobileHtml.includes('order.js'), 'the phone view loads the ordering script it has no use for');
+});
+
 test('planning: the key states in words what the colours say, so colour is never the only signal', () => {
   for (const phrase of ['finished', 'in progress', 'on record, not started', 'skipped']) {
     assert.ok(depthHtml.includes(phrase), `the key does not name "${phrase}"`);

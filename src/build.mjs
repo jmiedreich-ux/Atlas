@@ -49,7 +49,15 @@ import configureAtlasEleventy from '../.eleventy.js';
 
 const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
-const STYLESHEET = 'tokens.css';
+// The generator's own files, served at the paths the layouts link to. Copied rather than rendered:
+// Eleventy's template formats are `njk` and nothing else (see `.eleventy.js`), so neither of these
+// is ever discovered as a page.
+//
+// `order.js` is the feature planning surface's one piece of behaviour — putting the features in
+// your own order (#780). Decision 12 says no framework runtime and no second hosting model, and
+// this is neither: it is one static file, with no dependency of its own, doing one thing on one
+// page that the reader asked for.
+const THEME_FILES = Object.freeze(['tokens.css', 'order.js']);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';
@@ -564,8 +572,10 @@ export async function build(projectRoot, outDir, options = {}) {
       copyFileSync(asset.source, destination);
     }
 
-    // The theme's own stylesheet, at the path every layout links to.
-    copyFileSync(path.join(THEME_DIR, STYLESHEET), path.join(staging, STYLESHEET));
+    // The theme's own files, at the paths the layouts link to.
+    for (const file of THEME_FILES) {
+      copyFileSync(path.join(THEME_DIR, file), path.join(staging, file));
+    }
 
     await renderPages(pages, staging, { quiet });
 
