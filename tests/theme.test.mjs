@@ -655,6 +655,61 @@ test('tokens.css: every derived dark value says what it was derived from', () =>
 // because a list read from the file it is checking agrees with any drift in it.
 const CHART_TONES = ['--atlas-tone-done', '--atlas-tone-live', '--atlas-tone-ahead', '--atlas-tone-stopped'];
 
+test('tokens.css: no component selector is declared twice, in two places, saying two things', () => {
+  // The defect this closes was made in this very milestone. Adding the modal added a second
+  // `.lane-head` rule five hundred lines below the first, setting `cursor: pointer` where the
+  // original set `cursor: grab` — and being later, it won. The header quietly stopped looking like
+  // something you can drag on the day it also became something you can click, and nothing in a
+  // stylesheet reads as wrong when the two halves are that far apart.
+  //
+  // The palette blocks are excluded by name: the dark palette is deliberately written twice, once
+  // guarded by a media query and once by an attribute, and a test above already pins that the two
+  // agree.
+  const PALETTE = new Set([
+    ':root',
+    ':root:not([data-theme="light"])',
+    ':root[data-theme="dark"]',
+    ':root[data-theme="light"]',
+  ]);
+
+  const seen = new Map();
+  for (const rule of DECLARATION_RULES) {
+    const selector = rule.selector.trim();
+    // A rule inside an at-rule is a responsive or themed override of the base one, which is the
+    // ordinary and readable use of a repeated selector: the condition is written right there.
+    // What this is about is two rules at the SAME level, far apart, where nothing says so.
+    if (rule.insideAtRule) continue;
+    if (PALETTE.has(selector) || selector.startsWith('@')) continue;
+    // A grouped selector is its own thing — `.a, .b` and `.a` are different rules and the cascade
+    // between them is ordinary and readable. What this is about is the SAME selector twice.
+    if (selector.includes(',')) continue;
+    seen.set(selector, (seen.get(selector) ?? 0) + 1);
+  }
+
+  const twice = [...seen].filter(([, count]) => count > 1).map(([selector]) => selector);
+  assert.deepEqual(twice, [], `declared in two places, where the later one silently wins: ${twice.join(', ')}`);
+  assert.ok(seen.size > 40, `expected the whole stylesheet, saw ${seen.size} component rules`);
+});
+
+test('tokens.css: nothing that is not a link is drawn in the link colour', () => {
+  // A feature's codename was `--sky-action-link-text` while its header was an anchor. #780 made
+  // that header the control that opens the feature's modal and the anchor moved into the modal —
+  // leaving text that still looked like a link and navigated nowhere, which is a lie about the
+  // affordance rather than a colour choice.
+  //
+  // Checked as a rule about the token: the link colour dresses links, and nothing else on the
+  // drawing. The drawing has four tokens of its own for its own states.
+  const usesLinkColour = DECLARATION_RULES.filter((rule) => {
+    const declarations = new Map(declarationsIn(rule.body));
+    return [...declarations.values()].some((value) => /var\(--sky-action-link-text\)/.test(value));
+  }).map((rule) => rule.selector.trim());
+
+  // Only where a link genuinely is. The drawing's own marks are the ones that must not be here.
+  const notLinks = usesLinkColour.filter((selector) => /col-h|ribbon|dot|balloon|key-swatch|lane-/.test(selector));
+  assert.deepEqual(notLinks, [], `these are not links and are drawn in the link colour: ${notLinks.join(', ')}`);
+  assert.ok(usesLinkColour.length > 0, 'nothing uses the link colour at all, so this rule checks nothing');
+});
+
 test('tokens.css: the chart’s four states are four different colours, in light and in dark', () => {
   // #780: "a colour for done — finished work needs its own arrow colour, distinct from in
   // progress", and "stopped and in progress were clearer in the earlier mock than they are now."

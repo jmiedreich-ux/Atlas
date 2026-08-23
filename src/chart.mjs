@@ -126,12 +126,17 @@ export const CHART = Object.freeze({
   balloonWidth: 196,
   balloonRadius: 14,
   balloonTailRise: 26,
-  balloonLine: 15,
+  balloonLine: 16,
   balloonPad: 14,
   balloonChars: 28,
   balloonMaxLines: 5,
-  // The step a balloon leads with gets two lines at most; the gate under it gets the budget
-  // above. A milestone title that needs more than two lines is a title, not a paragraph.
+  // The step a balloon leads with gets two lines at most; the gate under it gets the budget above.
+  // A milestone title that needs more than two lines is a title, not a paragraph.
+  //
+  // Its own character budget, because it is set larger than the gate beneath it — the same width,
+  // fewer characters. Two budgets rather than one is the honest answer once the two runs of text
+  // are not the same size.
+  balloonStepChars: 25,
   balloonStepLines: 2,
 
   dotRadius: 7,
@@ -568,7 +573,7 @@ function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre,
   const holding = gate && gate !== step ? gate : null;
 
   const lines = [
-    ...wrapText(step ?? '', CHART.balloonChars, CHART.balloonStepLines).map((text) => ({ text, strong: true })),
+    ...wrapText(step ?? '', CHART.balloonStepChars, CHART.balloonStepLines).map((text) => ({ text, strong: true })),
     ...wrapText(holding ?? '', CHART.balloonChars, CHART.balloonMaxLines).map((text) => ({ text, strong: false })),
   ];
   if (lines.length === 0) return null;

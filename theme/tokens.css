@@ -620,9 +620,16 @@ h3 {
   stroke-width: 1;
 }
 
-.lane-head:hover .lane-head-box,
+.lane-head:hover .lane-head-box {
+  fill: var(--sky-color-fill-subtle);
+}
+
+/* Focus says something hover does not, so it must not look the same. An `outline` on an SVG group
+ * is not dependable across browsers; the plate's own stroke is. */
 .lane-head:focus-visible .lane-head-box {
   fill: var(--sky-color-fill-subtle);
+  stroke: var(--sky-focus-color);
+  stroke-width: 2;
 }
 
 .lane.is-dragging {
@@ -634,14 +641,24 @@ h3 {
   stroke-width: 2;
 }
 
-/* The Sky accent as a FILL, which is the only thing the contract permits it to be: a spine down
- * the left edge of every feature's header, which is also where the drag grip sits. */
+/* Removed in M4's craft pass: a pale accent bar down the left edge of every feature's plate. It
+ * was a coloured border on a list item — a decoration the surface never chose — and the reason
+ * recorded beside it, that it was "where the drag grip sits", was not true of the code: the whole
+ * plate is the handle. The plate's border and its hover, focus and dragging states say what it is,
+ * and the accent stops competing with the ribbons, which #780 calls the thing to look at.
+ *
+ * The rule stays, with no fill, so the element it styles is styled by something rather than
+ * silently unstyled. `--sky-color-primary` is still the contract's fill accent elsewhere — the
+ * filled track segments on the phone. */
 .lane-head-accent {
-  fill: var(--sky-color-primary);
+  fill: none;
 }
 
+/* The feature's name. NOT the link colour: the header stopped being a link when it became the
+ * control that opens the feature's modal, and text that looks like a link but navigates nowhere is
+ * a lie about the affordance. The plate around it carries the control's states instead. */
 .col-h {
-  fill: var(--sky-action-link-text);
+  fill: var(--sky-text-primary);
   font-size: 0.88rem;
   font-weight: 600;
 }
@@ -796,14 +813,14 @@ h3 {
  * against the gate beneath it, which is quieter, so the two are told apart before being read. */
 .bl-s {
   fill: var(--sky-text-primary);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 600;
 }
 
 /* What is holding it. */
 .bl-t {
   fill: var(--sky-text-secondary);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
 }
 
 /* --- the ordering control, and the key --------------------------------------------------------- */
@@ -878,14 +895,38 @@ h3 {
   display: none;
 }
 
+/* One vocabulary for every pill on this surface — the ordering reset, the restore chips, and the
+ * modal's own two — so the same shape means the same thing wherever it appears, and none of them
+ * ships with only a default state. */
+.order-reset:hover,
+.hidden-restore:hover,
+.modal-hide:hover,
+.modal-close:hover {
+  background: var(--sky-color-fill-subtle);
+  border-color: var(--sky-text-muted);
+  color: var(--sky-text-primary);
+}
+
+.order-reset:active,
+.hidden-restore:active,
+.modal-hide:active,
+.modal-close:active {
+  background: var(--sky-color-shell);
+}
+
 /* The live region that says a keyboard move out loud. It carries no text until a feature moves,
  * so it takes no room; it is deliberately NOT `display: none`, which would stop it being
  * announced at all. */
+/* The live region that says a move or a hide out loud. It keeps its own row AND a height, so an
+ * announcement appears in space already reserved for it rather than pushing the chart down the
+ * page — feedback that moves the thing you are working on is worse than no feedback. It is
+ * deliberately not `display: none`, which would stop it being announced at all. */
 .order-said {
   color: var(--sky-text-secondary);
   flex-basis: 100%;
   font-size: 0.78rem;
   margin: 0;
+  min-height: 1.15rem;
 }
 
 .chart-key {
@@ -1119,12 +1160,6 @@ h3 {
 .modal-close {
   background: var(--sky-color-fill-subtle);
   color: var(--sky-text-primary);
-}
-
-/* The header is a control now, so it has to look like one under the pointer as well as read like
- * one to assistive technology. */
-.lane-head {
-  cursor: pointer;
 }
 
 /* --- surface three: the document pages ---------------------------------------------------------- */
