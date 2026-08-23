@@ -74,9 +74,19 @@
 <a class="skip-link" href="#main">Skip to the content</a>
 <header class="site-head">
 <p class="site-title">{{ project }}</p>
+{#- Decision 22's three surfaces. Two of the three names moved in #780, and neither move was
+    cosmetic:
+
+      * "Records" became "Library".
+      * "Triage" is gone as a name on the desk, because triage on the desk is now a MODAL opened
+        from a feature's own header. What stays at `/mobile/` is decision 27's phone surface, and
+        it keeps its own name — the one its own heading already uses. That NARROWS decision 22
+        rather than overturning it: planning at a desk and glancing on a phone are still different
+        activities, and removing the phone's surface on a reading nobody confirmed would be the
+        expensive mistake here. -#}
 <nav class="site-nav" aria-label="Surfaces">
 <a href="/">Feature planning</a>
-<a href="/mobile/">Triage</a>
+<a href="/mobile/">What needs you</a>
 <a href="/library/">Library</a>
 </nav>
 <button type="button" class="theme-toggle" data-theme-toggle>Theme: <span data-theme-label>System</span></button>

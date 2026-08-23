@@ -112,12 +112,20 @@
 {%- for lane in chart.lanes %}
 <g class="lane" data-slug="{{ lane.slug }}" transform="translate({{ lane.x }},0)">
 
-{#- The header is the drag handle, and it is focusable, because drag alone is not enough: the
-    arrow keys move a feature too. -#}
-<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" tabindex="0" role="button" aria-describedby="order-note" aria-label="{{ lane.codename }}. Press the left and right arrow keys to move this feature.">
+{#- The header is three things at once, and that is deliberate rather than an accident:
+
+      * the DRAG HANDLE for reordering,
+      * the KEYBOARD control for the same (arrow keys) and for hiding (H),
+      * and the way into this feature's own triage, which #780 turned from a standalone page into
+        a modal opened from here.
+
+    It no longer holds a link. A link inside a drag handle inside a button is three interactive
+    things claiming one click; the way through to the feature's record moved into the modal, where
+    it sits among the rest of what that feature is. -#}
+<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" data-opens-modal="{{ lane.slug }}" tabindex="0" role="button" aria-haspopup="dialog" aria-describedby="order-note" aria-label="{{ lane.codename }}. Opens what needs you for this feature. Press the left and right arrow keys to move it.">
 <rect class="lane-head-box" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.width }}" height="{{ chart.head.height }}" rx="{{ chart.head.radius }}" ry="{{ chart.head.radius }}"/>
 <rect class="lane-head-accent" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.accentWidth }}" height="{{ chart.head.height }}" rx="{{ chart.head.accentRadius }}" ry="{{ chart.head.accentRadius }}"/>
-<a href="{{ lane.url }}"><text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text></a>
+<text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text>
 {{ ui.svgChip("stage", lane.stage, chart.head.textX, chart.head.chipY) }}
 </g>
 
@@ -206,6 +214,37 @@
 <li><span class="key-swatch tone-ahead"></span>on record, not started</li>
 <li><span class="key-swatch key-skip"></span>skipped — the work went round it</li>
 </ul>
+
+{#- ONE MODAL PER FEATURE, carrying what the dedicated Triage page carried: what needs you, the
+    position, the gate (#780). The standalone page is gone from the desk; the phone keeps its own
+    surface, which is decision 22 narrowed rather than overturned.
+
+    NATIVE <dialog>, and that is not a stylistic preference. `showModal()` traps focus, Esc
+    dismisses, and the platform restores focus on close — the three things #780 asks of it. A
+    hand-rolled div has to re-implement all three, each easy to get subtly wrong and none of them
+    checkable without a browser.
+
+    Rendered rather than built by script: every word here comes from a record, and a modal assembled
+    in the client from strings the client also holds is a second place for the page's content to
+    live. `order.js` opens and closes; it composes nothing. -#}
+{%- for feature in features %}
+<dialog class="feature-modal" data-feature-modal="{{ feature.slug }}" aria-labelledby="modal-{{ feature.slug }}-title">
+<div class="modal-head">
+<h2 id="modal-{{ feature.slug }}-title">{{ feature.codename }}</h2>
+{{ ui.chip("triage", feature.triage) }}
+</div>
+<p class="modal-what">{{ feature.what }}</p>
+<p class="modal-position">{{ feature.position }}</p>
+<p class="modal-gate"><span class="modal-gate-label">Gate</span>{{ feature.gate }}</p>
+<div class="modal-actions">
+<a class="modal-link" href="{{ feature.url }}">Open the record</a>
+{#- The POINTER route to hiding. The keyboard route is H on the header; putting a second control
+    on the drawing itself would be a mark that says nothing about the work. -#}
+<button type="button" class="modal-hide" data-modal-hide="{{ feature.slug }}">Hide this feature</button>
+<button type="button" class="modal-close" data-modal-close>Close</button>
+</div>
+</dialog>
+{%- endfor %}
 {% endblock %}
 
 {% block bodyScripts %}

@@ -45,7 +45,7 @@ import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
-import { orderByTriage } from './triage.mjs';
+import { orderByTriage, triageCards } from './triage.mjs';
 import configureAtlasEleventy from '../.eleventy.js';
 
 const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -410,6 +410,10 @@ function planPages(site) {
       permalink: '/index.html',
       title: 'Feature planning',
       chart: computeChart(site.ladder, site.workstreams),
+      // #780 dropped the dedicated Triage page: a feature's header opens a modal carrying what
+      // that page carried. This is that content, and it is deliberately NOT part of the drawing —
+      // `src/chart.mjs` computes coordinates and paths, and a modal is prose.
+      features: triageCards(site.workstreams),
     },
   });
 

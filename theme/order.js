@@ -29,6 +29,13 @@ export const ORDER_KEY = 'atlas-feature-order';
 // back must not reshuffle the page.
 export const HIDDEN_KEY = 'atlas-hidden-features';
 
+// How far a pointer may travel and still count as a click rather than a drag. In the drawing's own
+// user units, because that is what the drag is measured in. It exists because the feature's header
+// is both the drag handle and the way into that feature's triage (#780), so one gesture has to
+// resolve to one of two meanings — by DISTANCE rather than by time, since a slow, deliberate click
+// is still a click.
+export const CLICK_SLOP = 4;
+
 /**
  * The order to render, from the order the generator produced and whatever storage remembered.
  *
@@ -404,6 +411,58 @@ function wire(doc, storage) {
     });
   }
 
+  // --- the feature's own triage, as a modal (#780) -----------------------------------------------
+  //
+  // The standalone Triage page is gone from the desk. Everything the modal SAYS is rendered by the
+  // build; this composes nothing and only opens and closes.
+  //
+  // FOCUS IS HANDED BACK EXPLICITLY rather than left to the platform. A `<dialog>` restores focus
+  // to whatever had it when it opened — but the thing that opens this is an SVG group, and a group
+  // that was clicked rather than tabbed to may not have had focus at all. #780 asks specifically
+  // that focus return to the header that opened it, so it is done here where it can be relied on.
+  let openedFrom = null;
+
+  function openModal(handle) {
+    // The header names its own modal. Read from the attribute rather than from the lane's key, so
+    // the markup and this module cannot come to disagree about which modal belongs to which
+    // feature without the page simply not opening one.
+    const slug = handle?.getAttribute?.('data-opens-modal');
+    if (!slug) return false;
+    const dialog = doc.querySelector(`[data-feature-modal="${slug}"]`);
+    if (!dialog || typeof dialog.showModal !== 'function') return false;
+    openedFrom = handle || null;
+    dialog.showModal();
+    return true;
+  }
+
+  for (const dialog of doc.querySelectorAll('[data-feature-modal]')) {
+    dialog.addEventListener('click', (event) => {
+      const target = event.target;
+      if (target?.closest?.('[data-modal-close]')) {
+        dialog.close();
+        return;
+      }
+      const hide = target?.closest?.('[data-modal-hide]');
+      if (hide) {
+        const slug = hide.getAttribute('data-modal-hide');
+        dialog.close();
+        commitHidden(toggleHidden(hidden, slug), slug);
+        if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
+      }
+    });
+    // Covers every way out — the close button, the Esc key the platform handles, and a click on
+    // the backdrop — because focus has to come back from all of them, not from the one we wired.
+    dialog.addEventListener('close', () => {
+      const handle = openedFrom;
+      openedFrom = null;
+      // Not when the feature has just been hidden: `commitHidden` has already moved focus to the
+      // way of getting it back, and a header that is no longer on the page cannot take focus.
+      if (handle && handle.isConnected && handle.closest('[data-slug]')?.style.display !== 'none') {
+        handle.focus();
+      }
+    });
+  }
+
   if (hiddenBar) {
     hiddenBar.addEventListener('click', (event) => {
       const target = event.target?.closest?.('[data-restore], [data-restore-all]');
@@ -430,6 +489,14 @@ function wire(doc, storage) {
         const next = toggleHidden(hidden, slug);
         commitHidden(next, slug);
         if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
+        return;
+      }
+
+      // The header carries `role="button"`, and a button that does nothing on Enter or Space is a
+      // button only to the eye. This is the keyboard's half of "clicking a header opens a modal".
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        openModal(handle);
         return;
       }
 
@@ -474,6 +541,17 @@ function wire(doc, storage) {
       const dx = (event.clientX - startX) / (scale || 1);
       startX = null;
       node.classList.remove('is-dragging');
+
+      // A CLICK IS A DRAG THAT WENT NOWHERE. The header is both the drag handle and the way into
+      // this feature's triage, so the two have to be told apart from one gesture — by distance,
+      // because time would call a slow, deliberate click a drag. Below the threshold the lane goes
+      // back where it was and the modal opens; above it, the drag lands.
+      if (Math.abs(dx) < CLICK_SLOP) {
+        render();
+        openModal(handle);
+        return;
+      }
+
       const to = dropIndex(startIndex, dx, pitch, order.length);
       commit(moveSlug(order, slug, to - order.indexOf(slug)));
     }

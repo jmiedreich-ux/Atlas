@@ -19,7 +19,7 @@ import { CHART, computeChart } from '../src/chart.mjs';
 import { formatDay } from '../src/dates.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
-import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
+import { TRIAGE_ORDER, orderByTriage, triageCards } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -38,6 +38,10 @@ const THEME_DIR = path.join(REPO_ROOT, 'theme');
 const LAYOUT_DIR = path.join(THEME_DIR, '_includes');
 
 const TOKENS_CSS = readFileSync(path.join(THEME_DIR, 'tokens.css'), 'utf8');
+// The planning surface's behaviour, read as text. Only where what has to be asserted is WHICH
+// platform affordance the module reaches for — a claim about focus trapping and dismissal that no
+// rendered-markup check can reach and that a unit test with no DOM cannot execute.
+const ORDER_SOURCE = readFileSync(path.join(THEME_DIR, 'order.js'), 'utf8');
 
 // Task 7 wires Eleventy. Here the same `.njk` files are rendered through Nunjucks directly, so a
 // layout can be asserted without standing up the whole pipeline.
@@ -140,6 +144,9 @@ function renderDepth(entries) {
     ...site,
     title: 'Feature planning',
     chart: computeChart(computeLadder(entries), assembled),
+    // Exactly what the build hands it, through the same function, so this cannot become a second
+    // shape for the modal's content.
+    features: triageCards(assembled),
   });
 }
 
@@ -1166,12 +1173,20 @@ test('planning: one lane per feature, in the order computeLadder returned, each 
   );
   assert.deepEqual(transforms, chart.lanes.map((lane) => lane.x));
 
-  // And each header links at its own feature.
+  // And each header names its own feature, and its own modal. The LINK to the record used to be
+  // here and is not any more (#780 made the header a control that opens a modal); the modal
+  // carries it, and `planning: a feature's header opens that feature's own triage` checks that.
   workstreams.forEach((stream) => {
+    const markup = laneMarkup(depthHtml, stream.slug);
     assert.match(
-      laneMarkup(depthHtml, stream.slug),
-      new RegExp(`<a href="${workstreamUrl(stream.slug)}"><text class="col-h"[^>]*>${stream.manifest.codename}</text></a>`),
-      `${stream.slug}'s header links at the wrong feature`,
+      markup,
+      new RegExp(`<text class="col-h"[^>]*>${stream.manifest.codename}</text>`),
+      `${stream.slug}'s header names the wrong feature`,
+    );
+    assert.match(
+      markup,
+      new RegExp(`data-opens-modal="${stream.slug}"`),
+      `${stream.slug}'s header opens the wrong feature's triage`,
     );
   });
 });
@@ -1492,6 +1507,104 @@ test('planning: the two things the header block was carrying got honest homes, n
   assert.match(depthHtml, target, `aria-describedby points at ${described[1]}, which is not on the page`);
   const instruction = new RegExp(`<[^>]*id="${described[1]}"[^>]*>([^<]*)`).exec(depthHtml);
   assert.match(instruction[1], /arrow key/i, 'the instruction the header points at no longer explains the keys');
+});
+
+test('planning: a feature’s header opens that feature’s own triage, as a modal', () => {
+  // #780: "drop the dedicated Triage page. Clicking a feature's header on the feature planning
+  // page opens a MODAL carrying that content — what needs you, the position, the gate."
+  //
+  // The modal is a native <dialog>. That is not a stylistic preference: `showModal()` traps focus,
+  // Esc dismisses, and focus returns to what opened it, all from the platform. A hand-rolled div
+  // has to re-implement three things that are easy to get subtly wrong and impossible to check
+  // without a browser, and #780's own requirement is exactly those three.
+  for (const stream of workstreams) {
+    const dialog = new RegExp(
+      `<dialog[^>]*class="feature-modal"[^>]*data-feature-modal="${stream.slug}"[^>]*>([\\s\\S]*?)</dialog>`,
+    ).exec(depthHtml);
+    assert.ok(dialog, `${stream.slug} has no triage modal`);
+
+    // Decoded, because the layout escapes what a record says and a record's own prose is full
+    // of apostrophes. Comparing against the escaped form would be comparing against the escaper.
+    const body = dialog[1].replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    // What the standalone page carried, all three.
+    assert.match(body, /data-triage="[a-z-]+"/, `${stream.slug}: the modal does not say what needs you`);
+    assert.ok(body.includes(stream.manifest.position), `${stream.slug}: the modal drops the position`);
+    assert.ok(body.includes(stream.manifest.gate), `${stream.slug}: the modal drops the gate`);
+    assert.ok(body.includes(stream.manifest.what), `${stream.slug}: the modal drops what the feature is`);
+
+    // A way out that is not the Esc key, for a reader who does not know there is one.
+    assert.match(body, /data-modal-close/, `${stream.slug}: the modal can only be closed by keyboard`);
+    // And the record it is about is still one click away — the link left the SVG header and
+    // landed here, so it must actually be here.
+    assert.ok(
+      body.includes(`href="${workstreamUrl(stream.slug)}"`),
+      `${stream.slug}: the modal does not link the feature's own record`,
+    );
+  }
+
+  // Every header announces that it opens one, and says which. A `role="button"` that opens a
+  // dialog without `aria-haspopup` tells a screen-reader user nothing about what is about to
+  // happen.
+  const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(handles.length, workstreams.length);
+  for (const handle of handles) {
+    assert.match(handle, /aria-haspopup="dialog"/, 'a feature header does not say that it opens a dialog');
+    assert.match(handle, /data-opens-modal="[a-z0-9-]+"/, 'a feature header names no modal to open');
+  }
+
+  // The drawing's own header no longer carries a link. It is a control now, and a link inside a
+  // drag handle inside a button is three interactive things claiming one click.
+  //
+  // Bounded to the header's OWN element: an unbounded `[\s\S]*?<a href` runs from a header to the
+  // next link anywhere on the page, which after this change is the modal's own — so it would fail
+  // on correct markup and could never have told the two apart.
+  for (const stream of workstreams) {
+    const at = laneMarkup(depthHtml, stream.slug).indexOf('<g class="lane-head"');
+    assert.ok(at !== -1, `${stream.slug} has no header at all`);
+    const markup = laneMarkup(depthHtml, stream.slug).slice(at);
+    const header = markup.slice(0, markup.indexOf('</g>'));
+    assert.ok(header.length > 0, `${stream.slug}'s header is unclosed`);
+    assert.ok(!/<a[\s>]/.test(header), `${stream.slug}'s header still holds a link, so a click means two things`);
+    assert.match(header, /col-h/, 'the bound above stopped covering the header, so this checks nothing');
+  }
+});
+
+test('planning: the modal traps focus, dismisses by keyboard, and hands focus back', () => {
+  // #780's three requirements for it, checked where each is actually decided. The first two come
+  // from the platform and are had by using <dialog> with showModal(); the third is NOT — a dialog
+  // restores focus to whatever had it, and an SVG group that was clicked rather than tabbed to may
+  // not have had it — so the module puts focus back on the header explicitly, and that is asserted
+  // against the source.
+  assert.match(ORDER_SOURCE, /showModal\(\)/, 'the modal is opened without the platform’s modal semantics');
+  assert.ok(
+    !/inert|aria-modal="true"/.test(depthHtml) || /<dialog/.test(depthHtml),
+    'the page hand-rolls modal semantics instead of using <dialog>',
+  );
+  assert.match(ORDER_SOURCE, /data-opens-modal/, 'nothing wires a header to its modal');
+  assert.match(ORDER_SOURCE, /\.focus\(\)/, 'focus is never handed back to anything');
+  // Closing has to be reachable without a pointer even if the platform's Esc were unavailable.
+  assert.match(ORDER_SOURCE, /data-modal-close/, 'nothing wires the modal’s own close control');
+});
+
+test('planning: nothing on the desk is called Triage any more, and the phone keeps its surface', () => {
+  // #780 collides with decision 22 here — "three purpose-built surfaces, not one responsive
+  // layout" — and this milestone NARROWS that decision rather than overturning it: triage on the
+  // desk becomes a modal, and the phone keeps its own surface. Removing the phone view on a
+  // reading nobody confirmed would be the expensive mistake.
+  //
+  // So what goes is the desk's standalone triage DESTINATION, not the page decision 27 built for
+  // a phone. Nothing on the desk carries the word.
+  const nav = /<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(depthHtml);
+  assert.ok(nav, 'the planning page lost its navigation');
+  assert.ok(!/\bTriage\b/.test(nav[1]), 'the desk still offers a standalone Triage destination');
+
+  // The phone's surface is untouched and still reachable, or it is an orphan.
+  assert.match(nav[1], /href="\/mobile\/"/, 'the phone surface is reachable from nowhere');
+  assert.match(mobileHtml, /<h1>What needs you<\/h1>/, 'the phone surface stopped being itself');
+  assert.match(mobileHtml, /<article class="card"/, 'the phone surface lost its cards');
+  // And it did not grow a modal of its own: the phone is a different activity, and that question
+  // is recorded as open rather than answered here.
+  assert.ok(!/<dialog/.test(mobileHtml), 'the phone view grew a desk affordance');
 });
 
 test('planning: a hidden feature can never go missing without the page saying so', () => {
