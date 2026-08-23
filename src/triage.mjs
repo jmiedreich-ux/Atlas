@@ -50,34 +50,6 @@ export function classifyTriage(manifest) {
 }
 
 /**
- * What the feature planning surface's per-feature modal says (#780).
- *
- * The dedicated Triage page is gone from the desk: clicking a feature's header opens a modal
- * carrying what that page carried — what needs the owner, the position, the gate. This is that
- * content, and it lives HERE rather than in `src/chart.mjs` for two reasons. It is prose, and the
- * chart module is the drawing: coordinates and paths, nothing a reader reads. And it is decision
- * 27's classification, which this module owns outright — the modal and the phone view now say the
- * same thing about the same feature because the same `classifyTriage` decides both, which is the
- * drift decisions 1 and 29 exist to prevent.
- *
- * @param {{ slug: string, url: string, manifest: object }[]} workstreams - what the build
- *   assembled, in the order the config declared. Order is preserved: the chart's lanes are drawn
- *   in it, and a modal is looked up by slug rather than by position anyway.
- * @returns {object[]} one plain object per feature.
- */
-export function triageCards(workstreams) {
-  return workstreams.map((stream) => ({
-    slug: stream.slug,
-    url: stream.url,
-    codename: stream.manifest.codename,
-    triage: classifyTriage(stream.manifest),
-    what: stream.manifest.what,
-    position: stream.manifest.position,
-    gate: stream.manifest.gate,
-  }));
-}
-
-/**
  * The workstreams, ordered by what needs the owner (decision 27) rather than by name, each
  * carrying the state it was classified into.
  *

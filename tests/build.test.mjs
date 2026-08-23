@@ -1687,6 +1687,16 @@ test('build: --offline never constructs a request at all', async () => {
   assert.ok(existsSync(path.join(out, 'index.html')));
 });
 
+test('build: a milestone with a real issue number still builds offline with an empty task list', async () => {
+  // --offline never calls fetchIssueBodies (same convention as the existing issues fetch), so a
+  // milestone whose issue is set still builds — just with no tasks, not a build failure. The
+  // fixture's own milestones (e.g. reef/M1, issue 701) already carry real issue numbers, so this
+  // is exercised by the ordinary fixture, not a hand-built one.
+  const out = freshDir('offline-with-issue');
+  await build(FIXTURE_ROOT, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+  assert.ok(existsSync(path.join(out, 'index.html')), 'offline build with a real issue number must still succeed');
+});
+
 // --- the promotion path (#780, task 12) ---------------------------------------------------------
 
 test('build: a feature written but never put on the sheet is reported, and does not fail the build', () => {
