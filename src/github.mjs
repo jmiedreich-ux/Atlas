@@ -130,3 +130,56 @@ export async function fetchProjectIssues({ repo, token, fetchImpl = fetch }) {
 
   return buckets;
 }
+
+function warnIssueFetch(repo, number, detail) {
+  console.warn(`atlas: could not fetch issue #${number} for ${repo}: ${detail} — its tasks will be empty`);
+}
+
+/**
+ * Fetch the body of every distinct issue number given, regardless of open/closed state — unlike
+ * `fetchProjectIssues`, which only ever sees OPEN issues. A milestone marked `done` almost always
+ * has a *closed* issue, and its checklist has to come from somewhere.
+ *
+ * One request per distinct issue number, run concurrently. Bounded by how many milestones this
+ * project has (a few dozen at most), not by the open backlog — this is a different shape of
+ * request from `fetchProjectIssues`'s single list call on purpose.
+ *
+ * Decision 32's stated tolerated-failure module extends to this call the same way it already
+ * covers the list fetch: a network error or non-OK response for one issue logs a warning and maps
+ * that issue to `null`, never rejects, never fails the build.
+ *
+ * @param {object} opts
+ * @param {string} opts.repo - `owner/name`.
+ * @param {number[]} opts.issueNumbers - may contain duplicates; each distinct number is fetched once.
+ * @param {string} [opts.token]
+ * @param {typeof fetch} [opts.fetchImpl]
+ * @returns {Promise<Map<number, string | null>>} every distinct number given, mapped to its
+ *   issue's `body`, or `null` on any failure for that issue.
+ */
+export async function fetchIssueBodies({ repo, issueNumbers, token, fetchImpl = fetch }) {
+  const unique = [...new Set(issueNumbers)];
+  const headers = { Accept: 'application/vnd.github+json' };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const entries = await Promise.all(
+    unique.map(async (number) => {
+      const url = `${GITHUB_API_ROOT}/repos/${repo}/issues/${number}`;
+      try {
+        const response = await fetchImpl(url, { headers });
+        if (!response.ok) {
+          warnIssueFetch(repo, number, `GitHub responded ${response.status}`);
+          return [number, null];
+        }
+        const item = await response.json();
+        return [number, typeof item.body === 'string' ? item.body : null];
+      } catch (err) {
+        warnIssueFetch(repo, number, err.message);
+        return [number, null];
+      }
+    }),
+  );
+
+  return new Map(entries);
+}
