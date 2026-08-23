@@ -188,29 +188,43 @@ function rowTop(index) {
 }
 
 /**
+ * A word longer than the budget breaks only at a slash it already contains — a path like
+ * `docs/design/approved/theme-studio/` wraps at its own boundaries, glued back together with no
+ * space where the word had none. A word with no slash to break at is left over-long: a hyphen
+ * Atlas invented inside a milestone title would be Atlas editing a record, and a slash the text
+ * never had would be the same mistake.
+ */
+function tokenize(word) {
+  if (!word.includes('/')) return [{ text: word, glue: false }];
+  const parts = word.split('/');
+  return parts
+    .map((part, i) => ({ text: i < parts.length - 1 ? `${part}/` : part, glue: i > 0 }))
+    .filter((token) => token.text !== '');
+}
+
+/**
  * Greedy word wrap to a character budget.
  *
  * Characters rather than measured text: a measurement taken in one browser would not survive the
  * reader's own font settings anyway, so the budget is deliberately approximate. The budget
  * is set against the column, and #780 is explicit that a balloon grows DOWNWARD as the text needs
  * rather than sideways — that is what makes the page work at narrow widths at all.
- *
- * A word longer than the budget is left over-long rather than broken: a hyphen Atlas invented
- * inside a milestone title would be Atlas editing a record.
  */
 export function wrapText(text, maxChars = CHART.balloonChars, maxLines = CHART.balloonMaxLines) {
   const words = String(text ?? '').trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
+  const tokens = words.flatMap(tokenize);
 
   const lines = [];
   let current = '';
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
+  for (const token of tokens) {
+    const separator = token.glue ? '' : current ? ' ' : '';
+    const candidate = `${current}${separator}${token.text}`;
     if (candidate.length <= maxChars || current === '') {
       current = candidate;
     } else {
       lines.push(current);
-      current = word;
+      current = token.text;
     }
   }
   lines.push(current);
@@ -324,25 +338,46 @@ function connectorPath(fromX, fromY, laneX, toY) {
 
 // --- the dates beside a dot -----------------------------------------------------------------------
 
+// The ladder's own gutter caption is positional — `M${depth}` — because one shared column serves
+// every feature and cannot know any one feature's real numbering. That is right for the ordinary
+// case, where a milestone's label already IS its position: a feature's own M3 really is its
+// third row. It is wrong for an inserted or historical id — this generator's own feature-planning
+// rebuild is recorded as M2.1, and another feature's renumbered sub-sequence might land as M3.1
+// or M6.1 through M6.3 — where the row's generic label and the milestone's real one differ, and
+// #780's rule that identifiers live "in the ladder column and nowhere else" would silently show
+// the wrong name. The owner's ruling: name it on the dot when that happens, and let every other
+// milestone — the ones the ladder already names correctly — pass by unmarked.
+function labelDiverges(milestone) {
+  return milestone.label !== `M${milestone.depth}`;
+}
+
 // #780: a CLOSED milestone shows its start and close days and how long it took — all three from
 // stored facts. One in flight shows its start day only. A future one shows nothing, which is why
 // this is only ever called for a milestone that is finished or under way.
 function dateLines(milestone, live) {
-  const { started, completed } = milestone;
+  const { started, completed, label } = milestone;
+  const lines = labelDiverges(milestone) ? [{ text: label, strong: true }] : [];
+  const strongTaken = lines.length > 0;
+
   if (live) {
-    return started
-      ? [{ text: formatDay(started), strong: true }, { text: 'in progress' }]
-      : [{ text: 'in progress' }];
+    if (started) lines.push({ text: formatDay(started), strong: !strongTaken });
+    lines.push({ text: 'in progress' });
+    return lines;
   }
   if (started && completed) {
-    return [
-      { text: formatDayRange(started, completed), strong: true },
+    lines.push(
+      { text: formatDayRange(started, completed), strong: !strongTaken },
       { text: formatDuration(daysBetween(started, completed)) },
-    ];
+    );
+    return lines;
   }
-  if (started) return [{ text: formatDay(started), strong: true }];
-  // A project that has not filled the dates in yet still gets its dot; it simply says nothing.
-  return [];
+  if (started) {
+    lines.push({ text: formatDay(started), strong: !strongTaken });
+    return lines;
+  }
+  // A project that has not filled the dates in yet still gets its dot; it says only its label,
+  // if that diverges, and otherwise nothing — exactly as before this milestone.
+  return lines;
 }
 
 // --- one feature's lane ----------------------------------------------------------------------------

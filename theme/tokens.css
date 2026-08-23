@@ -406,16 +406,40 @@ th.num {
   text-decoration: underline;
 }
 
-.theme-toggle {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border);
-  border-radius: var(--sky-radius-sm);
+/* Three named choices, laid out like the surface links beside them rather than as buttons in
+ * boxes — the same reasoning that took the border off `.lane-head-box`: a plate around every
+ * item reads as a row of controls to inspect, not a short list to glance at and pick from. */
+.theme-list {
+  display: flex;
+  gap: var(--sky-space-3);
+  list-style: none;
+  margin: 0 0 0 auto;
+  padding: 0;
+}
+
+.theme-list button {
+  background: none;
+  border: none;
   color: var(--sky-text-secondary);
   cursor: pointer;
   font: inherit;
   font-size: 0.85rem;
-  margin-left: auto;
-  padding: var(--sky-space-1) var(--sky-space-3);
+  padding: 0;
+}
+
+.theme-list button:hover {
+  color: var(--sky-text-primary);
+  text-decoration: underline;
+}
+
+.theme-list button[aria-pressed="true"] {
+  color: var(--sky-text-primary);
+  font-weight: 600;
+}
+
+.theme-list button:focus-visible {
+  outline: 2px solid var(--sky-focus-color);
+  outline-offset: 2px;
 }
 
 .site-main {
@@ -614,10 +638,16 @@ h3 {
   touch-action: none;
 }
 
+/* Removed after the owner saw it live: a bordered plate behind every name read as a row of
+ * uneven cards rather than a row of names, and the box's WIDTH is fixed regardless of the name —
+ * a long two-word feature name sits close to that fixed edge while a short one-word name floats
+ * in mostly empty space, which is exactly what a mismatched-width row of boxes looks like even
+ * though every box measures identically in the markup. The rect stays in the DOM as the click and
+ * drag hit target — the header is still the whole control — but paints invisibly at rest instead
+ * of as a card. */
 .lane-head-box {
-  fill: var(--sky-card-background);
-  stroke: var(--sky-color-border-control);
-  stroke-width: 1;
+  fill: transparent;
+  stroke: none;
 }
 
 .lane-head:hover .lane-head-box {
@@ -625,7 +655,8 @@ h3 {
 }
 
 /* Focus says something hover does not, so it must not look the same. An `outline` on an SVG group
- * is not dependable across browsers; the plate's own stroke is. */
+ * is not dependable across browsers; the plate's own stroke is — and it is the one state that
+ * still gets one, because focus has to be seen without hovering to find it. */
 .lane-head:focus-visible .lane-head-box {
   fill: var(--sky-color-fill-subtle);
   stroke: var(--sky-focus-color);
@@ -637,6 +668,7 @@ h3 {
 }
 
 .lane.is-dragging .lane-head-box {
+  fill: var(--sky-color-fill-subtle);
   stroke: var(--sky-focus-color);
   stroke-width: 2;
 }
