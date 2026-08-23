@@ -210,6 +210,21 @@ function attrValues(html, attr) {
   return [...html.matchAll(new RegExp(`${attr}="([^"]*)"`, 'g'))].map((m) => m[1]);
 }
 
+// Nunjucks autoescape entity-encodes text content (an apostrophe becomes `&#39;`), so a raw
+// manifest string containing one — the fixture's own prose does — never appears literally inside
+// rendered HTML. Encoding the needle the same way `env.render` encoded the haystack is what makes
+// `html.includes(...)` a fair check rather than one that only passes for punctuation-free fixtures.
+function htmlIncludesText(html, text) {
+  const escaped = text.replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+  return html.includes(escaped);
+}
+
 // --- CSS parsing ------------------------------------------------------------------------------
 
 function stripCssComments(css) {
@@ -1191,6 +1206,59 @@ test('mobile: the gate is the last line of every card', () => {
   }
 });
 
+// --- design doc 1c: the phone view is grouped by blocking state, not a flat list ----------------
+
+test('triage: five section headers, in TRIAGE_ORDER sequence, each with a real count', () => {
+  const LABELS = {
+    'awaiting-decision': 'Waiting on you',
+    moving: 'Moving',
+    blocked: 'Blocked',
+    designing: 'Designing',
+    'not-started': 'Not started',
+  };
+  const present = TRIAGE_ORDER.filter((state) => workstreams.some((s) => s.triage === state));
+  let lastIndex = -1;
+  for (const state of present) {
+    const count = workstreams.filter((s) => s.triage === state).length;
+    const headingRe = new RegExp(`${LABELS[state]}[\\s\\S]{0,40}${count}`);
+    const index = mobileHtml.search(headingRe);
+    assert.ok(index !== -1, `no section header found for "${LABELS[state]}" with count ${count}`);
+    assert.ok(index > lastIndex, `sections are out of TRIAGE_ORDER sequence at "${LABELS[state]}"`);
+    lastIndex = index;
+  }
+});
+
+test('triage: a state with zero workstreams gets no section at all', () => {
+  // Every fixture state that has zero matching workstreams must not have a heading in the output.
+  const LABELS = {
+    'awaiting-decision': 'Waiting on you',
+    moving: 'Moving',
+    blocked: 'Blocked',
+    designing: 'Designing',
+    'not-started': 'Not started',
+  };
+  for (const state of TRIAGE_ORDER) {
+    const count = workstreams.filter((s) => orderByTriage(assemble(workstreams)).find((w) => w.slug === s.slug)?.triage === state).length;
+    if (count === 0) {
+      assert.doesNotMatch(mobileHtml, new RegExp(`>${LABELS[state]}<`), `an empty section rendered for ${state}`);
+    }
+  }
+});
+
+test('triage: 1a is fully gone — no status-board table shape on this page', () => {
+  assert.doesNotMatch(mobileHtml, /<table/);
+});
+
+test('triage: each card still says what, position and gate, same as before this rebuild', () => {
+  for (const stream of workstreams) {
+    // htmlIncludesText, not a raw .includes: Nunjucks autoescape turns an apostrophe into `&#39;`,
+    // and the fixture's own "what" prose ("decision 20 is exercised: no workstream's numbering...")
+    // has one.
+    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.what), `${stream.slug}'s "what" is missing`);
+    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.gate), `${stream.slug}'s gate is missing`);
+  }
+});
+
 // --- decision 24: the two surfaces agree about what is complete ---------------------------------
 
 // One segment per milestone, in the order the card drew them, and whether each is filled.
@@ -1271,7 +1339,10 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     // Task 5 rebuilt this surface as a collapsed accordion: each row's own header carries a
     // stage chip and a triage chip, rendered with the ordinary HTML chip macro.
     'depth.njk': 'a stage chip per feature header',
-    'mobile.njk': 'a triage chip per card',
+    // Task 9 (1c) replaced the phone view's per-card triage chip with grouped section headings —
+    // the state is now conveyed by which `<h2 class="triage-heading">` a card sits under, not by
+    // a coloured badge on the card itself. So this page renders no `chip`-class element at all.
+    'mobile.njk': null,
     'workstream.njk': 'a stage chip, plus a status chip per milestone row',
     'milestone.njk': 'this milestone\'s own status',
     'document.njk': null, // a record page renders a record; it has no vocabulary to chip
@@ -1305,10 +1376,12 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     }
   }
 
-  // And the counts follow the data, so a page cannot pass by rendering one chip and stopping.
+  // And the counts follow the data, so a page cannot pass by rendering nothing and stopping. The
+  // phone view's own per-item marking is `data-triage` on the `<article>` itself (grouping, not a
+  // chip) — checked here rather than in the loop above because it is not a `chip`-class element.
   const cards = [...mobileHtml.matchAll(/<article class="card"/g)];
-  const triageChips = [...mobileHtml.matchAll(/<span\b[^>]*data-triage="/g)];
-  assert.equal(triageChips.length, cards.length, 'every card on the phone view carries its own chip');
+  const triagedCards = [...mobileHtml.matchAll(/<article class="card"[^>]*\bdata-triage="[^"]*"/g)];
+  assert.equal(triagedCards.length, cards.length, 'every card on the phone view carries its triage state');
   assert.equal(cards.length, workstreams.length, 'a card per workstream');
 
   const stageChips = [...depthHtml.matchAll(/<span\b[^>]*data-stage="/g)];
@@ -1351,13 +1424,15 @@ test('chips: every triage state renders its own human label, decision 27\'s head
 
   const html = renderMobile(Object.values(byState));
 
+  // Task 9 (1c): the label is no longer read off a per-card chip, but off the section heading
+  // each state's one card sits under — `<h2 class="triage-heading">`, one per state here, each
+  // holding exactly one workstream.
   for (const state of TRIAGE_ORDER) {
-    const match = new RegExp(`<span\\b[^>]*data-triage="${state}"[^>]*>([\\s\\S]*?)</span>`).exec(html);
-    assert.ok(match, `no chip rendered for triage state "${state}"`);
-    assert.equal(
-      stripTags(match[1]),
-      triageLabels[state],
-      `the "${state}" chip must read its human label`,
+    const match = new RegExp(`<h2 class="triage-heading">([\\s\\S]*?)</h2>`, 'g');
+    const headings = [...html.matchAll(match)].map(([, inner]) => stripTags(inner));
+    assert.ok(
+      headings.includes(`${triageLabels[state]} 1`),
+      `no section heading found reading "${triageLabels[state]} 1" for state "${state}"; saw: ${headings.join(' | ')}`,
     );
   }
 

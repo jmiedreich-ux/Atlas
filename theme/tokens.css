@@ -721,6 +721,23 @@ h3 {
 
 /* --- surface two: the mobile triage view -------------------------------------------------------- */
 
+.triage-heading {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+  margin: var(--sky-space-6) 0 var(--sky-space-3);
+}
+
+.triage-heading:first-of-type {
+  margin-top: var(--sky-space-4);
+}
+
+.triage-count {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
 .card-list {
   display: flex;
   flex-direction: column;
