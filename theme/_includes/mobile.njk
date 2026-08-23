@@ -62,7 +62,11 @@
 {% else %}
 <p class="track-count empty">No milestones on record yet</p>
 {% endif %}
-<p class="card-next">Next: {{ stream.column.tipLabel }}</p>
+{#- Only when there IS one. `tipLabel` is null when nothing is on record for this feature to do
+    next, and #780 found the alternative rendered: this line read "Next: M5" for a feature with
+    four milestones, all done and nothing beyond, while the desk chart correctly drew no balloon
+    for it. The two surfaces read this one field now, so they cannot say different things. -#}
+{% if stream.column.tipLabel %}<p class="card-next">Next: {{ stream.column.tipLabel }}</p>{% endif %}
 <p class="card-gate"><span class="card-gate-label">Gate</span>{{ stream.manifest.gate }}</p>
 </article>
 </li>

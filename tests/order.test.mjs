@@ -5,13 +5,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  HIDDEN_KEY,
   ORDER_KEY,
   announce,
+  announceHidden,
   dropIndex,
   layout,
   moveSlug,
   orderSlugs,
+  partitionHidden,
+  readHidden,
   readOrder,
+  toggleHidden,
+  writeHidden,
   writeOrder,
 } from '../theme/order.js';
 
@@ -219,4 +225,115 @@ test('order: no drag library — decision 9 fixes the runtime dependencies at tw
   assert.ok(!/^\s*import\s/m.test(SOURCE), 'the ordering module imports something');
   assert.match(SOURCE, /pointerdown/, 'the drag is not built on pointer events');
   assert.ok(!/\brequire\(/.test(SOURCE), 'the ordering module requires something');
+});
+
+// --- hiding a feature, and bringing it back (#780, decision 49) --------------------------------
+//
+// The whole risk of this capability is stated in the milestone plan and worth repeating where the
+// tests live: "a page that silently omits a workstream is worse than one that shows too many."
+// So the rules below are not about hiding. They are about the guarantee that nothing is ever lost.
+
+test('hide: every feature is either shown or named as hidden — never neither, never both', () => {
+  // The invariant the whole capability rests on. Whatever is in storage, the two lists together
+  // are exactly the features the build rendered, each once: a feature cannot fall between them.
+  const nonsense = [
+    null,
+    undefined,
+    42,
+    'tiller',
+    {},
+    { hidden: ['keel'] },
+    [],
+    [null, undefined, 7, {}],
+    ['keel', 'keel', 'keel'],
+    ['ghost'],
+    ['keel', 'ghost', 'mast'],
+    [...GENERATED, ...GENERATED],
+    Array.from({ length: 10000 }, (_, i) => (i % 2 ? 'keel' : `ghost-${i}`)),
+  ];
+
+  for (const stored of nonsense) {
+    const { visible, hidden } = partitionHidden(GENERATED, stored);
+    assert.deepEqual(
+      [...visible, ...hidden].sort(),
+      [...GENERATED].sort(),
+      `${String(JSON.stringify(stored)).slice(0, 60)} lost or duplicated a feature`,
+    );
+    // And each list keeps the order the build rendered in, so the page never reshuffles itself
+    // as a side effect of something being hidden.
+    assert.deepEqual(visible, GENERATED.filter((slug) => visible.includes(slug)));
+    assert.deepEqual(hidden, GENERATED.filter((slug) => hidden.includes(slug)));
+  }
+});
+
+test('hide: with nothing remembered, nothing is hidden', () => {
+  assert.deepEqual(partitionHidden(GENERATED, null), { visible: GENERATED, hidden: [] });
+});
+
+test('hide: a remembered hidden feature is hidden, and named', () => {
+  const { visible, hidden } = partitionHidden(GENERATED, ['mast', 'tiller']);
+  assert.deepEqual(visible, ['keel', 'rudder']);
+  assert.deepEqual(hidden, ['mast', 'tiller'], 'the hidden ones must be nameable, not merely counted');
+});
+
+test('hide: hiding every feature is allowed, because it is recoverable', () => {
+  // Not guarded against. A reader who hides everything gets an empty chart and a strip naming all
+  // four, which is recoverable; refusing the last one would be a rule they cannot see the reason
+  // for. The guarantee is recoverability, not a minimum.
+  const { visible, hidden } = partitionHidden(GENERATED, GENERATED);
+  assert.deepEqual(visible, []);
+  assert.deepEqual(hidden, GENERATED);
+});
+
+test('hide: toggling adds and removes one feature, and touches nothing else', () => {
+  assert.deepEqual(toggleHidden([], 'mast'), ['mast']);
+  assert.deepEqual(toggleHidden(['mast'], 'mast'), []);
+  assert.deepEqual(toggleHidden(['mast'], 'keel'), ['mast', 'keel']);
+  // Already hidden twice, which storage can contain: toggling clears both rather than one.
+  assert.deepEqual(toggleHidden(['mast', 'mast'], 'mast'), []);
+
+  const before = ['mast'];
+  toggleHidden(before, 'keel');
+  assert.deepEqual(before, ['mast'], 'toggling mutated the list it was given');
+});
+
+test('hide: hiding is remembered under its OWN key, never the order’s', () => {
+  // Two separate concerns with two separate lifetimes: "back to the generated order" must not
+  // un-hide anything, and bringing a feature back must not reshuffle the page.
+  assert.notEqual(HIDDEN_KEY, ORDER_KEY);
+
+  const storage = fakeStorage();
+  writeOrder(storage, ['tiller', 'keel']);
+  writeHidden(storage, ['mast']);
+  assert.deepEqual(readOrder(storage), ['tiller', 'keel']);
+  assert.deepEqual(readHidden(storage), ['mast']);
+
+  writeOrder(storage, null);
+  assert.deepEqual(readHidden(storage), ['mast'], 'resetting the order forgot what was hidden');
+});
+
+test('hide: storage that throws leaves every feature on the page', () => {
+  // The failure that matters most. If reading storage throws and the code treats that as "hide
+  // everything", the reader gets a blank chart in a private window with no way to tell why.
+  assert.equal(readHidden(throwingStorage), null);
+  assert.equal(writeHidden(throwingStorage, ['keel']), false);
+  assert.equal(writeHidden(throwingStorage, null), false);
+  assert.deepEqual(partitionHidden(GENERATED, readHidden(throwingStorage)).visible, GENERATED);
+  assert.deepEqual(partitionHidden(GENERATED, readHidden(throwingStorage)).hidden, []);
+
+  assert.equal(readHidden(null), null);
+  assert.equal(readHidden(fakeStorage({ [HIDDEN_KEY]: 'not json at all' })), null);
+  assert.deepEqual(partitionHidden(GENERATED, readHidden(fakeStorage({ [HIDDEN_KEY]: '{' }))).visible, GENERATED);
+});
+
+test('hide: hiding is said out loud, and says how to undo it', () => {
+  // Hiding a feature sets a style on an SVG group, which a screen reader has no reason to
+  // announce — so a keyboard user would press a key and get silence, with a column gone. The
+  // announcement carries the way back, because "recoverable without knowing it is hidden" has to
+  // hold for a reader who cannot see the strip.
+  const said = announceHidden('Mast', 2);
+  assert.match(said, /Mast/, 'the announcement does not name the feature that went');
+  assert.match(said, /hidden/i);
+  assert.match(said, /\b2\b/, 'the announcement does not say how many are now hidden');
+  assert.match(said, /bring|back|restore|show/i, 'the announcement does not say there is a way back');
 });

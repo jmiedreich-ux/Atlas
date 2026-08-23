@@ -112,6 +112,75 @@ test('chart: one lane per feature, at one column pitch apart, each drawn about i
   assert.equal(centres.size, 1, 'a lane that positions itself absolutely cannot be reordered');
 });
 
+test('chart: a feature’s name box and its ribbon share one centre line', () => {
+  // #780: "centre the arrow on its feature's name box. The ribbon is currently offset from the
+  // header above it; they should share a centre line." M2.1 gave the header the whole column and
+  // left the ribbon at the far left of it.
+  //
+  // Asserted rather than eyeballed, and asserted as ONE COMPUTED VALUE: a test that recomputed the
+  // centre from the same constants the drawing used would agree with any bug that lived in those
+  // constants. Both sides here are read off the drawing.
+  const { chart } = draw([entry('Alpha'), entry('Bravo'), entry('Charlie')]);
+
+  const boxCentre = chart.head.x + chart.head.width / 2;
+  for (const lane of chart.lanes) {
+    assert.equal(boxCentre, lane.centre, `${lane.codename}: the name box and the ribbon are off-centre`);
+  }
+  // Both are drawn about the lane's own origin, so this holds at every viewport width — the SVG is
+  // in user units and the page scales nothing. It is the same markup at 1600px and at 390px.
+  assert.ok(chart.head.x >= 0, 'the name box hangs off the left of its own column');
+  assert.ok(chart.head.x + chart.head.width <= CHART.columnPitch, 'the name box runs into the next column');
+});
+
+test('chart: the date column clears the ARROWHEAD, not just the ribbon it grows out of', () => {
+  // The first of the two defects #780 found on first render: "an arrowhead is wider than its
+  // ribbon, and it eats into the date column beside it ... the text column starts at a fixed
+  // offset from the ribbon's CENTRE, which is right for the ribbon and wrong for the head."
+  //
+  // The three cases named there — Beacon M4's `23 Mar 2026`, Tide M2's `6 Apr 2026` clipped to
+  // `6 Apr`, and Reef M5's `11 Jun 2026 → 30 Jun 2026` clipped at the left — are all one bug: a
+  // head's flare reaching past `textX`.
+  //
+  // This pins the RELATION rather than the number, reading both sides off the drawing, so a later
+  // change to the head's width or its flare cannot silently re-break it: every arrowhead actually
+  // emitted has to end left of the text column its own lane draws in.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done', started: '2026-03-02', completed: '2026-03-05' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', plan: 'm2-plan.md', started: '2026-03-23' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'blocked', plan: 'm3-plan.md' }),
+      ],
+    }),
+    entry('Harbor', { stage: 'designing', milestones: [] }),
+  ]);
+
+  const rightEdgeOf = (head) => {
+    const numbers = head.d.match(/-?\d+(\.\d+)?/g).map(Number);
+    return Math.max(...numbers.filter((_, i) => i % 2 === 0));
+  };
+
+  let headsChecked = 0;
+  for (const lane of chart.lanes) {
+    for (const arrow of [lane.solid, lane.faint].filter(Boolean)) {
+      headsChecked += 1;
+      assert.ok(
+        rightEdgeOf(arrow.head) < lane.textX,
+        `${lane.codename}: an arrowhead reaches x=${rightEdgeOf(arrow.head)}, into a text column that starts at ${lane.textX}`,
+      );
+    }
+  }
+  assert.ok(headsChecked >= 3, 'this test stopped exercising both arrows');
+
+  // And the text still has to sit beside the ribbon rather than halfway across the column: the fix
+  // is to clear the head, not to push the dates out of reach of the thing they date.
+  assert.ok(
+    chart.lanes[0].textX - chart.lanes[0].centre < CHART.columnPitch / 3,
+    'the date column was pushed away from the ribbon rather than past the head',
+  );
+});
+
 test('chart: the ladder is horizontal rules, one per row, and never a vertical grid', () => {
   const { ladder, chart } = draw([entry('Alpha', { stage: 'shipping', milestones: [milestone({ status: 'done' })] })]);
 
@@ -211,9 +280,19 @@ test('chart: an arrowhead grows straight out of its own body, with no gap betwee
   }
 });
 
-test('chart: where records remain, a second fainter and narrower arrow covers the rest', () => {
-  // The reference case #780 names: a solid arrow through the stages ending at Planned, then a
-  // faint arrow covering all six recorded milestones — not five, and not overlapping the solid one.
+test('chart: the faint arrow spans the whole recorded length and the solid one is laid OVER it', () => {
+  // INVERTED FROM M2.1, deliberately rather than deleted, so the correction is visible in the
+  // suite. That version was called "where records remain, a second fainter and narrower arrow
+  // covers the rest" and asserted the two arrows TILED — the solid one stopping and the faint one
+  // beginning below it, with `assert.ok(faint.segments[0].y > headTipY(solid.head), 'the two
+  // arrows overlap')` as its guard.
+  //
+  // #780 corrects that outright: "the faint arrow runs the whole recorded span, and the solid
+  // arrow overlays it as far as the work has actually reached ... they are one object seen twice,
+  // not two objects in sequence." So the guard that used to forbid an overlap now REQUIRES one.
+  //
+  // The reference case is the one #780 names: Keystone, six recorded milestones and nothing
+  // started — a faint arrow the full six with the solid one over the stages on top of it.
   const { ladder, chart } = draw([
     entry('Keystone', {
       stage: 'planned',
@@ -234,13 +313,66 @@ test('chart: where records remain, a second fainter and narrower arrow covers th
   assert.ok(headTipY(lane.solid.head) > planned.y, 'the solid arrow stops short of Planned');
   assert.ok(headTipY(lane.solid.head) <= planned.y + planned.height, 'the solid arrow runs past Planned');
 
-  // The faint one starts below it and ends inside M6 — all six, and they do not overlap.
-  assert.ok(lane.faint.segments[0].y > headTipY(lane.solid.head), 'the two arrows overlap');
+  // THE CORRECTION. The faint arrow begins at the very top of the ladder, exactly where the solid
+  // one begins — not below it — and runs to the end of the records. The solid arrow is therefore
+  // laid entirely over it.
+  assert.equal(
+    lane.faint.segments[0].y,
+    lane.solid.segments[0].y,
+    'the faint arrow does not start where the solid one does — they are tiled, not overlaid',
+  );
+  assert.ok(
+    headTipY(lane.faint.head) > headTipY(lane.solid.head),
+    'the faint arrow must reach past the solid one, which is the whole of it being seen twice',
+  );
+  // And the solid one has to cover the faint body where the two coincide, or the overlay reads as
+  // a faint stripe running down the middle of a solid arrow. Width alone is not enough: the head
+  // flares wider than its body, so the SOLID head's flare must clear the FAINT body's edge too.
+  assert.ok(lane.faint.width < lane.solid.width, 'the faint arrow must be the narrower of the two');
+  const halfWidthOf = (head) => {
+    const numbers = head.d.match(/-?\d+(\.\d+)?/g).map(Number);
+    const xs = numbers.filter((_, i) => i % 2 === 0);
+    return (Math.max(...xs) - Math.min(...xs)) / 2;
+  };
+  assert.ok(
+    halfWidthOf(lane.solid.head) >= lane.faint.width / 2,
+    'the solid head is narrower than the faint body behind it, so the faint one shows either side',
+  );
+
   const sixth = chart.rows.find((r) => r.id === 'depth-6');
   assert.ok(headTipY(lane.faint.head) > sixth.y, 'the faint reach stops short of the sixth milestone');
   assert.ok(headTipY(lane.faint.head) <= sixth.y + sixth.height, 'the faint reach runs past the records');
   assert.equal(ladder.columns[0].recordedTo, 'depth-6');
   assert.ok(rowY('depth-1') > planned.y, 'the ladder is out of order');
+});
+
+test('chart: one object, so the faint arrow leaves its lane at the same milestones the solid one does', () => {
+  // The faint arrow is not a second mark that happens to sit behind the first; #780 says the two
+  // are ONE OBJECT seen twice. Where the work went round a milestone, the object went round it —
+  // once. Without this, a straight faint band shows through the gap the solid ribbon's detour
+  // leaves, and the crossed marker sits on top of a bar rather than beside a break.
+  const { chart } = draw([
+    entry('Reef', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'parked', issue: 709, plan: 'm2-plan.md' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'done', plan: 'm3-plan.md' }),
+        milestone({ id: 'M4', label: 'M4', depth: 4, status: 'blocked', plan: 'm4-plan.md' }),
+        milestone({ id: 'M5', label: 'M5', depth: 5, status: 'blocked', plan: 'm5-plan.md' }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Reef');
+  assert.ok(lane.faint, 'M4 and M5 are on record past the work, and no faint reach was drawn');
+  assert.equal(lane.skips.length, 1, 'the fixture for this test no longer exercises a detour');
+
+  const skipRow = chart.rows.find((r) => r.id === 'depth-2');
+  const covers = (arrow, y) => arrow.segments.some((s) => y > s.y && y < s.y + s.height);
+  const midSkip = skipRow.y + Math.round(skipRow.height / 2);
+  assert.ok(!covers(lane.solid, midSkip), 'the solid ribbon runs straight through the milestone it went round');
+  assert.ok(!covers(lane.faint, midSkip), 'the faint arrow runs straight through the detour the solid one takes');
 });
 
 test('chart: a feature with nothing recorded beyond its position has one arrow only', () => {
@@ -354,8 +486,11 @@ test('chart: a closed milestone shows both stored days and how long it took', ()
 
   const [dot] = laneOf(chart, 'Tide').dots;
   const text = dot.lines.map((l) => l.text).join(' | ');
-  assert.match(text, /2 Mar 2026/, 'the start day is missing');
+  // Both ends are stated; the YEAR is stated once, because both fall in it. See
+  // `formatDayRange` — the span is what has to be actionable, and it is.
+  assert.match(text, /2 Mar\b/, 'the start day is missing');
   assert.match(text, /5 Mar 2026/, 'the close day is missing');
+  assert.match(text, /\b2026\b/, 'the span carries no year at all');
   assert.match(text, /3 days/, 'how long it took is missing');
 });
 
@@ -397,9 +532,17 @@ test('chart: a future milestone shows nothing at all, and a project with no date
 
 // --- the balloons ---------------------------------------------------------------------------------
 
-test('chart: a balloon points at the step it describes, not at the end of the arrow', () => {
-  // #780's second correction: Keystone's belongs beside M1, where its arrowhead is — not at the
-  // bottom of the faint reach.
+test('chart: a NEXT balloon attaches at the row the arrowhead points at', () => {
+  // #780 says two things that look incompatible: an earlier comment pins Keystone's balloon beside
+  // M1, "where its arrowhead is"; a later one says balloons "attach at the end of the arrow, not
+  // the middle and not somewhere else on the ribbon."
+  //
+  // The owner settled it as owner: "a balloon attaches to the end of the arrow whose subject it is
+  // speaking about. A balloon describing what is happening now attaches to the end of the solid
+  // arrow. A balloon describing what is NEXT attaches to the head that points at it. Keystone's is
+  // a next balloon, so it attaches where the faint arrow begins — which is M1, and is what the
+  // earlier comment already drew." So the two were never in conflict about placement, only about
+  // which arrow, and the later instruction is the general rule with the earlier as its instance.
   const { chart } = draw([
     entry('Keystone', {
       stage: 'planned',
@@ -419,11 +562,112 @@ test('chart: a balloon points at the step it describes, not at the end of the ar
   const lane = laneOf(chart, 'Keystone');
   assert.ok(lane.balloon, 'the feature has a next step and no balloon was drawn');
 
-  // It attaches to a dot on the ribbon at the row it describes — the head's row, not the arrow's
-  // end, and the balloon itself drops clear of the whole six-milestone reach before speaking.
+  assert.equal(lane.balloon.kicker, 'Next', 'Keystone has begun nothing, so its balloon is a NEXT one');
+
+  // M1 — the row this feature's arrowhead points at. Not the Planned row where the solid arrow
+  // physically ends, and not M6 where the faint one does.
   const headRow = chart.rows.find((r) => r.id === 'depth-1');
   assert.equal(lane.balloon.dot.y, headRow.centre, 'the balloon attaches at the wrong row');
+  assert.notEqual(
+    lane.balloon.dot.y,
+    headTipY(lane.solid.head),
+    'a NEXT balloon attached to the end of the solid arrow rather than to what it points at',
+  );
+  // On the lane's own spine, so it reads as a mark on the arrow rather than beside it.
+  assert.equal(lane.balloon.dot.x, lane.centre, 'the balloon attaches off the lane’s spine');
+  // And the balloon itself drops clear of the whole six-milestone reach before speaking, which is
+  // #780's own per-feature placement: "Keystone drops past its whole six-milestone reach."
   assert.ok(lane.balloon.y > lane.arrowBottom, 'the balloon overlaps the arrow it belongs to');
+});
+
+test('chart: a HAPPENING NOW balloon attaches at the END of the solid arrow', () => {
+  // The other half of the same ruling. Where the arrow has actually reached is what a balloon
+  // about what is happening now is talking about, so it attaches there — at the tip of the solid
+  // arrow's head, not at the centre of the row that head happens to sit in, which is where M2.1
+  // put every balloon regardless of what it said.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', title: 'Keeper console', plan: 'm2-plan.md' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'blocked', plan: 'm3-plan.md' }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Beacon');
+  assert.equal(lane.balloon.kicker, 'Happening now', 'M2 is under way, so this is a NOW balloon');
+  assert.equal(
+    lane.balloon.dot.y,
+    headTipY(lane.solid.head),
+    'a NOW balloon does not attach at the end of the solid arrow',
+  );
+  assert.equal(lane.balloon.dot.x, lane.centre, 'the arrow ends on the lane’s spine, and so must the balloon');
+
+  // The row's centre is a different y, so the assertion above is not passing by coincidence.
+  const headRow = chart.rows.find((r) => r.id === 'depth-2');
+  assert.notEqual(headRow.centre, headTipY(lane.solid.head), 'this fixture stopped telling the two apart');
+});
+
+test('chart: a balloon says what the step is AND what is holding it', () => {
+  // #780: "be deliberate about what data a balloon actually shows ... what would genuinely be
+  // presented back to the owner and be understandable — not what happens to be available in the
+  // manifest. The balloon is the one place the page speaks in sentences."
+  //
+  // M2.1's mapping was asymmetric, and that asymmetry is the whole problem. A feature still in the
+  // stages got its GATE — an actionable sentence. A feature at a milestone got that milestone's
+  // TITLE — a two-word fragment. So the balloon on the features that are actually moving said the
+  // least.
+  //
+  // THE RULE, and it is one rule rather than two: a balloon says what the drawing cannot.
+  //
+  //   * At a milestone, the drawing says "M4" and nothing about what M4 IS, so the balloon leads
+  //     with the milestone's title — and then carries the gate, because "what is holding it" is
+  //     the question this page exists to answer and the phone view already ends every card on it.
+  //   * In the stages, the drawing already names the row the head points at — Designing, Planned —
+  //     so repeating it would be the balloon saying what the reader can already see. It carries
+  //     the gate alone, which is what it did and what reads well.
+  //
+  // The two surfaces now end on the same sentence for the same feature, which is the property
+  // decision 29 exists to protect and which a field mapping picked per surface kept losing.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      gate: 'Owner sign-off on the M4 demo before M5 starts',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', title: 'Keeper console', plan: 'm2-plan.md' }),
+      ],
+    }),
+    entry('Harbor', { stage: 'designing', gate: 'Owner approval of the harbor-master authority', milestones: [] }),
+  ]);
+
+  const beacon = laneOf(chart, 'Beacon').balloon;
+  const strong = beacon.lines.filter((line) => line.strong).map((line) => line.text).join(' ');
+  const quiet = beacon.lines.filter((line) => !line.strong).map((line) => line.text).join(' ');
+  assert.match(strong, /Keeper console/, 'the milestone balloon does not lead with what the step is');
+  assert.match(quiet, /Owner sign-off on the M4 demo/, 'the milestone balloon does not say what is holding it');
+
+  // The step is emphasised and the gate is not, so the two are told apart without reading them.
+  assert.ok(beacon.lines.some((line) => line.strong), 'nothing in the balloon is the step');
+  assert.ok(beacon.lines.some((line) => !line.strong), 'nothing in the balloon is the gate');
+
+  // In the stages the drawing already names the row, so the balloon does not repeat it.
+  const harbor = laneOf(chart, 'Harbor').balloon;
+  assert.match(harbor.lines.map((l) => l.text).join(' '), /Owner approval of the harbor-master/);
+  assert.ok(
+    !/Planned|Designing/.test(harbor.lines.map((l) => l.text).join(' ')),
+    'the balloon repeats the ladder row the arrowhead already points at',
+  );
+
+  // Every line still carries its own baseline, and they descend: the template stacks nothing.
+  const ys = beacon.lines.map((line) => line.y);
+  assert.deepEqual(ys, [...ys].sort((a, b) => a - b), 'the balloon’s lines are not in reading order');
+  assert.ok(
+    beacon.y + beacon.height >= ys[ys.length - 1],
+    'the balloon is not tall enough for the lines it was given',
+  );
 });
 
 test('chart: no next step, no balloon', () => {
@@ -459,6 +703,52 @@ test('chart: a feature still in the stages speaks its gate; one in flight says s
   const tide = laneOf(chart, 'Tide');
   assert.equal(tide.balloon.kicker, 'Happening now', 'a milestone under way must not read as merely next');
   assert.match(tide.balloon.lines.map((l) => l.text).join(' '), /Buoy telemetry/);
+});
+
+test('chart: the widest date a lane can print stays clear of the next feature’s balloon', () => {
+  // Moving the ribbon onto its name box's centre line (#780) moved the date column right by the
+  // same amount, and the widest thing on the chart — a closed milestone's span — then ran out of
+  // its own column and under the NEXT feature's balloon, which is painted after it and opaque.
+  // Found by looking at the rendered page; no coordinate assertion could have seen it, because the
+  // text's width is a font measurement this pure module does not hold.
+  //
+  // So it is modelled: `textCharWidth` is a declared per-character budget, exactly as
+  // `balloonChars` is a declared wrap budget, and the constraint is asserted against it. The
+  // balloon in the next column starts at that column's `balloonInset`, which is the real edge the
+  // text must not reach.
+  const { chart } = draw([
+    entry('Reef', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done', started: '2026-06-11', completed: '2026-06-30' }),
+        // A span across a year boundary, which is the widest a date line can honestly get.
+        milestone({
+          id: 'M2',
+          label: 'M2',
+          depth: 2,
+          status: 'done',
+          plan: 'm2-plan.md',
+          started: '2026-12-30',
+          completed: '2027-01-04',
+        }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Reef');
+  const lines = [
+    ...lane.dots.flatMap((dot) => dot.lines.map((line) => line.text)),
+    ...lane.skips.flatMap((skip) => [skip.label, skip.reason]),
+  ];
+  assert.ok(lines.length > 0, 'this test stopped drawing any dates at all');
+
+  const widest = Math.max(...lines.map((text) => text.length)) * CHART.textCharWidth;
+  const reaches = lane.textX + widest;
+  const nextBalloonStartsAt = CHART.columnPitch + CHART.balloonInset;
+  assert.ok(
+    reaches <= nextBalloonStartsAt,
+    `a date line reaches x=${Math.round(reaches)}, past the next feature's balloon at ${nextBalloonStartsAt}`,
+  );
 });
 
 test('chart: a balloon never expands into a neighbouring column — it grows downward', () => {

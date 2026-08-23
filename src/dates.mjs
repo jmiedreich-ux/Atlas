@@ -64,6 +64,29 @@ export function formatDay(value) {
 }
 
 /**
+ * The span between two stored days, as the page prints it beside a closed milestone's dot:
+ * `11 Jun → 30 Jun 2026`, or `30 Dec 2026 → 4 Jan 2027` when the two fall in different years.
+ *
+ * The year is stated ONCE when both ends share it. That does not relax the rule above: the rule is
+ * that a date on this page has to be actionable, and a span that ends in a year is. What it buys
+ * is width — and width is not cosmetic here. Centring the ribbon on its name box (#780) moved the
+ * date column right, and the widest of these then ran out of its own column and under the NEXT
+ * feature's balloon, which is drawn after it and is opaque. `tests/chart.test.mjs` pins the
+ * constraint this exists to satisfy.
+ *
+ * @param {string} from - already known to satisfy `isCalendarDate`.
+ * @param {string} to - likewise.
+ * @returns {string} empty when either is not a stored day, exactly as `formatDay` returns empty.
+ */
+export function formatDayRange(from, to) {
+  const a = parts(from);
+  const b = parts(to);
+  if (!a || !b) return '';
+  const start = a.year === b.year ? `${a.day} ${MONTHS[a.month - 1]}` : formatDay(from);
+  return `${start} → ${formatDay(to)}`;
+}
+
+/**
  * Whole days from one stored day to another. Both are facts on record; neither is today.
  *
  * @param {string} from

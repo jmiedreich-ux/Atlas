@@ -15,11 +15,11 @@ import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
-import { computeChart } from '../src/chart.mjs';
+import { CHART, computeChart } from '../src/chart.mjs';
 import { formatDay } from '../src/dates.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
-import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
+import { TRIAGE_ORDER, orderByTriage, triageCards } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -38,6 +38,10 @@ const THEME_DIR = path.join(REPO_ROOT, 'theme');
 const LAYOUT_DIR = path.join(THEME_DIR, '_includes');
 
 const TOKENS_CSS = readFileSync(path.join(THEME_DIR, 'tokens.css'), 'utf8');
+// The planning surface's behaviour, read as text. Only where what has to be asserted is WHICH
+// platform affordance the module reaches for — a claim about focus trapping and dismissal that no
+// rendered-markup check can reach and that a unit test with no DOM cannot execute.
+const ORDER_SOURCE = readFileSync(path.join(THEME_DIR, 'order.js'), 'utf8');
 
 // Task 7 wires Eleventy. Here the same `.njk` files are rendered through Nunjucks directly, so a
 // layout can be asserted without standing up the whole pipeline.
@@ -140,6 +144,9 @@ function renderDepth(entries) {
     ...site,
     title: 'Feature planning',
     chart: computeChart(computeLadder(entries), assembled),
+    // Exactly what the build hands it, through the same function, so this cannot become a second
+    // shape for the modal's content.
+    features: triageCards(assembled),
   });
 }
 
@@ -533,6 +540,12 @@ const DERIVED_IN_DARK = {
   '--sky-action-link-text': '#7dd3fc',
   '--sky-shadow-card': '0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45)',
   '--atlas-tone-exploring-bg': '#2a2247',
+  // The feature planning drawing's two carrying states (#780). Derived rather than quoted because
+  // the contract names neither: the drawing's states are not the contract's. `--atlas-tone-ahead`
+  // and `--atlas-tone-stopped` are absent here on purpose — both are aliases of contract tokens
+  // and move with the palette, so restating them in dark would be a second place to get wrong.
+  '--atlas-tone-done': '#5fa8d8',
+  '--atlas-tone-live': '#3fe08f',
 };
 
 function darkBlockDeclarations() {
@@ -633,6 +646,171 @@ test('tokens.css: every derived dark value says what it was derived from', () =>
       `${name} is marked DERIVED, but the contract's midnight set defines it — it should be quoted, not invented`,
     );
   }
+});
+
+// --- #780: a colour for done, and stopped told apart from in progress -------------------------
+
+// The four states the feature planning drawing has to say apart WITHOUT the reader consulting the
+// key beneath it. Named here as the drawing's own tokens rather than read out of the stylesheet,
+// because a list read from the file it is checking agrees with any drift in it.
+const CHART_TONES = ['--atlas-tone-done', '--atlas-tone-live', '--atlas-tone-ahead', '--atlas-tone-stopped'];
+
+test('tokens.css: no component selector is declared twice, in two places, saying two things', () => {
+  // The defect this closes was made in this very milestone. Adding the modal added a second
+  // `.lane-head` rule five hundred lines below the first, setting `cursor: pointer` where the
+  // original set `cursor: grab` — and being later, it won. The header quietly stopped looking like
+  // something you can drag on the day it also became something you can click, and nothing in a
+  // stylesheet reads as wrong when the two halves are that far apart.
+  //
+  // The palette blocks are excluded by name: the dark palette is deliberately written twice, once
+  // guarded by a media query and once by an attribute, and a test above already pins that the two
+  // agree.
+  const PALETTE = new Set([
+    ':root',
+    ':root:not([data-theme="light"])',
+    ':root[data-theme="dark"]',
+    ':root[data-theme="light"]',
+  ]);
+
+  const seen = new Map();
+  for (const rule of DECLARATION_RULES) {
+    const selector = rule.selector.trim();
+    // A rule inside an at-rule is a responsive or themed override of the base one, which is the
+    // ordinary and readable use of a repeated selector: the condition is written right there.
+    // What this is about is two rules at the SAME level, far apart, where nothing says so.
+    if (rule.insideAtRule) continue;
+    if (PALETTE.has(selector) || selector.startsWith('@')) continue;
+    // A grouped selector is its own thing — `.a, .b` and `.a` are different rules and the cascade
+    // between them is ordinary and readable. What this is about is the SAME selector twice.
+    if (selector.includes(',')) continue;
+    seen.set(selector, (seen.get(selector) ?? 0) + 1);
+  }
+
+  const twice = [...seen].filter(([, count]) => count > 1).map(([selector]) => selector);
+  assert.deepEqual(twice, [], `declared in two places, where the later one silently wins: ${twice.join(', ')}`);
+  assert.ok(seen.size > 40, `expected the whole stylesheet, saw ${seen.size} component rules`);
+});
+
+test('tokens.css: nothing that is not a link is drawn in the link colour', () => {
+  // A feature's codename was `--sky-action-link-text` while its header was an anchor. #780 made
+  // that header the control that opens the feature's modal and the anchor moved into the modal —
+  // leaving text that still looked like a link and navigated nowhere, which is a lie about the
+  // affordance rather than a colour choice.
+  //
+  // Checked as a rule about the token: the link colour dresses links, and nothing else on the
+  // drawing. The drawing has four tokens of its own for its own states.
+  const usesLinkColour = DECLARATION_RULES.filter((rule) => {
+    const declarations = new Map(declarationsIn(rule.body));
+    return [...declarations.values()].some((value) => /var\(--sky-action-link-text\)/.test(value));
+  }).map((rule) => rule.selector.trim());
+
+  // Only where a link genuinely is. The drawing's own marks are the ones that must not be here.
+  const notLinks = usesLinkColour.filter((selector) => /col-h|ribbon|dot|balloon|key-swatch|lane-/.test(selector));
+  assert.deepEqual(notLinks, [], `these are not links and are drawn in the link colour: ${notLinks.join(', ')}`);
+  assert.ok(usesLinkColour.length > 0, 'nothing uses the link colour at all, so this rule checks nothing');
+});
+
+test('tokens.css: the chart’s four states are four different colours, in light and in dark', () => {
+  // #780: "a colour for done — finished work needs its own arrow colour, distinct from in
+  // progress", and "stopped and in progress were clearer in the earlier mock than they are now."
+  //
+  // M2.1 drew finished work in `--sky-action-link-text`, so a finished ribbon was the same ink as
+  // every link on the page and had no colour of its own at all. The drawing now has four tokens,
+  // and this checks the only property that makes them worth having: that they differ.
+  const resolve = (declared, name, fallback) => {
+    let value = declared.get(name) ?? fallback.get(name);
+    // A token defined as an alias moves with the palette; follow it to the colour it lands on.
+    for (let hops = 0; hops < 5 && /^var\(/.test(value ?? ''); hops += 1) {
+      const alias = /^var\(\s*(--[\w-]+)/.exec(value)[1];
+      value = declared.get(alias) ?? fallback.get(alias);
+    }
+    return value;
+  };
+
+  const light = bareRootDeclarations();
+  const states = { light: [light, light], ...darkBlockDeclarations() };
+
+  for (const [selector, declared] of Object.entries(states)) {
+    const block = Array.isArray(declared) ? declared[0] : declared;
+    const values = CHART_TONES.map((name) => {
+      const value = resolve(block, name, light);
+      assert.ok(value, `${selector}: ${name} resolves to nothing`);
+      return value.toLowerCase();
+    });
+    assert.equal(
+      new Set(values).size,
+      CHART_TONES.length,
+      `${selector}: two of the chart's four states are drawn in the same colour — ${values.join(', ')}`,
+    );
+  }
+});
+
+test('tokens.css: finished work has an arrow colour of its own, not the page’s link colour', () => {
+  // The specific thing #780 asked for. Aliasing the link token would satisfy "there is a token
+  // called done" while changing not one pixel, so what is checked is the VALUE.
+  const light = bareRootDeclarations();
+  // Asserted present FIRST. `notEqual(undefined, '#1d6fb8')` passes, so without this the guard
+  // below could never fail — which is the shape of defect this milestone was warned about twice.
+  assert.ok(light.get('--atlas-tone-done'), 'the drawing has no token for finished work at all');
+  assert.ok(light.get('--sky-action-link-text'), 'the contract has no link colour to compare against');
+  assert.notEqual(
+    light.get('--atlas-tone-done'),
+    light.get('--sky-action-link-text'),
+    'finished work is still drawn in the link colour, which is what #780 called having no colour of its own',
+  );
+  assert.notEqual(
+    light.get('--atlas-tone-done'),
+    'var(--sky-action-link-text)',
+    'finished work still resolves to the link colour through an alias',
+  );
+});
+
+test('tokens.css: the key beneath the chart is drawn from the same tokens as the chart', () => {
+  // A key that disagrees with the drawing is worse than no key. It disagreed: the swatches were
+  // coloured from the link blue and the positive green while the ribbons moved to their own
+  // tokens, and — worse — the drawing's own rules listed `.key-swatch` alongside the ribbons and
+  // set `fill` on it, which does nothing at all to a `<span>`. So the key had TWO rules, one inert
+  // and one stale, and looked plausible in the stylesheet either way.
+  const declarationFor = (selector, property) => {
+    const rules = DECLARATION_RULES.filter((r) => r.selector.trim() === selector);
+    assert.ok(rules.length > 0, `no ${selector} rule`);
+    const found = rules
+      .map((r) => new Map(declarationsIn(r.body)).get(property))
+      .filter(Boolean);
+    assert.equal(found.length, 1, `${selector} sets ${property} in ${found.length} places, not one`);
+    return found[0];
+  };
+
+  for (const tone of ['done', 'live', 'ahead']) {
+    assert.equal(
+      declarationFor(`.key-swatch.tone-${tone}`, 'background'),
+      `var(--atlas-tone-${tone})`,
+      `the key's "${tone}" swatch is not the colour the drawing uses for it`,
+    );
+  }
+  assert.match(
+    declarationFor('.key-skip', 'border'),
+    /var\(--atlas-tone-stopped\)/,
+    "the key's skipped swatch is not the colour the drawing marks a stopped milestone in",
+  );
+});
+
+test('tokens.css: the ribbon going round a stopped milestone is a ribbon, not a hairline', () => {
+  // #780's approved mock: "the ribbon leaves its lane, curves around a crossed circular marker
+  // sitting in the milestone's row, and rejoins below it." M2.1 drew that at a 10px stroke against
+  // a 36px ribbon and left a comment claiming it was "the same weight as the body it bridges",
+  // which was false — so a stopped milestone read as the ribbon ENDING and a hairline appearing,
+  // and that is the separation between stopped and in progress that the build lost.
+  const rule = DECLARATION_RULES.find((r) => r.selector.trim() === '.ribbon-detour');
+  assert.ok(rule, 'no .ribbon-detour rule at all');
+  const width = Number(new Map(declarationsIn(rule.body)).get('stroke-width'));
+  assert.ok(Number.isFinite(width), 'the detour has no stroke-width');
+  assert.ok(
+    width >= CHART.ribbonWidth / 2,
+    `the detour is drawn at ${width} against a ${CHART.ribbonWidth} ribbon, which reads as a break rather than a way round`,
+  );
+  // And it must still be narrower than the ribbon: it is the work going ROUND, not more of it.
+  assert.ok(width < CHART.ribbonWidth, 'the detour is as wide as the ribbon, so nothing says the work went round');
 });
 
 test('tokens.css: every --sky- token carries the locked contract\'s own light value', () => {
@@ -1050,12 +1228,20 @@ test('planning: one lane per feature, in the order computeLadder returned, each 
   );
   assert.deepEqual(transforms, chart.lanes.map((lane) => lane.x));
 
-  // And each header links at its own feature.
+  // And each header names its own feature, and its own modal. The LINK to the record used to be
+  // here and is not any more (#780 made the header a control that opens a modal); the modal
+  // carries it, and `planning: a feature's header opens that feature's own triage` checks that.
   workstreams.forEach((stream) => {
+    const markup = laneMarkup(depthHtml, stream.slug);
     assert.match(
-      laneMarkup(depthHtml, stream.slug),
-      new RegExp(`<a href="${workstreamUrl(stream.slug)}"><text class="col-h"[^>]*>${stream.manifest.codename}</text></a>`),
-      `${stream.slug}'s header links at the wrong feature`,
+      markup,
+      new RegExp(`<text class="col-h"[^>]*>${stream.manifest.codename}</text>`),
+      `${stream.slug}'s header names the wrong feature`,
+    );
+    assert.match(
+      markup,
+      new RegExp(`data-opens-modal="${stream.slug}"`),
+      `${stream.slug}'s header opens the wrong feature's triage`,
     );
   });
 });
@@ -1074,12 +1260,28 @@ test('planning: the milestone identifiers are in the ladder column, and in no fe
   assert.deepEqual(captions, computeChart(ladder, assemble(workstreams)).rows.map((r) => r.caption));
   assert.ok(captions.includes('M1'), 'the ladder does not name the milestone depths at all');
 
+  // The rule governs what ATLAS SAYS, not what a record says. Decision 2: Atlas is never the
+  // record, so it does not edit the owner's own sentences — and a gate reading "Owner sign-off on
+  // the M4 demo before M5 starts" is the owner's sentence, quoted verbatim into the balloon. Once
+  // the balloon carried the gate, scanning every text node in the lane made this test fail on a
+  // manifest doing nothing wrong, which would have been "fixed" by censoring a record.
+  //
+  // The class on a text node is what tells the two apart, so it is what the exclusion is written
+  // against: `col-h`, `bl-s` and `bl-t` carry a record's own words through unaltered; everything
+  // else in a lane — the dates, the skip marker's caption and reason — is Atlas composing, and
+  // that is where an identifier would be a repetition of the ladder.
+  const QUOTED_VERBATIM = /^(?:col-h|bl-s|bl-t)$/;
+
   for (const stream of workstreams) {
     const lane = laneMarkup(depthHtml, stream.slug);
-    // Anywhere in the lane's own TEXT, not just as a whole text node. The first version of this
+    // Anywhere in the composed TEXT, not just as a whole text node. The first version of this
     // required an exact `>M3<`, so the skip marker's own "M3 skipped" walked straight past it —
     // which is precisely the repetition the rule forbids.
-    const spoken = [...lane.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' | ');
+    const spoken = [...lane.matchAll(/<text class="([^"]*)"[^>]*>([^<]*)<\/text>/g)]
+      .filter((m) => !QUOTED_VERBATIM.test(m[1]))
+      .map((m) => m[2])
+      .join(' | ');
+    assert.ok(spoken.length > 0, `${stream.slug}: nothing in this lane is Atlas's own words, so this rule checks nothing`);
     for (const milestone of stream.manifest.milestones) {
       assert.ok(
         !new RegExp(`(?<![\\w.])${milestone.label}(?![\\w.])`).test(spoken),
@@ -1223,6 +1425,31 @@ test('planning: the faint second arrow is drawn only where records remain beyond
   assert.ok(chart.lanes.some((l) => !l.faint), 'the fixture no longer exercises the single arrow at all');
 });
 
+test('planning: the faint arrow is drawn FIRST, so the solid one is painted on top of it', () => {
+  // #780: the two arrows overlay. SVG has no z-index — the painter's order IS the document order —
+  // so an overlay that is emitted the wrong way round draws the faint arrow over the solid one and
+  // the page shows a pale bar where the work is. `src/chart.mjs` cannot express this; only the
+  // order of the elements in the markup can, which is why it is asserted here.
+  const chart = computeChart(ladder, assemble(workstreams));
+  const withFaint = chart.lanes.filter((l) => l.faint);
+  assert.ok(withFaint.length > 0, 'the fixture no longer exercises the overlay at all');
+
+  for (const lane of withFaint) {
+    const markup = laneMarkup(depthHtml, lane.slug);
+    // The faint body carries the faint arrow's own width; the solid body carries the solid one's.
+    const faintBody = markup.indexOf(`<rect class="ribbon-body tone-ahead" x="${lane.faint.x}"`);
+    const solidHead = markup.indexOf(`<path class="ribbon-head tone-${lane.solid.head.tone}" d="${lane.solid.head.d}"`);
+    const faintHead = markup.indexOf(`<path class="ribbon-head tone-ahead" d="${lane.faint.head.d}"`);
+    assert.ok(faintBody >= 0, `${lane.slug}: no faint body in the markup`);
+    assert.ok(solidHead >= 0, `${lane.slug}: no solid head in the markup`);
+    assert.ok(faintHead >= 0, `${lane.slug}: no faint head in the markup`);
+    assert.ok(
+      faintBody < solidHead && faintHead < solidHead,
+      `${lane.slug}: the faint arrow is painted over the solid one, not under it`,
+    );
+  }
+});
+
 test('planning: a skipped milestone is marked in its own row, with the reason beside it', () => {
   const reef = laneMarkup(depthHtml, 'reef');
   assert.match(reef, /<circle class="skip-ring"/, 'the milestone the work went round was not marked');
@@ -1238,7 +1465,8 @@ test('planning: a skipped milestone is marked in its own row, with the reason be
 
 test('planning: the stored dates reach the page beside the milestone they belong to', () => {
   const reef = laneMarkup(depthHtml, 'reef');
-  assert.match(reef, /4 May 2026 → 8 May 2026/, "the closed milestone's two stored days are missing");
+  // The span states its year once, because both ends fall in it — see `formatDayRange`.
+  assert.match(reef, /4 May → 8 May 2026/, "the closed milestone's two stored days are missing");
   assert.match(reef, /4 days/, 'how long it took is missing');
 
   const tide = laneMarkup(depthHtml, 'tide');
@@ -1284,6 +1512,182 @@ test('planning: the drawing sits inside a horizontally scrolling container, with
   assert.ok(scrollIndex !== -1, 'the drawing is not wrapped in a .chart-scroll container');
   assert.ok(scrollIndex < ladderIndex, 'the .chart-scroll wrapper must come before what it wraps');
   assert.ok(ladderIndex < lanesIndex, 'the ladder must come before the lanes that scroll under it');
+});
+
+test('planning: the header block is the title, and the page opens on the chart', () => {
+  // #780: "cut the header block on Feature planning to just the title. Remove the explanatory
+  // paragraph and the drag/order instruction paragraph, and remove the 'back to the generated
+  // order' button from that block. The page should open on the chart, not on two paragraphs
+  // explaining it."
+  //
+  // Checked as a SHAPE rather than by hunting for the two strings that used to be there: whatever
+  // sits between the heading and the chart's own controls has to be nothing.
+  const heading = depthHtml.indexOf('</h1>');
+  const controls = depthHtml.indexOf('<div class="planning-controls">');
+  const chart = depthHtml.indexOf('<div class="chart-scroll"');
+  assert.ok(heading !== -1, 'the page lost its heading');
+  assert.ok(controls !== -1, 'there is no controls strip for the chart');
+  assert.ok(controls < chart, 'the chart controls sit below the chart they belong to');
+
+  const between = depthHtml.slice(heading + 5, controls).trim();
+  assert.equal(between, '', `the header block still carries prose before the chart: ${between}`);
+  assert.ok(!/class="lede"/.test(depthHtml), 'the explanatory paragraph is still in the header block');
+});
+
+test('planning: the two things the header block was carrying got honest homes, not deletion', () => {
+  // #780 was explicit that removing that block must not drop what it carried. Two things:
+  //
+  //   * the per-device caveat, which "matters more once ordering is something the owner actually
+  //     relies on";
+  //   * the reset control, whose home is "beside the feature headers where the ordering happens".
+  //
+  // And a third the issue does not mention, because it is not visible: the drag/arrow-key
+  // instruction is what `aria-describedby` on every feature header points at. Deleting the
+  // paragraph would have silently taken the only explanation a screen-reader user gets of how the
+  // control works — a visual instruction to remove, not an accessible name to drop.
+  // Sliced rather than matched with a lazy regex: the strip holds a nested <div>, so
+  // `([\s\S]*?)</div>` would stop at the first inner close and check a third of it.
+  const from = depthHtml.indexOf('<div class="planning-controls">');
+  const to = depthHtml.indexOf('<div class="chart-scroll"');
+  assert.ok(from !== -1 && to > from, 'there is no controls strip');
+  const controlsBlock = [null, depthHtml.slice(from, to)];
+
+  assert.match(controlsBlock[1], /this device only/i, 'the per-device caveat has no home a reader will meet');
+  assert.match(controlsBlock[1], /<button[^>]*data-order-reset/, 'the reset control is not with the chart');
+
+  // The instruction survives for assistive technology, and the reference still resolves.
+  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml);
+  assert.ok(described, 'a feature header no longer describes itself at all');
+  const target = new RegExp(`id="${described[1]}"`);
+  assert.match(depthHtml, target, `aria-describedby points at ${described[1]}, which is not on the page`);
+  const instruction = new RegExp(`<[^>]*id="${described[1]}"[^>]*>([^<]*)`).exec(depthHtml);
+  assert.match(instruction[1], /arrow key/i, 'the instruction the header points at no longer explains the keys');
+});
+
+test('planning: a feature’s header opens that feature’s own triage, as a modal', () => {
+  // #780: "drop the dedicated Triage page. Clicking a feature's header on the feature planning
+  // page opens a MODAL carrying that content — what needs you, the position, the gate."
+  //
+  // The modal is a native <dialog>. That is not a stylistic preference: `showModal()` traps focus,
+  // Esc dismisses, and focus returns to what opened it, all from the platform. A hand-rolled div
+  // has to re-implement three things that are easy to get subtly wrong and impossible to check
+  // without a browser, and #780's own requirement is exactly those three.
+  for (const stream of workstreams) {
+    const dialog = new RegExp(
+      `<dialog[^>]*class="feature-modal"[^>]*data-feature-modal="${stream.slug}"[^>]*>([\\s\\S]*?)</dialog>`,
+    ).exec(depthHtml);
+    assert.ok(dialog, `${stream.slug} has no triage modal`);
+
+    // Decoded, because the layout escapes what a record says and a record's own prose is full
+    // of apostrophes. Comparing against the escaped form would be comparing against the escaper.
+    const body = dialog[1].replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    // What the standalone page carried, all three.
+    assert.match(body, /data-triage="[a-z-]+"/, `${stream.slug}: the modal does not say what needs you`);
+    assert.ok(body.includes(stream.manifest.position), `${stream.slug}: the modal drops the position`);
+    assert.ok(body.includes(stream.manifest.gate), `${stream.slug}: the modal drops the gate`);
+    assert.ok(body.includes(stream.manifest.what), `${stream.slug}: the modal drops what the feature is`);
+
+    // A way out that is not the Esc key, for a reader who does not know there is one.
+    assert.match(body, /data-modal-close/, `${stream.slug}: the modal can only be closed by keyboard`);
+    // And the record it is about is still one click away — the link left the SVG header and
+    // landed here, so it must actually be here.
+    assert.ok(
+      body.includes(`href="${workstreamUrl(stream.slug)}"`),
+      `${stream.slug}: the modal does not link the feature's own record`,
+    );
+  }
+
+  // Every header announces that it opens one, and says which. A `role="button"` that opens a
+  // dialog without `aria-haspopup` tells a screen-reader user nothing about what is about to
+  // happen.
+  const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);
+  assert.equal(handles.length, workstreams.length);
+  for (const handle of handles) {
+    assert.match(handle, /aria-haspopup="dialog"/, 'a feature header does not say that it opens a dialog');
+    assert.match(handle, /data-opens-modal="[a-z0-9-]+"/, 'a feature header names no modal to open');
+  }
+
+  // The drawing's own header no longer carries a link. It is a control now, and a link inside a
+  // drag handle inside a button is three interactive things claiming one click.
+  //
+  // Bounded to the header's OWN element: an unbounded `[\s\S]*?<a href` runs from a header to the
+  // next link anywhere on the page, which after this change is the modal's own — so it would fail
+  // on correct markup and could never have told the two apart.
+  for (const stream of workstreams) {
+    const at = laneMarkup(depthHtml, stream.slug).indexOf('<g class="lane-head"');
+    assert.ok(at !== -1, `${stream.slug} has no header at all`);
+    const markup = laneMarkup(depthHtml, stream.slug).slice(at);
+    const header = markup.slice(0, markup.indexOf('</g>'));
+    assert.ok(header.length > 0, `${stream.slug}'s header is unclosed`);
+    assert.ok(!/<a[\s>]/.test(header), `${stream.slug}'s header still holds a link, so a click means two things`);
+    assert.match(header, /col-h/, 'the bound above stopped covering the header, so this checks nothing');
+  }
+});
+
+test('planning: the modal traps focus, dismisses by keyboard, and hands focus back', () => {
+  // #780's three requirements for it, checked where each is actually decided. The first two come
+  // from the platform and are had by using <dialog> with showModal(); the third is NOT — a dialog
+  // restores focus to whatever had it, and an SVG group that was clicked rather than tabbed to may
+  // not have had it — so the module puts focus back on the header explicitly, and that is asserted
+  // against the source.
+  assert.match(ORDER_SOURCE, /showModal\(\)/, 'the modal is opened without the platform’s modal semantics');
+  assert.ok(
+    !/inert|aria-modal="true"/.test(depthHtml) || /<dialog/.test(depthHtml),
+    'the page hand-rolls modal semantics instead of using <dialog>',
+  );
+  assert.match(ORDER_SOURCE, /data-opens-modal/, 'nothing wires a header to its modal');
+  assert.match(ORDER_SOURCE, /\.focus\(\)/, 'focus is never handed back to anything');
+  // Closing has to be reachable without a pointer even if the platform's Esc were unavailable.
+  assert.match(ORDER_SOURCE, /data-modal-close/, 'nothing wires the modal’s own close control');
+});
+
+test('planning: nothing on the desk is called Triage any more, and the phone keeps its surface', () => {
+  // #780 collides with decision 22 here — "three purpose-built surfaces, not one responsive
+  // layout" — and this milestone NARROWS that decision rather than overturning it: triage on the
+  // desk becomes a modal, and the phone keeps its own surface. Removing the phone view on a
+  // reading nobody confirmed would be the expensive mistake.
+  //
+  // So what goes is the desk's standalone triage DESTINATION, not the page decision 27 built for
+  // a phone. Nothing on the desk carries the word.
+  const nav = /<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(depthHtml);
+  assert.ok(nav, 'the planning page lost its navigation');
+  assert.ok(!/\bTriage\b/.test(nav[1]), 'the desk still offers a standalone Triage destination');
+
+  // The phone's surface is untouched and still reachable, or it is an orphan.
+  assert.match(nav[1], /href="\/mobile\/"/, 'the phone surface is reachable from nowhere');
+  assert.match(mobileHtml, /<h1>What needs you<\/h1>/, 'the phone surface stopped being itself');
+  assert.match(mobileHtml, /<article class="card"/, 'the phone surface lost its cards');
+  // And it did not grow a modal of its own: the phone is a different activity, and that question
+  // is recorded as open rather than answered here.
+  assert.ok(!/<dialog/.test(mobileHtml), 'the phone view grew a desk affordance');
+});
+
+test('planning: a hidden feature can never go missing without the page saying so', () => {
+  // Decision 49, and the whole risk of the capability: "a page that silently omits a workstream is
+  // worse than one that shows too many." The page ships the place where that is said — always in
+  // the reader's line of sight, above the chart rather than below it, because a control for
+  // getting something back is no use under the thing it is missing from.
+  //
+  // What is checked here is that the SHIPPED page carries the affordance and the explanation. The
+  // behaviour that fills it is `theme/order.js`, whose rules are unit-tested in
+  // `tests/order.test.mjs` and which was also driven in a browser for this milestone.
+  const from = depthHtml.indexOf('<div class="planning-controls">');
+  const to = depthHtml.indexOf('<div class="chart-scroll"');
+  const controls = depthHtml.slice(from, to);
+
+  assert.match(controls, /<div class="hidden-bar"[^>]*data-hidden-bar/, 'nothing on the page can say what is hidden');
+  // Empty and hidden as shipped: the strip appears only once something is actually hidden, so a
+  // page with nothing hidden does not carry a permanent empty affordance.
+  assert.match(controls, /data-hidden-bar hidden><\/div>/, 'the hidden-features strip ships with content or shown');
+
+  // The way IN is on the keyboard too, and the instruction every header points at names the key.
+  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml)[1];
+  const instruction = new RegExp(`<[^>]*id="${described}"[^>]*>([^<]*)`).exec(depthHtml)[1];
+  assert.match(instruction, /\bH\b/, 'nothing tells a keyboard reader how to hide a feature');
+  assert.match(instruction, /hidden features can be brought back/i, 'the instruction does not say there is a way back');
+
+  // And the announcement region the module speaks through is the one the ordering already uses.
+  assert.match(controls, /data-order-said[^>]*aria-live="polite"/, 'hiding has nowhere to be announced');
 });
 
 test('planning: a feature can be reordered by keyboard as well as by drag, and the page says where the order lives', () => {
@@ -1382,6 +1786,49 @@ test('mobile: a not-started workstream sorts last even when it sorts first alpha
     ['Bravo', 'Delta', 'Charlie', 'Echo', 'Alpha'],
     'decision 27: the decision waiting on the owner first, then moving, blocked, designing, not started',
   );
+});
+
+test('the chart and the phone view agree about whether a feature has a next milestone', () => {
+  // #780's second defect on first render, and the point of it is not the label. A feature with
+  // four milestones, all done and nothing recorded beyond, correctly gets NO balloon on the chart
+  // — and the phone view said "Next: M5". The two surfaces were computed from different readings
+  // of one field, which is the drift decision 29 exists to prevent, happening in front of the
+  // reader.
+  //
+  // So they are checked against each other rather than each against a value, and on the FIXTURE,
+  // which carries the case that found it.
+  const chart = computeChart(ladder, assemble(workstreams));
+  const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
+  assert.equal(cards.length, workstreams.length, 'expected one card per workstream');
+
+  let pastItsRecords = 0;
+  for (const [, codename, body] of cards) {
+    const lane = chart.lanes.find((l) => l.codename === codename);
+    assert.ok(lane, `no lane drawn for ${codename}`);
+    const column = ladder.columns.find((c) => c.codename === codename);
+
+    const namesANextStep = /class="card-next"/.test(body);
+    if (column.tipLabel === null) {
+      pastItsRecords += 1;
+      assert.equal(
+        namesANextStep,
+        false,
+        `${codename}: nothing is recorded for this feature to do next, and the phone view named one anyway`,
+      );
+      assert.equal(
+        lane.balloon,
+        null,
+        `${codename}: the phone view says nothing is next while the chart draws a balloon saying one is`,
+      );
+    } else {
+      assert.ok(namesANextStep, `${codename}: the phone view dropped a next step that is on record`);
+      assert.ok(
+        stripTags(/<p class="card-next">([\s\S]*?)<\/p>/.exec(body)[1]).includes(column.tipLabel),
+        `${codename}: the phone view names a next step the ladder did not give it`,
+      );
+    }
+  }
+  assert.ok(pastItsRecords > 0, 'the fixture no longer carries a feature that has run past its records');
 });
 
 test('mobile: the gate is the last line of every card', () => {
@@ -1825,6 +2272,9 @@ function generatorFiles() {
     }
   };
   walk(path.join(REPO_ROOT, 'src'), 'src/');
+  // The write-back Function ships in the same deployable as the site (decision 5), so a project
+  // name reaching it is the same leak by the shortest route of all.
+  walk(path.join(REPO_ROOT, 'api'), 'api/');
   walk(THEME_DIR, 'theme/');
   walk(path.join(REPO_ROOT, '.github'), '.github/');
   // The fixture too. It is the project the generator ships as its own demo, so a real project's
@@ -1843,6 +2293,7 @@ test('decision 40: nothing the generator ships hard-codes a project name', () =>
   assert.ok(scanned.length > 15, `expected to scan the generator, saw ${scanned.length} files`);
   assert.ok(scanned.some((f) => f.name === 'action.yml'));
   assert.ok(scanned.some((f) => f.name.startsWith('src/')));
+  assert.ok(scanned.some((f) => f.name.startsWith('api/')));
   assert.ok(scanned.some((f) => f.name.startsWith('.github/')));
   assert.ok(scanned.some((f) => f.name.startsWith('fixture/')));
 

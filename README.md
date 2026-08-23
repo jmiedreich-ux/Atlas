@@ -50,6 +50,7 @@ backlog. `issues: read` is what stops that; `contents: read` is what lets `actio
 | -------------- | -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `project-path` | no       | `${{ github.workspace }}` | The project to build — the checkout that carries `atlas.config.json`, `ROADMAP.md` and `docs/`. The default is the calling workflow's own workspace, which is correct for the ordinary case above and rarely needs overriding. |
 | `output-dir`   | no       | `.atlas-out`           | Where the built site is written, relative to the calling workflow's working directory unless given as an absolute path. Wired straight into a later step — `actions/upload-pages-artifact`, an Azure Static Web Apps deploy — that publishes it. |
+| `api-dir`      | no       | `.atlas-api`           | Where the write-back Function is placed, so a workflow can name it as an Azure Static Web Apps `api_location`. Resolved like `output-dir`, replaced wholesale each run, and refused if it overlaps `output-dir` or anything the build reads, or if it falls outside the checkout — it has to be somewhere `api_location` can name. It does **not** have to be inside `project-path`: a project in a subdirectory can put its API at the checkout root, which is what Atlas's own CI does. Set it to an empty string for a project publishing the site without the endpoints. The action's `api-path` output holds where it landed — see **Write-back**, below. |
 | `github-token` | no       | *(none)*               | A token used to fetch each workstream's open issues and pull requests. There is no safe default, so it is left unset rather than defaulted: without it, the build still succeeds — `src/github.mjs` tolerates GitHub being unreachable — but the requests are unauthenticated and subject to GitHub's public rate limit. Pass `${{ github.token }}`, as above, to authenticate as the workflow's own run. |
 
 Per decision 46, the version tags (a `vX.Y.Z` per release, and the `v1` major tag moved forward to
@@ -221,6 +222,39 @@ fixed convention, at its own root:
 `src/schema.mjs` is the authoritative source for this shape — every field above, and every
 validation error message, comes from its `validateConfig` and `validateWorkstream` functions.
 
+## Putting a feature on the sheet
+
+Promoting an idea from a design note onto the feature planning page is **two steps, in this
+order**. Until #780 it was neither written down nor prompted for, which is why this section
+exists: a procedure nobody can find is a procedure that gets half-done.
+
+1. **Write the manifest.** `docs/features/<slug>/workstream.json`, following the shape above, plus
+   a plan file for every milestone it lists — a milestone naming a plan that does not exist fails
+   the build (decision 32), so a feature with no milestones yet is a legitimate and common starting
+   point.
+2. **Name the slug.** Add `"<slug>"` to the `workstreams` list in `atlas.config.json`, in the
+   position you want the feature to appear in. Nothing is re-sorted (decision 20), so the order in
+   that list is the order on the page.
+
+**Atlas tells you when the second step has not happened.** A build that finds a
+`docs/features/<slug>/` directory the config does not name prints:
+
+```
+atlas: warning: docs/features/quasar/ exists but atlas.config.json does not name it, so this
+feature is not on the sheet. Add "quasar" to the "workstreams" list to promote it, or delete the
+directory if the idea was abandoned.
+```
+
+It is a **warning and not a failure**, and the line matters: step 1 legitimately happens before
+step 2, so this is the ordinary intermediate state of doing it correctly. Failing here would mean
+that starting a promotion breaks the site. The reverse case — a config naming a directory that is
+not there — is a broken reference and **does** fail the build.
+
+The warning is not suppressed by `--quiet`, which suppresses build progress; a finding is not
+progress. It is also not put on the site itself, deliberately: the pages render records, and a
+directory with no manifest behind it is not a record. Atlas showing a feature that nothing supports
+is the failure decision 3 exists to prevent, and it is not worth trading for a louder reminder.
+
 ## What a project publishes
 
 Atlas renders every Markdown file under `docs/` (and `ROADMAP.md`) as a page, and copies every
@@ -253,3 +287,176 @@ deploy step, after the build.** Atlas emits the safe default; it does not read t
 `atlas.config.json`.
 
 See `src/swa.mjs`, which is the authoritative source for the emitted file.
+
+## Write-back — answering, not only reading
+
+Decisions 34 to 37. Two endpoints ship beside the site as Azure Static Web Apps **managed
+Functions**, in the same deployable and behind the same auth — which is what decision 5 chose
+Static Web Apps for, and what the Free tier includes.
+
+| Endpoint               | What it writes                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------- |
+| `POST /api/answer`     | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
+| `POST /api/acceptance` | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
+
+**And nothing else.** Decision 35 gives creating issues, approving milestones, editing manifests
+and triggering work to the project's own operations console: *two consoles that both act is how
+they diverge*. There is no endpoint that sets a milestone's status, and adding one is a decision
+rather than a feature.
+
+Atlas keeps no state of its own (decision 37). A write is a commit; the page is rebuilt from that
+commit by the ordinary build workflow. There is no database, no cache, no queue and no pending
+list — the answer is in the repository or it does not exist.
+
+### Wiring it into a deploy
+
+The action places the Function where a deploy step can name it, and says where:
+
+```yaml
+      - uses: jmiedreich-ux/atlas@v1
+        id: atlas
+        with:
+          github-token: ${{ github.token }}
+
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          action: upload
+          app_location: .atlas-out
+          api_location: ${{ steps.atlas.outputs.api-path }}
+          output_location: ""
+          skip_app_build: true
+```
+
+Set `api-dir` to an empty string for a project that publishes the site without the endpoints, and
+nothing is placed.
+
+`api-path` is relative to the **checkout**, not to `project-path`, because that is how the deploy
+action reads `api_location` — the same frame of reference as `app_location` beside it. The two are
+the same directory only when a project sits at the repository root; a project in a subdirectory
+still places its API wherever in the checkout it likes.
+
+### The credential, which may be empty
+
+Writes go through a **GitHub App**, never `GITHUB_TOKEN` (decision 36). The reason is mechanical
+rather than a matter of security posture: *a push made with the Actions token does not trigger
+workflows*, so the site would never rebuild after its own write and would sit stale, showing the
+reader the answer it had just failed to render.
+
+The App's installation credentials live in the Static Web App's **application settings**, and never
+in the repository, in a build artifact, or in `state.json`:
+
+| Setting                            | What it holds                                                                                                                              |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ATLAS_GITHUB_APP_ID`              | The App's numeric id.                                                                                                                        |
+| `ATLAS_GITHUB_APP_INSTALLATION_ID` | The id of the App's installation on the repository.                                                                                          |
+| `ATLAS_GITHUB_APP_PRIVATE_KEY`     | The App's private key, PEM. A key pasted into the portal's single-line box with literal `\n`, or one wrapped in base64, is repaired on read.  |
+| `ATLAS_REPO`                       | `owner/name`. The only repository a write can reach; no request can name another.                                                            |
+| `ATLAS_BRANCH`                     | Optional. Defaults to `master`, which decision 1 builds from.                                                                                |
+
+**Until they are set, the endpoints refuse with `503 credential-unavailable`, naming the settings
+that are unset, and the site stays completely readable.** Nothing about reading depends on any of
+it: the site is static files that were built before any of it ran.
+
+### Who may write
+
+Reading needs the `reader` role. Writing needs `author` — a separate invitation, so that being able
+to read the records is not being able to commit to them.
+
+The caller's identity comes from the `x-ms-client-principal` header Static Web Apps injects, and
+from nowhere else. A body field naming a user, or a role, is a value the caller chose; it is
+refused by name, along with every other field Atlas does not expect.
+
+**An invitation sets a person's roles rather than adding to them**, so somebody who is to read and
+write is invited with `reader,author` in one go. Inviting them with `author` alone takes `reader`
+away, and every page then refuses them into a login loop.
+
+**An invitation also names an identity provider, and it has to be the one the deployed site signs
+people in with.** Atlas emits Microsoft (`aad`), which is decision 7's — but a project that
+overwrites `staticwebapp.config.json` chooses its own, and an invitation issued for the wrong one
+grants roles to an identity that never signs in there. Read the `responseOverrides` block of the
+`staticwebapp.config.json` the site is actually running: whatever `/.auth/login/<provider>` it
+redirects to is the provider to invite with.
+
+**What a refusal looks like from outside is not always the status the Function returned.** The
+emitted config turns a 401 into a `302` to the sign-in page — that is what stops an unauthorised
+visitor seeing a bare 401 they cannot act on — and the `/api/*` rule refuses a caller without
+`author` at the edge, before the Function is reached. So:
+
+| Caller | What comes back |
+| ------ | --------------- |
+| Signed out | `302` to `/.auth/login/aad` |
+| Signed in with `reader` only | `302` — the route rule refuses before the Function sees it |
+| `author`, credential unset | `503`, naming the application settings that are missing |
+| `author`, credential set | `200` and a commit URL |
+
+The Function's own `401` and `403` are what a caller sees only where the route rule is absent —
+a project that overwrote `staticwebapp.config.json` with its own. They are the layer that actually
+decides, and they fail safe either way.
+
+### Concurrency
+
+`PUT /repos/{owner}/{repo}/contents/{path}` carries the SHA the record had when Atlas read it,
+which both commits and gives optimistic concurrency for free. A stale SHA is a **conflict** — `409`,
+saying so — and never a silent overwrite of somebody else's commit. A request may also carry the
+`sha` its page was rendered from, and then a record that moved on in between is refused before
+anything is attempted.
+
+### The register's shape
+
+A question is a heading whose first word is its id:
+
+```markdown
+## Q1 · Does the cutover run per tenant or per environment?
+
+Raised while planning the second milestone.
+```
+
+An answer is written into that question's own section, between HTML comments that GitHub renders as
+nothing:
+
+```markdown
+<!-- atlas:answer -->
+**Answer** (someone@example.com):
+
+Per tenant.
+<!-- /atlas:answer -->
+```
+
+Answering again replaces that block rather than adding a second — the register says what is
+settled, and git already holds how it got there. Nothing outside the block is touched, and nothing
+in the write path reads the clock.
+
+### The routes, and the runtime
+
+Both are emitted, not written down. `src/swa.mjs` puts an `/api/*` rule requiring `author` **before**
+the site's `/*` rule requiring `reader` — route rules are first-match-wins, so the order is the
+whole thing — and declares `platform.apiRuntime`. A project that configures nothing gets both.
+
+Nothing here needs hand-editing after a build, and that is deliberate: `staticwebapp.config.json`
+is written into the **output** directory, which every build replaces wholesale, so "add this rule
+afterwards" would be advice about a file that does not persist. A project that needs different
+rules — a different identity provider, a different role name — overwrites the file in its own
+deploy step, after the Atlas step and before the deploy step, exactly as **Who can read the site**
+above describes.
+
+**The runtime is not the build's runtime.** Atlas builds on Node 22: `package.json` says `22.x`,
+`action.yml` installs 22, CI runs 22. That is GitHub Actions. The managed Function runs in Azure,
+on whatever Static Web Apps offers managed Functions, and `API_RUNTIME` in `src/swa.mjs` is the one
+line that says which — currently `node:20`. Raise it to `node:22` when the platform offers it; the
+Function's code is plain ESM and runs unchanged on any of them.
+
+**If the endpoints 404 or 500 after a deploy, check two things, in this order.**
+
+1. **Was an API deployed at all?** If the workflow passes no `api_location` — or passes one that
+   does not resolve inside the checkout — Static Web Apps publishes the site with no Functions, and
+   every `/api/*` request is a plain 404 from the static host. This is the more likely of the two,
+   and it looks identical from outside to a Function that failed to start.
+2. **Is `platform.apiRuntime` in the config the site is actually running?** A project that
+   overwrites `staticwebapp.config.json` after the build discards the emitted one, and with it both
+   the runtime declaration and the `/api/*` rule. A missing or unsupported runtime is the most
+   common reason a managed Function deploys and then does not answer, and it fails with nothing
+   useful in the log.
+
+Fetch `https://<the site>/staticwebapp.config.json` — it is not served, so read it from the
+deployment or from whatever step wrote it — rather than assuming the emitted file is the live one.

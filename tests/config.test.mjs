@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
+import { loadConfig, resolveWorkstreams, unnamedFeatureDirs } from '../src/config.mjs';
 import { validateWorkstream } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file and for fixture/ only — the generator
@@ -281,4 +281,79 @@ test('resolveWorkstreams: a manifest with malformed JSON fails with the path nam
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// --- the promotion path, which used to be folklore (#780, task 12) -----------------------------
+//
+// Promoting an idea from `docs/design` onto the sheet is two manual steps — write
+// `docs/features/<slug>/workstream.json`, then add the slug to `atlas.config.json` — and nothing
+// recorded that it happened or prompted for the second one.
+//
+// The REVERSE case already fails the build under decision 32: a config naming a directory that
+// does not exist is a broken reference. The missing half is the feature that EXISTS and is not on
+// the page, which was silent — the same failure shape as a hidden feature nobody can find.
+
+test('promotion: a feature directory the config does not name is found and reported', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Sample',
+      repo: 'owner/sample',
+      workstreams: ['nova'],
+    });
+    writeJson(path.join(root, 'docs', 'features', 'nova', 'workstream.json'), validManifest());
+    // Written, and never added to the config. This is the half-finished promotion.
+    writeJson(path.join(root, 'docs', 'features', 'quasar', 'workstream.json'), validManifest({
+      codename: 'Quasar',
+      label: 'workstream:quasar',
+    }));
+
+    assert.deepEqual(unnamedFeatureDirs(loadConfig(root)), ['quasar']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('promotion: nothing is reported when the config names every feature that exists', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Sample',
+      repo: 'owner/sample',
+      workstreams: ['nova'],
+    });
+    writeJson(path.join(root, 'docs', 'features', 'nova', 'workstream.json'), validManifest());
+    assert.deepEqual(unnamedFeatureDirs(loadConfig(root)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('promotion: the warning is a warning — it never throws, whatever it finds or fails to read', () => {
+  // It runs on every build, so it cannot be a new way for one to fail. A project with no
+  // `docs/features` at all is legitimate — decision 40 asks for the directory only when there are
+  // features — and a loose file beside the directories is not a half-promoted feature.
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), {
+      project: 'Sample',
+      repo: 'owner/sample',
+      workstreams: [],
+    });
+    // No docs/features at all.
+    assert.deepEqual(unnamedFeatureDirs(loadConfig(root)), []);
+
+    mkdirSync(path.join(root, 'docs', 'features'), { recursive: true });
+    writeFileSync(path.join(root, 'docs', 'features', 'README.md'), '# not a feature\n');
+    // A dot-directory: the records walk skips these, so a feature in one would not render anyway.
+    mkdirSync(path.join(root, 'docs', 'features', '.scratch'), { recursive: true });
+    assert.deepEqual(unnamedFeatureDirs(loadConfig(root)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('promotion: the fixture itself has no half-promoted feature, so the warning stays meaningful', () => {
+  // A fixture that always warns is a warning nobody reads.
+  assert.deepEqual(unnamedFeatureDirs(loadConfig(FIXTURE_ROOT)), []);
 });

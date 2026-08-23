@@ -164,6 +164,46 @@
    * the contract's #7c5cbf computes 4.30:1, under AA's 4.5 for text this size, and this is the one
    * colour in the file Atlas owns outright — so it is the one that moves. #f5f2fc computes 4.59. */
   --atlas-tone-exploring-bg: #f5f2fc;
+
+  /* THE FEATURE PLANNING DRAWING'S FOUR STATES (#780).
+   *
+   * They are the drawing's own tokens because the drawing's states are not the contract's. M2.1
+   * borrowed text colours for them, and the two complaints that followed are one complaint:
+   *
+   *   "A colour for done. Finished work needs its own arrow colour, distinct from in progress."
+   *   "Stopped and in progress were clearer in the earlier mock than they are now."
+   *
+   * Finished work was `--sky-action-link-text` — the same ink as every link on the page, so it had
+   * no colour of its own at all. Work in flight was `--sky-positive-text`, a green dark enough at
+   * #18603f to read as ink beside it, which is backwards: #780 asks that the arrowhead be "the
+   * thing worth looking at", and the state that should advance was the one that receded.
+   *
+   * So the two move apart in LIGHTNESS as well as in hue, and in the direction the page needs:
+   * finished work settles, work in flight advances. Both are values Atlas owns — the contract has
+   * no name for either, and aliasing one that happened to look close is how the drawing came to
+   * wear the link colour in the first place.
+   *
+   * Contrast is measured against the execution band the ribbons cross, #e0f4e9, at AA's 3:1 for a
+   * graphical object rather than 4.5:1 for text: these are fills, and every state is also said in
+   * words in the key beneath the chart, in the balloon beside it, and by the shape of its own
+   * arrow.
+   *
+   *   done  #2b6ea8 on #e0f4e9 — 4.5:1
+   *   live  #12905c on #e0f4e9 — 3.4:1
+   *
+   * `ahead` and `stopped` are aliases, because the contract does have a name for each: the control
+   * hairline for what is on record and not begun, and its own danger colour for what stopped. An
+   * alias also moves with the palette, so neither needs restating in a dark block. */
+  /* The scrim behind a modal. Atlas's own: the contract has no token for one, and it is not a
+   * surface colour — it is the page being pushed back. Stated once here and inherited by the
+   * dialog, because `::backdrop` inherits from the originating element in current browsers and
+   * from nothing at all in older ones. */
+  --atlas-modal-backdrop: rgb(15 23 42 / 0.45);
+
+  --atlas-tone-done: #2b6ea8;
+  --atlas-tone-live: #12905c;
+  --atlas-tone-ahead: var(--sky-color-border-control);
+  --atlas-tone-stopped: var(--sky-danger-text);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -209,6 +249,15 @@
     --sky-action-link-text: #7dd3fc;
     /* DERIVED: Atlas's own, alongside --sky-color-promotion above. */
     --atlas-tone-exploring-bg: #2a2247;
+    /* DERIVED: Atlas's own, and the contract names no state like it. Midnight's link blue #7dd3fc
+     * and its positive green #65d99c are both pale and land close together on a dark ground, which
+     * is where "distinct from in progress" fails hardest. Pulled down and desaturated from #7dd3fc
+     * so finished work settles here as it does in light. */
+    --atlas-tone-done: #5fa8d8;
+    /* DERIVED: Atlas's own, alongside --atlas-tone-done above. Brightened and saturated from
+     * midnight's #65d99c, so work in flight advances against the finished work behind it — the
+     * same relation as in light, kept in the same direction. */
+    --atlas-tone-live: #3fe08f;
   }
 }
 
@@ -236,6 +285,8 @@
   --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
   --sky-action-link-text: #7dd3fc;
   --atlas-tone-exploring-bg: #2a2247;
+  --atlas-tone-done: #5fa8d8;
+  --atlas-tone-live: #3fe08f;
 }
 
 /* An explicit light choice needs no tokens — the bare :root palette is already the light one —
@@ -569,9 +620,16 @@ h3 {
   stroke-width: 1;
 }
 
-.lane-head:hover .lane-head-box,
+.lane-head:hover .lane-head-box {
+  fill: var(--sky-color-fill-subtle);
+}
+
+/* Focus says something hover does not, so it must not look the same. An `outline` on an SVG group
+ * is not dependable across browsers; the plate's own stroke is. */
 .lane-head:focus-visible .lane-head-box {
   fill: var(--sky-color-fill-subtle);
+  stroke: var(--sky-focus-color);
+  stroke-width: 2;
 }
 
 .lane.is-dragging {
@@ -583,14 +641,24 @@ h3 {
   stroke-width: 2;
 }
 
-/* The Sky accent as a FILL, which is the only thing the contract permits it to be: a spine down
- * the left edge of every feature's header, which is also where the drag grip sits. */
+/* Removed in M4's craft pass: a pale accent bar down the left edge of every feature's plate. It
+ * was a coloured border on a list item — a decoration the surface never chose — and the reason
+ * recorded beside it, that it was "where the drag grip sits", was not true of the code: the whole
+ * plate is the handle. The plate's border and its hover, focus and dragging states say what it is,
+ * and the accent stops competing with the ribbons, which #780 calls the thing to look at.
+ *
+ * The rule stays, with no fill, so the element it styles is styled by something rather than
+ * silently unstyled. `--sky-color-primary` is still the contract's fill accent elsewhere — the
+ * filled track segments on the phone. */
 .lane-head-accent {
-  fill: var(--sky-color-primary);
+  fill: none;
 }
 
+/* The feature's name. NOT the link colour: the header stopped being a link when it became the
+ * control that opens the feature's modal, and text that looks like a link but navigates nowhere is
+ * a lie about the affordance. The plate around it carries the control's states instead. */
 .col-h {
-  fill: var(--sky-action-link-text);
+  fill: var(--sky-text-primary);
   font-size: 0.88rem;
   font-weight: 600;
 }
@@ -609,31 +677,42 @@ h3 {
 
 .tone-done .dot,
 .ribbon-body.tone-done,
-.ribbon-head.tone-done,
-.key-swatch.tone-done {
-  fill: var(--sky-action-link-text);
+.ribbon-head.tone-done {
+  fill: var(--atlas-tone-done);
 }
 
 .tone-live .dot,
 .ribbon-body.tone-live,
-.ribbon-head.tone-live,
-.key-swatch.tone-live {
-  fill: var(--sky-positive-text);
+.ribbon-head.tone-live {
+  fill: var(--atlas-tone-live);
 }
 
 .ribbon-body.tone-ahead,
-.ribbon-head.tone-ahead,
-.key-swatch.tone-ahead {
-  fill: var(--sky-color-border-control);
+.ribbon-head.tone-ahead {
+  fill: var(--atlas-tone-ahead);
 }
 
-/* The ribbon leaving its lane and rejoining below: the same weight as the body it bridges, dashed
- * so it reads as a way round rather than as more of the same work. */
+/* The ribbon leaving its lane and rejoining below it, round the milestone the work went round.
+ *
+ * NARROWER than the body it bridges but still a ribbon, and dashed, so it reads as a way round
+ * rather than as more of the same work. M2.1 drew it at 10 against a 36 ribbon and left a comment
+ * claiming it was "the same weight as the body it bridges", which was false: a stopped milestone
+ * read as the ribbon ENDING and a hairline appearing beside it. That is the separation between
+ * stopped and in progress #780 says the approved mock had and the build lost.
+ *
+ * `tests/theme.test.mjs` reads this width back against `CHART.ribbonWidth`, so the claim above is
+ * now checked rather than asserted in prose. */
 .ribbon-detour {
-  stroke: var(--sky-action-link-text);
-  stroke-dasharray: 9 7;
+  stroke: var(--atlas-tone-done);
+  stroke-dasharray: 15 11;
   stroke-linecap: round;
-  stroke-width: 10;
+  stroke-width: 20;
+}
+
+/* The detour belonging to the faint arrow behind it: the same way round, in the state of the
+ * arrow it is part of. */
+.ribbon-detour.tone-ahead {
+  stroke: var(--atlas-tone-ahead);
 }
 
 .dot {
@@ -645,7 +724,7 @@ h3 {
  * colour. */
 .dot-hollow {
   fill: var(--sky-card-background);
-  stroke: var(--sky-positive-text);
+  stroke: var(--atlas-tone-live);
 }
 
 .dt {
@@ -663,12 +742,12 @@ h3 {
 
 .skip-ring {
   fill: var(--sky-color-off-surface);
-  stroke: var(--sky-danger-text);
+  stroke: var(--atlas-tone-stopped);
   stroke-width: 3;
 }
 
 .skip-cross {
-  stroke: var(--sky-danger-text);
+  stroke: var(--atlas-tone-stopped);
   stroke-linecap: round;
   stroke-width: 2.6;
 }
@@ -702,11 +781,11 @@ h3 {
 
 .balloon.tone-live .balloon-body,
 .balloon.tone-live .balloon-line {
-  stroke: var(--sky-positive-text);
+  stroke: var(--atlas-tone-live);
 }
 
 .balloon.tone-live .balloon-pin {
-  fill: var(--sky-positive-text);
+  fill: var(--atlas-tone-live);
 }
 
 .balloon.tone-next .balloon-body,
@@ -730,30 +809,77 @@ h3 {
   fill: var(--sky-positive-text);
 }
 
-.bl-t {
+/* The step the balloon leads with — what this milestone IS, which the drawing cannot say. Set
+ * against the gate beneath it, which is quieter, so the two are told apart before being read. */
+.bl-s {
   fill: var(--sky-text-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+/* What is holding it. */
+.bl-t {
+  fill: var(--sky-text-secondary);
   font-size: 0.7rem;
 }
 
 /* --- the ordering control, and the key --------------------------------------------------------- */
 
-.planning-order {
+/* The chart's own strip of chrome, directly above it (#780 cut the header block to the title
+ * alone, and this is where the two things that block was carrying went). It is one quiet line, so
+ * the page still opens on the chart. */
+.planning-controls {
   align-items: baseline;
   display: flex;
   flex-wrap: wrap;
   gap: var(--sky-space-3);
-  margin-bottom: var(--sky-space-4);
+  justify-content: flex-end;
+  margin-bottom: var(--sky-space-3);
 }
 
-.order-note {
-  color: var(--sky-text-secondary);
-  flex: 1 1 24rem;
-  font-size: 0.8rem;
+.controls-note {
+  color: var(--sky-text-muted);
+  font-size: 0.76rem;
   margin: 0;
-  max-width: var(--atlas-measure);
+  margin-right: auto;
 }
 
-.order-reset {
+/* Present for assistive technology, absent from the page. Not `display: none`, which removes it
+ * from the accessibility tree too and would take the instruction every feature header points at
+ * with `aria-describedby`. */
+.visually-hidden {
+  border: 0;
+  clip-path: inset(50%);
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* What is hidden, named rather than counted. Decision 49: per-device state may hide a feature but
+ * never silently — a page that quietly omits a workstream is worse than one that shows too many,
+ * so this strip is always visible while anything is hidden and always says which. */
+.hidden-bar {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+}
+
+.hidden-bar[hidden] {
+  display: none;
+}
+
+.hidden-bar-label {
+  color: var(--sky-text-secondary);
+  font-size: 0.76rem;
+}
+
+.order-reset,
+.hidden-restore {
   background: var(--sky-card-background);
   border: 1px solid var(--sky-color-border-control);
   border-radius: var(--sky-radius-pill);
@@ -764,18 +890,43 @@ h3 {
   padding: var(--sky-space-1) var(--sky-space-3);
 }
 
-.order-reset[hidden] {
+.order-reset[hidden],
+.hidden-restore[hidden] {
   display: none;
+}
+
+/* One vocabulary for every pill on this surface — the ordering reset, the restore chips, and the
+ * modal's own two — so the same shape means the same thing wherever it appears, and none of them
+ * ships with only a default state. */
+.order-reset:hover,
+.hidden-restore:hover,
+.modal-hide:hover,
+.modal-close:hover {
+  background: var(--sky-color-fill-subtle);
+  border-color: var(--sky-text-muted);
+  color: var(--sky-text-primary);
+}
+
+.order-reset:active,
+.hidden-restore:active,
+.modal-hide:active,
+.modal-close:active {
+  background: var(--sky-color-shell);
 }
 
 /* The live region that says a keyboard move out loud. It carries no text until a feature moves,
  * so it takes no room; it is deliberately NOT `display: none`, which would stop it being
  * announced at all. */
+/* The live region that says a move or a hide out loud. It keeps its own row AND a height, so an
+ * announcement appears in space already reserved for it rather than pushing the chart down the
+ * page — feedback that moves the thing you are working on is worse than no feedback. It is
+ * deliberately not `display: none`, which would stop it being announced at all. */
 .order-said {
   color: var(--sky-text-secondary);
   flex-basis: 100%;
   font-size: 0.78rem;
   margin: 0;
+  min-height: 1.15rem;
 }
 
 .chart-key {
@@ -803,20 +954,20 @@ h3 {
 }
 
 .key-swatch.tone-done {
-  background: var(--sky-action-link-text);
+  background: var(--atlas-tone-done);
 }
 
 .key-swatch.tone-live {
-  background: var(--sky-positive-text);
+  background: var(--atlas-tone-live);
 }
 
 .key-swatch.tone-ahead {
-  background: var(--sky-color-border-control);
+  background: var(--atlas-tone-ahead);
 }
 
 .key-skip {
   background: var(--sky-color-off-surface);
-  border: 2px solid var(--sky-danger-text);
+  border: 2px solid var(--atlas-tone-stopped);
   border-radius: 50%;
   display: inline-block;
   height: 0.8rem;
@@ -914,6 +1065,101 @@ h3 {
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* --- a feature's own triage, as a modal (#780) --------------------------------------------------
+ *
+ * The dedicated Triage page is gone from the desk; a feature's header opens this instead. It is a
+ * native <dialog>, so focus trapping, Esc and the backdrop come from the platform rather than from
+ * a re-implementation nothing here could check.
+ *
+ * `::backdrop` does NOT inherit from the page, so its colour cannot be a token that resolves on
+ * :root — it is written against the same ink the shadows use, at an alpha that reads in both
+ * themes without needing a dark block of its own. */
+.feature-modal {
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border);
+  border-radius: var(--sky-card-radius);
+  box-shadow: var(--sky-shadow-card);
+  color: var(--sky-text-primary);
+  font-family: var(--atlas-font-sans);
+  max-width: 32rem;
+  padding: var(--sky-space-5);
+  width: calc(100% - var(--sky-space-6));
+}
+
+.feature-modal::backdrop {
+  background: var(--atlas-modal-backdrop);
+}
+
+.modal-head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-3);
+  justify-content: space-between;
+}
+
+.modal-head h2 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.modal-what,
+.modal-position {
+  margin: var(--sky-space-3) 0 0;
+}
+
+.modal-position {
+  color: var(--sky-text-secondary);
+  font-size: 0.9rem;
+}
+
+/* The gate is the last line, exactly as it is on the phone's card: decision 27 ends every card on
+ * what is holding the feature, and this surface says the same thing about the same feature. */
+.modal-gate {
+  border-top: 1px solid var(--sky-color-border);
+  color: var(--sky-text-secondary);
+  font-size: 0.9rem;
+  margin-top: var(--sky-space-4);
+  padding-top: var(--sky-space-3);
+}
+
+.modal-gate-label {
+  color: var(--sky-text-secondary);
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modal-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-3);
+  margin-top: var(--sky-space-5);
+}
+
+.modal-link {
+  margin-right: auto;
+}
+
+.modal-hide,
+.modal-close {
+  background: var(--sky-card-background);
+  border: 1px solid var(--sky-color-border-control);
+  border-radius: var(--sky-radius-pill);
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: var(--sky-space-1) var(--sky-space-4);
+}
+
+.modal-close {
+  background: var(--sky-color-fill-subtle);
+  color: var(--sky-text-primary);
 }
 
 /* --- surface three: the document pages ---------------------------------------------------------- */

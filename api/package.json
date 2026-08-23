@@ -1,0 +1,9 @@
+{
+  "name": "atlas-write-back",
+  "version": "1.0.0",
+  "description": "Atlas's write-back endpoints, deployed as Static Web Apps managed Functions (decisions 35-37).",
+  "type": "module",
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {}
+}

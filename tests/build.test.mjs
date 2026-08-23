@@ -148,7 +148,7 @@ test('build: the first surface is named "Feature planning" everywhere a reader m
   const linkingPages = [
     'index.html',
     'mobile/index.html',
-    'records/index.html',
+    'library/index.html',
     'workstream/beacon/index.html',
     'workstream/beacon/m1/index.html',
     'ROADMAP/index.html',
@@ -229,9 +229,9 @@ const EXPECTED_FILES = [
   'docs/reference.html',
   'docs/support.js',
   'index.html',
+  'library/index.html',
   'mobile/index.html',
   'order.js',
-  'records/index.html',
   'state.json',
   'staticwebapp.config.json',
   'tokens.css',
@@ -1055,7 +1055,7 @@ test("build: the theme's own files are served where the layouts link to them", (
   // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
   // up behaviour it has no use for.
   assert.ok(!read('mobile/index.html').includes('order.js'), 'the phone view loads the ordering script');
-  assert.ok(!read('records/index.html').includes('order.js'), 'the records index loads the ordering script');
+  assert.ok(!read('library/index.html').includes('order.js'), 'the records index loads the ordering script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {
@@ -1385,7 +1385,11 @@ test('build: a failure DURING RENDERING leaves the published site exactly as it 
   const broken = path.join(TMP_ROOT, 'broken-generator');
   rmSync(broken, { recursive: true, force: true });
   mkdirSync(broken, { recursive: true });
-  for (const entry of ['src', 'theme', '.eleventy.js', 'package.json']) {
+  // `api` comes along with `src`: `src/schema.mjs` re-exports the closed vocabularies and the
+  // workstream-slug rule from `api/lib/contract.mjs`, which is where the managed Function that
+  // writes back can also reach them (Static Web Apps packages an api directory on its own). A
+  // copy of the generator without it does not import at all.
+  for (const entry of ['src', 'api', 'theme', '.eleventy.js', 'package.json']) {
     cpSync(path.join(REPO_ROOT, entry), path.join(broken, entry), { recursive: true });
   }
   // No `node_modules` is copied or linked. The copy lives under the repository, so Node resolves
@@ -1431,8 +1435,39 @@ const everyRecord = () => [
     .map((asset) => ({ path: asset.path, url: asset.url, kind: 'copied' })),
 ];
 
+test('build: no surface calls it Records — the library is the Library, everywhere', () => {
+  // #780: "rename Records to Library." Everywhere it appears — page title, nav label, route
+  // wording — because a surface with two names is two surfaces to whoever reads about it later.
+  //
+  // The word is checked against the RENDERED pages rather than the sources, which is the only place
+  // a reader meets it, and against every page the build wrote rather than a list somebody kept.
+  // Every page the build wrote, walked rather than listed: a list somebody keeps is a list that
+  // stops covering the page added after it.
+  const pages = listFiles(OUT).filter((rel) => rel.endsWith('index.html'));
+  assert.ok(pages.length > 20, `expected the whole site, saw ${pages.length} pages`);
+
+  for (const page of pages) {
+    const html = read(page);
+    // The word inside a record's own prose is the record's, not Atlas's — the fixture's own
+    // documents talk about records constantly and rightly. What must not survive is Atlas's own
+    // chrome: the nav, a breadcrumb, a heading, a title.
+    const chrome = [
+      ...html.matchAll(/<title>([^<]*)<\/title>/g),
+      ...html.matchAll(/<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/g),
+      ...html.matchAll(/<p class="breadcrumb">([\s\S]*?)<\/p>/g),
+    ].map((m) => m[1]).join(' | ');
+    assert.ok(!/\bRecords\b/.test(chrome), `${page}: a surface still calls it Records — ${chrome}`);
+    assert.ok(!/href="\/records\//.test(chrome), `${page}: a surface still links to the old route`);
+  }
+
+  // And it IS called Library, so the assertions above are not passing because the nav vanished.
+  const nav = /<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(read('index.html'))[1];
+  assert.match(nav, /Library/, 'the nav lost the surface entirely rather than renaming it');
+  assert.match(nav, /href="\/library\/"/, 'the nav does not point at the new route');
+});
+
 test('build: the records index lists every record of both kinds, and every surface links to it', () => {
-  const index = read('records/index.html');
+  const index = read('library/index.html');
 
   for (const record of everyRecord()) {
     assert.ok(
@@ -1468,7 +1503,7 @@ test('build: the records index lists every record of both kinds, and every surfa
 
   // And it is reachable, not merely findable by URL.
   for (const page of ['index.html', 'mobile/index.html', 'workstream/beacon/index.html', 'ROADMAP/index.html']) {
-    assert.match(read(page), /href="\/records\/"/, `${page} has no way through to the records`);
+    assert.match(read(page), /href="\/library\/"/, `${page} has no way through to the records`);
   }
 });
 
@@ -1650,4 +1685,35 @@ test('build: --offline never constructs a request at all', async () => {
   const out = freshDir('offline');
   await build(FIXTURE_ROOT, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
   assert.ok(existsSync(path.join(out, 'index.html')));
+});
+
+// --- the promotion path (#780, task 12) ---------------------------------------------------------
+
+test('build: a feature written but never put on the sheet is reported, and does not fail the build', () => {
+  // The half of decision 32 that was missing. A config naming a directory that does not exist is a
+  // broken reference and fails the build; a feature that EXISTS and is not named was silent — the
+  // work is written, the page does not show it, and nothing says so. Same failure shape as a
+  // hidden feature nobody can find.
+  //
+  // A WARNING and not a failure, deliberately: promotion is two steps in that order — write the
+  // manifest, then name the slug — so this is the ordinary intermediate state of doing it right.
+  // Failing here would mean the act of starting a promotion breaks the site.
+  const root = fixtureCopy('promotion-warning');
+  cpSync(
+    path.join(root, 'docs', 'features', 'shoal'),
+    path.join(root, 'docs', 'features', 'quasar'),
+    { recursive: true },
+  );
+
+  return build(root, freshDir('promotion-warning-out'), { fetchImpl: stubFetch, quiet: true }).then(
+    (summary) => {
+      assert.deepEqual(summary.unnamedFeatures, ['quasar'], 'the half-promoted feature was not reported');
+      assert.ok(summary.pages > 0, 'the build should still have produced a site');
+    },
+  );
+});
+
+test('build: the fixture builds with nothing to warn about, so the warning stays worth reading', () => {
+  // A build that always warns is a warning nobody reads. This is the control for the test above.
+  assert.deepEqual(SUMMARY.unnamedFeatures, []);
 });

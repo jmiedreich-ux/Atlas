@@ -1,7 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import { ACCESS_ROLE, SWA_CONFIG_FILENAME, serialiseSwaConfig, staticWebAppConfig } from '../src/swa.mjs';
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+import {
+  ACCESS_ROLE,
+  API_RUNTIME,
+  SWA_CONFIG_FILENAME,
+  WRITE_ROLE,
+  serialiseSwaConfig,
+  staticWebAppConfig,
+} from '../src/swa.mjs';
+import { AUTHOR_ROLE } from '../api/lib/principal.mjs';
 
 // Decision 7: "Nothing is anonymous. SWA's built-in Microsoft provider with role invitations;
 // every route requires a role."
@@ -74,4 +87,96 @@ test('swa: it holds no project content — the same file suits any project that 
   const text = serialiseSwaConfig();
   assert.ok(!/vennusign|atlas\.|jmiedreich/i.test(text), 'the emitted config names a project');
   assert.equal(SWA_CONFIG_FILENAME, 'staticwebapp.config.json');
+});
+
+test('swa: the route Records used to live at redirects to Library rather than 404ing', () => {
+  // #780 renamed the surface. The plan for this milestone required the redirect question to be
+  // DECIDED rather than left to fall out: links to `/records/` exist in the owner's browser
+  // history and possibly in issues, and a 404 there is indistinguishable from a broken site — on a
+  // site whose whole premise is that it is always current, that teaches a reader to distrust it.
+  //
+  // It belongs in the generator rather than in a project's own config because `/records/` was
+  // ATLAS's route, in every project Atlas has ever built. It is the generator's own history, not
+  // any project's content.
+  const config = staticWebAppConfig();
+  const routes = config.routes;
+
+  const catchAllIndex = routes.findIndex((route) => route.route === '/*');
+  for (const path of ['/records', '/records/*']) {
+    const index = routes.findIndex((route) => route.route === path);
+    assert.ok(index !== -1, `nothing handles ${path}, so an old link 404s`);
+    assert.equal(routes[index].redirect, '/library/', `${path} does not land on the surface that replaced it`);
+    assert.equal(routes[index].statusCode, 301, `${path} redirects impermanently, so nothing updates a bookmark`);
+    // First-match-wins, so a rule after the catch-all never runs at all.
+    assert.ok(index < catchAllIndex, `${path} sits after the catch-all, where it can never match`);
+  }
+});
+
+// --- M3: the write endpoints' own routes ------------------------------------------------------
+
+test('swa: the write endpoints require `author`, and the rule precedes the catch-all', () => {
+  // The role check that actually refuses a caller without `author` lives in the Function
+  // (`api/lib/principal.mjs`), where a test can reach it. This is the layer in front of it, and
+  // the reason it is emitted rather than written down: the config Atlas emits is REPLACED on every
+  // build, so "hand-edit the file afterwards" was advice about a file that does not persist.
+  const config = staticWebAppConfig();
+
+  const api = config.routes.findIndex((route) => route.route === '/api/*');
+  const catchAll = config.routes.findIndex((route) => route.route === '/*');
+
+  assert.ok(api !== -1, 'the write endpoints are covered only by the catch-all');
+  assert.ok(api < catchAll, 'the /api rule sits after the catch-all, so it never matches');
+  assert.deepEqual(config.routes[api].allowedRoles, [WRITE_ROLE]);
+});
+
+test('swa: `author` is not `reader` — being able to read is not being able to write', () => {
+  assert.notEqual(WRITE_ROLE, ACCESS_ROLE);
+  assert.notEqual(WRITE_ROLE, 'authenticated');
+  assert.notEqual(WRITE_ROLE, 'anonymous');
+});
+
+test('swa: the role the Function checks and the role the route requires are one value', () => {
+  // Two spellings of the same role is a site where the door and the lock disagree: the route lets
+  // somebody through and the Function refuses them, or worse, the other way round.
+  assert.equal(WRITE_ROLE, AUTHOR_ROLE);
+
+  // …and that assertion is now trivially true, because both names resolve to one binding in
+  // `api/lib/contract.mjs`. What is worth checking is that it STAYS one: the string appears as a
+  // literal exactly once in everything Atlas ships, and any second spelling of it is the drift
+  // this test exists to forbid.
+  const shipped = [];
+  const walk = (dir, prefix) => {
+    for (const name of readdirSync(dir).sort()) {
+      const full = path.join(dir, name);
+      if (statSync(full).isDirectory()) walk(full, `${prefix}${name}/`);
+      else if (name.endsWith('.mjs') || name.endsWith('.js'))
+        shipped.push({ name: `${prefix}${name}`, text: readFileSync(full, 'utf8') });
+    }
+  };
+  walk(path.join(REPO_ROOT, 'api'), 'api/');
+  walk(path.join(REPO_ROOT, 'src'), 'src/');
+  assert.ok(shipped.length > 10, `expected to scan the shipped modules, saw ${shipped.length}`);
+
+  const declaring = shipped.filter((file) => file.text.includes(`= '${WRITE_ROLE}'`));
+  assert.deepEqual(
+    declaring.map((file) => file.name),
+    ['api/lib/contract.mjs'],
+    'the write role is spelled out somewhere other than the one module that defines it',
+  );
+});
+
+test('swa: the managed Function runtime is declared, because SWA will not guess it', () => {
+  // Without `platform.apiRuntime` a Node API is deployed against whatever default the platform
+  // has that week, which is the difference between endpoints that answer and endpoints that 404
+  // or 500 with nothing useful in the log.
+  const config = staticWebAppConfig();
+  assert.ok(config.platform, 'no platform block at all');
+  assert.match(config.platform.apiRuntime, /^node:\d+$/);
+});
+
+test('swa: the emitted runtime is the one constant to change, and it is not the build\'s', () => {
+  // The generator builds on Node 22 — `package.json`, `action.yml` and CI all say so. The managed
+  // Function runs in Azure on whatever Static Web Apps offers, which is a different runtime in a
+  // different place, and this is the one line that says which.
+  assert.equal(staticWebAppConfig().platform.apiRuntime, API_RUNTIME);
 });

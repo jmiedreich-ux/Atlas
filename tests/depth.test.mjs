@@ -160,13 +160,17 @@ test('computeLadder: a workstream whose last milestone is done puts the head bey
   // be drawn.
   assert.ok(rowById(rows, col.headAt), 'the ladder must grow a row for the head to land on');
 
-  // decision 20 at the level of a single string: the tip names Finisher's own next id, not the
-  // ladder row's generic number. Pin the actual format, not just "differs from the row label" —
-  // 'TBD', 'Milestone 3', 'm3', or a genuine off-by-one bug like `M${depth - 1}` would all pass
-  // a bare inequality silently.
-  const landedRow = rowById(rows, col.headAt);
-  assert.notEqual(col.tipLabel, landedRow.label);
-  assert.equal(col.tipLabel, 'M3');
+  // INVERTED FROM M2.1, which asserted `tipLabel === 'M3'` here on the grounds that "the tip names
+  // Finisher's own next id, not the ladder row's generic number". Both halves of that were true
+  // and the conclusion was still wrong: Finisher has no M3. Nothing is recorded past M2, so there
+  // is no next milestone to name and the tip names none — see #780's second defect on first render
+  // and the fixture's Anchor, where this string reached the phone view as "Next: M5".
+  //
+  // Decision 20 is unaffected: when a milestone IS recorded where the head lands, the tip is that
+  // milestone's own id and never the ladder row's shared number. The control test below is the
+  // case that checks it.
+  assert.equal(col.tipLabel, null, 'the tip names a milestone Finisher has no record of');
+  assert.ok(rowById(rows, col.headAt).label, 'the ladder row still has its own number, which is a different thing');
 });
 
 test('computeLadder: a workstream whose final milestone is NOT done keeps the head on the very next milestone (control)', () => {
@@ -332,10 +336,62 @@ test('computeLadder: Anchor, the fixture\'s one fully-done workstream, puts the 
   assert.notEqual(anchor.headAt, anchor.barTo);
   assert.equal(anchor.headAt, 'depth-5');
   assert.ok(rowById(rows, anchor.headAt), 'the ladder must have a real row for the head to land on');
-  // No milestone is recorded at depth 5 for Anchor — the tip falls back to the M<n> convention,
-  // never the shared row's bare number.
-  assert.equal(anchor.tipLabel, 'M5');
-  assert.notEqual(anchor.tipLabel, rowById(rows, anchor.headAt).label);
+
+  // INVERTED FROM M2.1, deliberately rather than deleted. That version asserted
+  // `tipLabel === 'M5'` and called it "the M<n> convention for a milestone not yet on the record".
+  // #780 saw it rendered: the chart correctly draws NO balloon for this feature, because nothing is
+  // recorded past its last milestone, while the phone view read this field and announced
+  // "Next: M5" — two surfaces disagreeing in front of the reader about a milestone that does not
+  // exist and that no record supports.
+  //
+  // NOTHING IS NEXT, SO NOTHING IS NAMED. The fallback was inventing the one thing this generator
+  // exists never to invent.
+  assert.equal(
+    anchor.tipLabel,
+    null,
+    'the tip names a milestone with no record behind it, which is what the phone view then announced',
+  );
+});
+
+test('computeLadder: the tip is null exactly when no milestone is on record for the head to point at', () => {
+  // The general form of the defect above, and the reason it is one field rather than two rules:
+  // #780's finding was not that the LABEL was wrong, it was that the chart and the phone view were
+  // computed from different readings of the same field. So the field itself says whether there is
+  // anything to name, and both surfaces read it.
+  const stream = (codename, stage, statuses) => ({
+    slug: codename.toLowerCase(),
+    manifest: {
+      codename,
+      stage,
+      gate: `Nothing gates ${codename} but this test`,
+      milestones: statuses.map((status, i) => ({
+        id: `M${i + 1}`,
+        label: `M${i + 1}`,
+        depth: i + 1,
+        status,
+      })),
+    },
+  });
+
+  const { columns } = computeLadder([
+    // Every milestone done: the head is past the last record, and nothing is next.
+    stream('Anchor', 'shipping', ['done', 'done']),
+    // Approved but nothing written down yet: the head points at a first milestone that has no
+    // record either. Same case, and it used to invent "M1".
+    stream('Fresh', 'planned', []),
+    // A milestone IS recorded where the head lands, so it is named — from the milestone's own id,
+    // never the ladder row's shared number.
+    stream('Tide', 'shipping', ['done', 'next']),
+    // Still in the stages: the tip is the stage the feature is entering, which is a real state
+    // rather than an invented milestone.
+    stream('Harbor', 'designing', []),
+  ]);
+
+  const tip = (codename) => columns.find((c) => c.codename === codename).tipLabel;
+  assert.equal(tip('Anchor'), null, 'a feature past its last record still names a milestone');
+  assert.equal(tip('Fresh'), null, 'a feature with no milestones at all still names one');
+  assert.equal(tip('Tide'), 'M2', 'a recorded next milestone lost its name');
+  assert.equal(tip('Harbor'), 'Planned', 'a feature in the stages lost the stage it is entering');
 });
 
 // --- decision 32: the ladder's own invariant, asserted where code can throw ----------------------

@@ -37,7 +37,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
+import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeChart } from './chart.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
@@ -45,7 +45,7 @@ import { emptyBuckets, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
-import { orderByTriage } from './triage.mjs';
+import { orderByTriage, triageCards } from './triage.mjs';
 import configureAtlasEleventy from '../.eleventy.js';
 
 const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -344,6 +344,11 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     issues,
     documents,
     assets: collectAssets(config.projectRoot),
+    // #780's task 12: the other half of decision 32. A config naming a directory that is not there
+    // already fails the build; a feature that has been WRITTEN and never put on the sheet was
+    // silent, and that is the same failure shape as a hidden feature nobody can find. Reported,
+    // never thrown — `unnamedFeatureDirs` carries the reason that line is where it is.
+    unnamedFeatures: unnamedFeatureDirs(config),
   };
 }
 
@@ -410,6 +415,10 @@ function planPages(site) {
       permalink: '/index.html',
       title: 'Feature planning',
       chart: computeChart(site.ladder, site.workstreams),
+      // #780 dropped the dedicated Triage page: a feature's header opens a modal carrying what
+      // that page carried. This is that content, and it is deliberately NOT part of the drawing —
+      // `src/chart.mjs` computes coordinates and paths, and a modal is prose.
+      features: triageCards(site.workstreams),
     },
   });
 
@@ -459,12 +468,12 @@ function planPages(site) {
   // Generated from the very list the record pages are rendered from (decision 3), so it cannot
   // list a page that was not written or omit one that was.
   pages.push({
-    name: 'records',
-    extend: 'records.njk',
+    name: 'library',
+    extend: 'library.njk',
     data: {
       ...shell,
-      permalink: '/records/index.html',
-      title: 'Records',
+      permalink: '/library/index.html',
+      title: 'Library',
       groups: groupRecordsByDirectory(site.documents, site.assets),
     },
   });
@@ -600,7 +609,16 @@ export async function build(projectRoot, outDir, options = {}) {
     rmSync(staging, { recursive: true, force: true });
   }
 
-  return { outDir: out, pages: pages.length, assets: site.assets.length, state };
+  return {
+    outDir: out,
+    pages: pages.length,
+    assets: site.assets.length,
+    state,
+    // Carried out of the build rather than printed from inside it, so a caller that is not the
+    // command line — a test, or another tool — gets the finding rather than a line of somebody
+    // else's stdout.
+    unnamedFeatures: site.unnamedFeatures,
+  };
 }
 
 // --- the command line ----------------------------------------------------------------------------------
@@ -654,6 +672,17 @@ async function main(argv) {
     console.log(
       `atlas: built ${result.pages} pages and copied ${result.assets} files into ${path.relative(process.cwd(), result.outDir) || '.'}`,
     );
+
+    // NOT suppressed by --quiet. That flag suppresses Eleventy's progress, and a finding is not
+    // progress. It names the exact edit that closes it, because a warning a reader has to go and
+    // work out is a warning they will read twice and act on once.
+    for (const slug of result.unnamedFeatures) {
+      console.error(
+        `atlas: warning: docs/features/${slug}/ exists but atlas.config.json does not name it, so ` +
+          `this feature is not on the sheet. Add "${slug}" to the "workstreams" list to promote it, ` +
+          `or delete the directory if the idea was abandoned.`,
+      );
+    }
     return 0;
   } catch (error) {
     // Decision 32: loudly, and non-zero, naming what is broken. A documentation merge that breaks

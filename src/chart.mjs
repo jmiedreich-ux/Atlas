@@ -21,10 +21,15 @@
 //   * One continuous ribbon per feature, from the top of the ladder through the stages and on
 //     into the milestones. EVERY feature has one, including those with no milestones at all —
 //     progress through the stages is progress, and it is drawn as such.
-//   * A SOLID arrow covers what has begun: finished work in one colour, the milestone actually in
-//     flight in another. Where records exist beyond it, a SECOND, FAINTER, slightly narrower
-//     arrow covers the remainder. The two are one object drawn in two weights, and they tile the
-//     ladder without overlapping.
+//   * ONE OBJECT, SEEN TWICE. A FAINT arrow spans the whole recorded length of the feature, from
+//     the top of the ladder to the last milestone that has a record. The SOLID arrow is laid OVER
+//     it, from the same top, as far as the work has actually reached: finished work in one colour,
+//     the milestone actually in flight in another. They OVERLAY; they do not tile.
+//
+//     M2.1 built them tiled — the solid one stopping and the faint one starting below it — and
+//     #780 corrected it on sight: "you cannot have the first arrow without the second ... they are
+//     one object seen twice, not two objects in sequence." A feature with nothing recorded beyond
+//     where it stands has the solid arrow alone, because there is nothing for it to be a portion of.
 //   * Each arrow ends in its own head, growing straight out of its own body. Nothing floats and
 //     there is never a gap between body and head.
 //   * The arrow's length is the last milestone that has a RECORD. Nothing beyond it — no expected
@@ -37,7 +42,38 @@
 // `theme/order.js` move a whole feature — ribbon, dots, dates, skip markers and balloon together —
 // by rewriting one number, with no geometry on the client at all.
 
-import { daysBetween, formatDay, formatDuration } from './dates.mjs';
+import { daysBetween, formatDay, formatDayRange, formatDuration } from './dates.mjs';
+
+// An arrowhead's base is WIDER than the body it grows from — that flare is what makes it read as a
+// head rather than as the bar simply stopping, and #780 calls the head "the one cell on the chart
+// that answers the question the page exists for". So the flare stays.
+//
+// What that costs, and what M2.1 got wrong, is that a head is therefore wider than its ribbon and
+// the date column beside it must clear the HEAD, not the body. Both the drawing and the constants
+// below go through this one function, so the two can never disagree — which is the whole of the
+// defect #780 found on first render.
+const HEAD_FLARE = 0.42;
+
+function flareOf(width) {
+  return Math.round(width * HEAD_FLARE);
+}
+
+/** How far an arrowhead of this body width reaches either side of its own centre line. */
+export function headHalfWidth(width) {
+  return Math.round(width / 2) + flareOf(width);
+}
+
+// The lane's own geometry, derived rather than written down twice.
+//
+// `ribbonCentre` is the lane's spine: #780 requires the feature's NAME BOX and its ribbon to share
+// a centre line, so the name box is placed about this value rather than given the whole column.
+// The box is therefore narrower than the column, and the space to its right is where the dates go —
+// which is the only arrangement that fits at this column pitch. The alternative, a full-width name
+// box with the ribbon centred under it, pushes the date column past the pitch and needs the whole
+// chart about 45% wider; at 1600px that puts two of six features off-screen.
+const RIBBON_CENTRE = 62;
+const RIBBON_WIDTH = 36;
+const HEAD_MARGIN = 4;
 
 // Every measurement the page is built from, in one place and in user units. Frozen because a
 // caller adjusting one of these at runtime would move half a drawing and not the other half.
@@ -49,8 +85,8 @@ export const CHART = Object.freeze({
   rightMargin: 16,
 
   // Within a lane, measured from the lane's own origin.
-  ribbonCentre: 36,
-  ribbonWidth: 36,
+  ribbonCentre: RIBBON_CENTRE,
+  ribbonWidth: RIBBON_WIDTH,
   faintWidth: 28,
   headLength: 30,
   faintHeadLength: 26,
@@ -58,39 +94,71 @@ export const CHART = Object.freeze({
   faintRadius: 5,
 
   // The column of text beside every ribbon: the dates, and a skipped milestone's reason.
-  textX: 62,
+  //
+  // DERIVED, not written down. M2.1 set this to a fixed offset from the ribbon's centre, which is
+  // right for the ribbon and wrong for the head that grows out of it — so the head's flare covered
+  // the dates on three of the fixture's six features and several hundred tests passed anyway.
+  // Deriving it from `headHalfWidth` is what makes the relation survive the next change to either.
+  textX: RIBBON_CENTRE + headHalfWidth(RIBBON_WIDTH) + 6,
   textLine: 13,
+
+  // How wide a character of that text is, as a BUDGET rather than a measurement — the same kind of
+  // declared approximation `balloonChars` is, and for the same reason: a measurement taken in one
+  // browser would not survive the reader's own font settings.
+  //
+  // It exists so that one thing this module genuinely cannot see can still be asserted. The date
+  // column is the only run of free text laid beside the drawing, and the widest line in it must
+  // not reach the NEXT feature's balloon, which is painted after it and is opaque. That collision
+  // was invisible to every coordinate test in the suite and visible the moment the page was
+  // rendered. `tests/chart.test.mjs` holds the constraint.
+  textCharWidth: 6.4,
 
   // A ribbon stops short of its row's boundary so the light rule beneath it stays visible either
   // side of the head, rather than being buried under a solid block.
   topInset: 8,
   bottomInset: 8,
 
-  balloonInset: 12,
-  balloonWidth: 208,
+  // The balloon sits far enough into its own column that the PREVIOUS feature's date column
+  // cannot reach it. That is the collision the rendered page revealed: a span across a year
+  // boundary is the widest line the chart can print, and at an inset of 12 it landed under the
+  // neighbour. Its width shrinks by the same amount, so the balloon still ends where it did.
+  balloonInset: 24,
+  balloonWidth: 196,
   balloonRadius: 14,
   balloonTailRise: 26,
-  balloonLine: 15,
+  balloonLine: 16,
   balloonPad: 14,
   balloonChars: 28,
   balloonMaxLines: 5,
+  // The step a balloon leads with gets two lines at most; the gate under it gets the budget above.
+  // A milestone title that needs more than two lines is a title, not a paragraph.
+  //
+  // Its own character budget, because it is set larger than the gate beneath it — the same width,
+  // fewer characters. Two budgets rather than one is the honest answer once the two runs of text
+  // are not the same size.
+  balloonStepChars: 25,
+  balloonStepLines: 2,
 
   dotRadius: 7,
   skipRadius: 12,
   detourReach: 28,
   balloonPinRadius: 4,
 
-  // A feature's header: the drag handle, its accent spine, and the two lines inside it. It is
-  // inset a little on its left and rather more on its right, so two adjacent headers read as two
-  // rather than as one bar with a seam.
-  headMargin: 4,
-  headGutter: 12,
+  // A feature's NAME BOX: the drag handle, its accent spine, and the two lines inside it.
+  //
+  // #780: "centre the arrow on its feature's name box ... they should share a centre line." M2.1
+  // gave the box the whole column width, which put the ribbon at the far left of it. The box is
+  // now a plate centred on the lane's spine, so its width is fixed by where that spine sits:
+  // twice the margin's distance from it. The rest of the column is the date column, which is what
+  // the plate used to sit over.
+  headMargin: HEAD_MARGIN,
+  headWidth: 2 * (RIBBON_CENTRE - HEAD_MARGIN),
   headTop: 6,
   headHeight: 44,
   headRadius: 8,
   headAccentWidth: 5,
   headAccentRadius: 2,
-  headTextX: 18,
+  headTextX: 16,
   headTitleY: 26,
   headChipY: 32,
 
@@ -179,10 +247,14 @@ function splitAroundDetours(top, bottom, detourRows) {
 // An arrowhead as a path, growing straight out of the body that ends at `y`. The base is wider
 // than the body it grows from — that flare is what makes it read as a head rather than as the
 // bar simply stopping — and the two share an edge, so nothing floats.
+//
+// The half-width comes from `headHalfWidth`, the same function the date column's own `textX` is
+// derived through. That is deliberate: M2.1 computed the flare here and the text offset up there,
+// and the two drifted apart the moment either moved.
 function headPath(centre, width, y, length) {
-  const flare = Math.round(width * 0.42);
-  const left = centre - Math.round(width / 2) - flare;
-  const right = centre + Math.round(width / 2) + flare;
+  const half = headHalfWidth(width);
+  const left = centre - half;
+  const right = centre + half;
   // Explicit `L x y` rather than the shorter `H x`: every command here takes a full coordinate
   // pair, so the path can be read back as points. A unit test can then assert that the
   // head's base and the body's end are the same line — which is the whole of #780's "nothing
@@ -264,7 +336,7 @@ function dateLines(milestone, live) {
   }
   if (started && completed) {
     return [
-      { text: `${formatDay(started)} → ${formatDay(completed)}`, strong: true },
+      { text: formatDayRange(started, completed), strong: true },
       { text: formatDuration(daysBetween(started, completed)) },
     ];
   }
@@ -324,16 +396,36 @@ function buildLane(stream, rows) {
     radius: CHART.ribbonRadius,
   };
 
-  // The faint reach: everything on record past where the work has got. Its own arrow, its own
-  // head, slightly narrower, so the two read as related but distinct — and absent entirely when
-  // there is nothing recorded beyond, because a feature with no records ahead has one arrow only.
+  // The faint reach. M2.1 drew this as a SECOND arrow beginning below the solid one, the two
+  // tiling the ladder end to end. #780 corrected that after seeing it rendered:
+  //
+  //   "The faint arrow runs the whole recorded span, and the solid arrow overlays it as far as the
+  //    work has actually reached ... they are one object seen twice, not two objects in sequence."
+  //
+  // So the faint arrow starts where the solid one starts — the top of the ladder — and runs to the
+  // end of the records. The solid one is then laid over it, and because the solid body and its
+  // head's flare are both wider than the faint body, what shows of the faint arrow is exactly the
+  // part the work has not reached. That is the whole construction, and it is why an "expected
+  // depth" field was never needed: the faint arrow is the object, and the solid one is how much of
+  // it has happened.
+  //
+  // The two are one object, so the detour round a skipped milestone belongs to both: the object
+  // went round that milestone once. Without this the faint band runs straight through the gap the
+  // solid ribbon's detour leaves, and the crossed marker sits on a bar instead of beside a break.
+  //
+  // Still absent entirely when nothing is recorded beyond where the work has got — a feature with
+  // no records ahead has one arrow only, and #780 has not changed that.
+  //
+  // DRAW ORDER IS LOAD-BEARING and this module cannot express it: SVG paints in document order, so
+  // `theme/_includes/depth.njk` must emit this arrow BEFORE the solid one. `tests/theme.test.mjs`
+  // pins that, because getting it backwards draws a pale bar over the work.
   let faint = null;
   if (recordedIndex > solidEndIndex) {
-    const faintTop = solidBottom + 10;
     const faintBottom = rowTop(recordedIndex) + CHART.rowHeight - CHART.bottomInset;
     const faintHeadTop = faintBottom - CHART.faintHeadLength;
     faint = {
-      segments: [{ y: faintTop, height: faintHeadTop - faintTop, tone: 'ahead' }],
+      segments: splitAroundDetours(top, faintHeadTop, detourRows).map((run) => ({ ...run, tone: 'ahead' })),
+      detours: detourRows.map((index) => detourPath(centre, index)),
       head: { d: headPath(centre, CHART.faintWidth, faintHeadTop, CHART.faintHeadLength), tone: 'ahead' },
       x: centre - Math.round(CHART.faintWidth / 2),
       width: CHART.faintWidth,
@@ -402,64 +494,121 @@ function buildLane(stream, rows) {
     faint,
     dots,
     skips,
-    balloon: buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre }),
+    balloon: buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre, solidTipY: solidBottom }),
     arrowBottom,
   };
 }
 
 // --- the balloon ------------------------------------------------------------------------------------
 
-// #780, after three corrections: a balloon points at the STEP IT DESCRIBES rather than at the end
-// of the arrow; if nothing is next there is no balloon at all, because one reading "nothing is
-// next" is noise; and each is placed for its own feature rather than by one rule across the page,
-// which produced worse results.
-function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre }) {
-  const column = stream.column;
+/**
+ * The balloon: the one place on this page that speaks in sentences.
+ *
+ * WHERE IT ATTACHES. #780 says two things that read as incompatible — an earlier comment pins
+ * one feature's balloon at its first milestone, "where its arrowhead is"; a later one says balloons
+ * "attach at the end of the arrow, not the middle and not somewhere else on the ribbon" — and the
+ * owner settled it as owner:
+ *
+ *   "A balloon attaches to the end of the arrow whose subject it is speaking about. A balloon
+ *    describing what is happening now attaches to the end of the solid arrow. A balloon describing
+ *    what is next attaches to the head that points at it."
+ *
+ * So the two were never in conflict about placement, only about which arrow. A NOW balloon attaches
+ * at the tip of the solid arrow's head — where the work has actually reached, which is what it is
+ * about. A NEXT balloon attaches at the row that head POINTS AT — which, for a feature whose
+ * solid arrow ends in the stages and whose records run on past it, is its first milestone: exactly
+ * where the earlier comment already drew it. M2.1 put every balloon at the head row's centre
+ * whatever it said, which is right for one of the two cases by accident.
+ *
+ * WHAT IT SAYS, which #780 asked to be worked as a design decision rather than picked from the
+ * manifest's field list: A BALLOON SAYS WHAT THE DRAWING CANNOT.
+ *
+ *   * At a milestone, the drawing says "M4" and nothing about what M4 IS. So the balloon leads with
+ *     the milestone's title, emphasised — and then carries the GATE, because "what is holding it"
+ *     is the question this page exists to answer, and the phone view already ends every card on it.
+ *   * In the stages, the drawing already names the row the head points at — Designing, Planned — so
+ *     repeating it would be the balloon saying what the reader can already see. It carries the gate
+ *     alone.
+ *
+ * M2.1's mapping was the title at a milestone and the gate in the stages, and the asymmetry was the
+ * defect: the features actually moving got a two-word fragment while the ones that had not started
+ * got an actionable sentence. Both now end on the same gate the phone view ends on, so the two
+ * surfaces speak the same sentence about the same feature.
+ *
+ * AND THE RULES M2.1 ESTABLISHED, WHICH ALL STILL HOLD. No next step, no balloon — one reading
+ * "nothing is next" is noise. Fixed width tied to the column, growing downward, never into a
+ * neighbour. The connector stays inside its own column. Placement is per feature, not one global
+ * pass, which is #780's own ruling after a global pass produced worse results.
+ */
+function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre, solidTipY }) {
   const headRow = rows[headIndex];
   if (!headRow) return null;
 
-  let text;
+  const live = headIndex === liveIndex;
+  const gate = stream.manifest.gate;
+
+  // `step` is the emphasised line — what this step IS. Null in the stages, where the ladder already
+  // names it. `holding` is the quieter one under it — what has to happen before it moves.
+  // Nothing on record at the head's own row: the feature has run past its records, and there is
+  // genuinely nothing to say. No balloon.
+  //
+  // Read from the LADDER's own `tipLabel` rather than re-derived from the manifest here. That is
+  // the whole of #780's second defect: this module decided "no balloon" from the manifest while
+  // the phone view decided "Next: M5" from the ladder, and the two surfaces disagreed in front of
+  // the reader. One field, read by both.
+  if (stream.column.tipLabel === null) return null;
+
+  let step = null;
   let kicker;
   if (headRow.kind === 'stage') {
-    // Still in the stages: what is next is the thing the owner is holding, which is the gate.
-    text = stream.manifest.gate;
     kicker = 'Next';
   } else {
     const milestone = stream.manifest.milestones.find((m) => m.depth === headRow.depth);
-    // Nothing recorded at the head's own row: the feature has run past its records, and there is
-    // genuinely nothing to say. No balloon.
     if (!milestone) return null;
-    text = milestone.title;
-    kicker = headIndex === liveIndex ? 'Happening now' : 'Next';
+    step = milestone.title;
+    kicker = live ? 'Happening now' : 'Next';
   }
-  if (!text) return null;
 
-  const lines = wrapText(text);
+  // A gate that merely restates the step would be the balloon saying one thing twice.
+  const holding = gate && gate !== step ? gate : null;
+
+  const lines = [
+    ...wrapText(step ?? '', CHART.balloonStepChars, CHART.balloonStepLines).map((text) => ({ text, strong: true })),
+    ...wrapText(holding ?? '', CHART.balloonChars, CHART.balloonMaxLines).map((text) => ({ text, strong: false })),
+  ];
   if (lines.length === 0) return null;
 
   const x = CHART.balloonInset;
   const width = CHART.balloonWidth;
   const tailX = centre + 30;
-  const headCentre = rowTop(headIndex) + Math.round(CHART.rowHeight / 2);
 
-  // Below this feature's own arrow, clear of the head it points at. Per feature, by #780's own
+  // The attachment point, per the ruling above. Both sit on the lane's own spine, so a balloon
+  // reads as a mark ON its arrow rather than as something parked beside it.
+  const attachY = live ? solidTipY : rowTop(headIndex) + Math.round(CHART.rowHeight / 2);
+
+  // Below this feature's own arrow, clear of what it attaches to. Per feature, by #780's own
   // ruling — there is deliberately no cross-column placement pass.
-  const y = Math.max(arrowBottom + 34, headCentre + 74);
+  const y = Math.max(arrowBottom + 34, attachY + 74);
   const height = CHART.balloonPad * 2 + 14 + lines.length * CHART.balloonLine;
 
   return {
     kicker,
-    tone: headIndex === liveIndex ? 'live' : 'next',
+    tone: live ? 'live' : 'next',
     x,
     y,
     width,
     height,
     path: balloonPath(x, y, width, height, tailX),
-    connector: connectorPath(centre + Math.round(CHART.ribbonWidth / 2), headCentre, tailX, y - CHART.balloonTailRise),
-    dot: { x: centre + Math.round(CHART.ribbonWidth / 2), y: headCentre, r: CHART.balloonPinRadius },
+    connector: connectorPath(centre, attachY, tailX, y - CHART.balloonTailRise),
+    dot: { x: centre, y: attachY, r: CHART.balloonPinRadius },
     textX: x + CHART.balloonPad,
     kickerY: y + CHART.balloonPad + 8,
-    lines: lines.map((line, i) => ({ text: line, y: y + CHART.balloonPad + 14 + (i + 1) * CHART.balloonLine - 4 })),
+    // Each line carries its own baseline and whether it is the step or the gate. The template
+    // stacks nothing and classifies nothing.
+    lines: lines.map((line, i) => ({
+      ...line,
+      y: y + CHART.balloonPad + 14 + (i + 1) * CHART.balloonLine - 4,
+    })),
   };
 }
 
@@ -533,11 +682,14 @@ export function computeChart(ladder, workstreams) {
     ladderBottom,
     // Where the gutter's right-aligned row captions sit.
     ladderCaptionX: CHART.ladderWidth - CHART.ladderCaptionInset,
-    // A feature's header. Identical for every lane, because a lane is drawn about its own origin.
+    // A feature's name box. Identical for every lane, because a lane is drawn about its own
+    // origin — and CENTRED ON THE RIBBON below it (#780), which is what fixes its width: the
+    // margin decides where it starts, and the spine decides where its centre is, so the two
+    // together decide how wide it can be.
     head: {
       x: CHART.headMargin,
       y: CHART.headTop,
-      width: CHART.columnPitch - CHART.headMargin - CHART.headGutter,
+      width: CHART.headWidth,
       height: CHART.headHeight,
       radius: CHART.headRadius,
       accentWidth: CHART.headAccentWidth,

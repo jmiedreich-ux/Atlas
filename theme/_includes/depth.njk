@@ -43,17 +43,35 @@
 {% block bodyClass %}page page-planning{% endblock %}
 
 {% block content %}
-<h1>Feature planning</h1>
-<p class="lede">One ribbon per feature, from the top of the ladder through the stages and on into the milestones. A solid arrow covers what has begun; where more is on record than has been started, a second, fainter arrow reaches as far as the records go. Both end in their own head.</p>
+{#- THE HEADER BLOCK IS THE TITLE (#780). It carried an explanatory paragraph and a drag/order
+    instruction, and the owner cut both: "the page should open on the chart, not on two paragraphs
+    explaining it. Both texts exist because the surface was new and unexplained; the drawing carries
+    its own meaning now, and the legend beneath it already names the four states."
 
-{#- The owner's own request, and he knows what it is: an order remembered on THIS DEVICE. The page
-    says so in as many words rather than letting a reader discover it on their phone. -#}
-<div class="planning-order">
-<p class="order-note" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys. <strong>The order is remembered on this device only</strong> — it does not follow you to another browser, or to your phone. An order that travelled with you would have to be written back to the repository, which Atlas does not yet do.</p>
+    What that block was carrying has homes rather than being dropped — see the strip below. -#}
+<h1>Feature planning</h1>
+<div class="planning-controls">
+{#- The chart's own chrome, beside the feature headers where the ordering and the hiding actually
+    happen (#780's own suggestion for where the reset control should go).
+
+    THE PER-DEVICE CAVEAT LIVES HERE, and it is not decoration. The owner asked for an order
+    remembered on THIS DEVICE and knows what that is; what must not happen is a reader discovering
+    on their phone that the order they set at their desk did not come with them. It sits with the
+    controls it qualifies, and it covers the hiding as well, which is stored the same way. -#}
+<p class="controls-note">Your order and any hidden features are <strong>remembered on this device only</strong> — they do not follow you to another browser, or to your phone.</p>
+{#- Populated by `order.js` when something is hidden, and never otherwise. It names what is hidden
+    rather than merely counting it: a feature can then be brought back without the reader having to
+    remember which ones they put away. -#}
+<div class="hidden-bar" data-hidden-bar hidden></div>
 <button type="button" class="order-reset" data-order-reset hidden>Back to the generated order</button>
-{#- Moving a feature with the arrow keys changes a `transform` on an SVG group, which a screen
-    reader has no reason to announce. This is where the move is said out loud instead. -#}
+{#- Moving or hiding a feature changes attributes on an SVG group, which a screen reader has no
+    reason to announce. This is where it is said out loud instead. -#}
 <p class="order-said" data-order-said role="status" aria-live="polite"></p>
+{#- The instruction that used to be the second paragraph of the header block. It leaves the page's
+    OPENING, not the page: every feature header points at it with `aria-describedby`, and it is the
+    only explanation a reader who cannot see the drag affordance gets of how the control works.
+    Removing it outright would have been a visual edit quietly costing an accessible one. -#}
+<p class="visually-hidden" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys to move it. Press H to hide a feature; hidden features can be brought back from the controls above the chart.</p>
 </div>
 
 <div class="chart-scroll" data-planning-scroll>
@@ -94,19 +112,44 @@
 {%- for lane in chart.lanes %}
 <g class="lane" data-slug="{{ lane.slug }}" transform="translate({{ lane.x }},0)">
 
-{#- The header is the drag handle, and it is focusable, because drag alone is not enough: the
-    arrow keys move a feature too. -#}
-<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" tabindex="0" role="button" aria-describedby="order-note" aria-label="{{ lane.codename }}. Press the left and right arrow keys to move this feature.">
+{#- The header is three things at once, and that is deliberate rather than an accident:
+
+      * the DRAG HANDLE for reordering,
+      * the KEYBOARD control for the same (arrow keys) and for hiding (H),
+      * and the way into this feature's own triage, which #780 turned from a standalone page into
+        a modal opened from here.
+
+    It no longer holds a link. A link inside a drag handle inside a button is three interactive
+    things claiming one click; the way through to the feature's record moved into the modal, where
+    it sits among the rest of what that feature is. -#}
+<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" data-opens-modal="{{ lane.slug }}" tabindex="0" role="button" aria-haspopup="dialog" aria-describedby="order-note" aria-label="{{ lane.codename }}. Opens what needs you for this feature. Press the left and right arrow keys to move it.">
 <rect class="lane-head-box" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.width }}" height="{{ chart.head.height }}" rx="{{ chart.head.radius }}" ry="{{ chart.head.radius }}"/>
 <rect class="lane-head-accent" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.accentWidth }}" height="{{ chart.head.height }}" rx="{{ chart.head.accentRadius }}" ry="{{ chart.head.accentRadius }}"/>
-<a href="{{ lane.url }}"><text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text></a>
+<text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text>
 {{ ui.svgChip("stage", lane.stage, chart.head.textX, chart.head.chipY) }}
 </g>
 
-{#- The ribbon. One object per feature, drawn in two weights: solid over what has begun, faint over
-    what is on record beyond it. Each arrow ends in its own head, growing straight out of its own
-    body — nothing floats, and there is never a gap between the two. -#}
+{#- The ribbon. ONE OBJECT PER FEATURE, SEEN TWICE. The faint arrow spans the whole recorded length
+    of the feature; the solid arrow is laid OVER it, as far as the work has actually reached. They
+    overlay — M2.1 tiled them, solid stopping where faint began, and #780 corrected that on sight.
+
+    DRAW ORDER IS THE OVERLAY. SVG has no z-index: the painter's order is the document order, so
+    the faint arrow is emitted FIRST and the solid one on top of it. Swapping these two blocks
+    paints a pale bar over the work, and nothing in `src/chart.mjs` can catch it — which is why
+    `tests/theme.test.mjs` asserts the order of the elements themselves.
+
+    Each arrow ends in its own head, growing straight out of its own body — nothing floats, and
+    there is never a gap between body and head. -#}
 <g class="ribbon">
+{%- if lane.faint %}
+{%- for segment in lane.faint.segments %}
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
+{%- endfor %}
+{%- for d in lane.faint.detours %}
+<path class="ribbon-detour tone-ahead" d="{{ d }}" fill="none"/>
+{%- endfor %}
+<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
+{%- endif %}
 {%- for segment in lane.solid.segments %}
 <rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.solid.x }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="{{ lane.solid.radius }}" ry="{{ lane.solid.radius }}"/>
 {%- endfor %}
@@ -114,12 +157,6 @@
 <path class="ribbon-detour" d="{{ d }}" fill="none"/>
 {%- endfor %}
 <path class="ribbon-head tone-{{ lane.solid.head.tone }}" d="{{ lane.solid.head.d }}"/>
-{%- if lane.faint %}
-{%- for segment in lane.faint.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
-{%- endfor %}
-<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
-{%- endif %}
 </g>
 
 {#- A dot per milestone the ribbon covers, with its stored days beside it. Nothing below the final
@@ -144,10 +181,15 @@
 </g>
 {%- endfor %}
 
-{#- The balloon, at the step it describes rather than at the end of the arrow. Fixed width tied to
-    the column, growing downward as the text needs; its connector steps into a lane just clear of
-    this feature's own ribbon and travels vertically inside this column, so it cannot cross a
-    neighbour. No next step, no balloon. -#}
+{#- The balloon: the one place this page speaks in sentences.
+
+    It attaches to the end of the arrow whose subject it is speaking about — a HAPPENING NOW balloon
+    at the tip of the solid arrow, a NEXT one at the row that head points at — and it says what the
+    drawing cannot: what the step IS, emphasised, and then what is holding it. Both are decided in
+    `src/chart.mjs`; this file renders the lines it is handed and classifies nothing.
+
+    Fixed width tied to the column, growing downward as the text needs; its connector travels
+    vertically inside this column, so it cannot cross a neighbour. No next step, no balloon. -#}
 {%- if lane.balloon %}
 <g class="balloon tone-{{ lane.balloon.tone }}">
 <path class="balloon-line" d="{{ lane.balloon.connector }}" fill="none"/>
@@ -155,7 +197,7 @@
 <path class="balloon-body" d="{{ lane.balloon.path }}" filter="url(#balloon-shadow)"/>
 <text class="bl-k" x="{{ lane.balloon.textX }}" y="{{ lane.balloon.kickerY }}">{{ lane.balloon.kicker }}</text>
 {%- for line in lane.balloon.lines %}
-<text class="bl-t" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
+<text class="{% if line.strong %}bl-s{% else %}bl-t{% endif %}" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
 {%- endfor %}
 </g>
 {%- endif %}
@@ -172,6 +214,37 @@
 <li><span class="key-swatch tone-ahead"></span>on record, not started</li>
 <li><span class="key-swatch key-skip"></span>skipped — the work went round it</li>
 </ul>
+
+{#- ONE MODAL PER FEATURE, carrying what the dedicated Triage page carried: what needs you, the
+    position, the gate (#780). The standalone page is gone from the desk; the phone keeps its own
+    surface, which is decision 22 narrowed rather than overturned.
+
+    NATIVE <dialog>, and that is not a stylistic preference. `showModal()` traps focus, Esc
+    dismisses, and the platform restores focus on close — the three things #780 asks of it. A
+    hand-rolled div has to re-implement all three, each easy to get subtly wrong and none of them
+    checkable without a browser.
+
+    Rendered rather than built by script: every word here comes from a record, and a modal assembled
+    in the client from strings the client also holds is a second place for the page's content to
+    live. `order.js` opens and closes; it composes nothing. -#}
+{%- for feature in features %}
+<dialog class="feature-modal" data-feature-modal="{{ feature.slug }}" aria-labelledby="modal-{{ feature.slug }}-title">
+<div class="modal-head">
+<h2 id="modal-{{ feature.slug }}-title">{{ feature.codename }}</h2>
+{{ ui.chip("triage", feature.triage) }}
+</div>
+<p class="modal-what">{{ feature.what }}</p>
+<p class="modal-position">{{ feature.position }}</p>
+<p class="modal-gate"><span class="modal-gate-label">Gate</span>{{ feature.gate }}</p>
+<div class="modal-actions">
+<a class="modal-link" href="{{ feature.url }}">Open the record</a>
+{#- The POINTER route to hiding. The keyboard route is H on the header; putting a second control
+    on the drawing itself would be a mark that says nothing about the work. -#}
+<button type="button" class="modal-hide" data-modal-hide="{{ feature.slug }}">Hide this feature</button>
+<button type="button" class="modal-close" data-modal-close>Close</button>
+</div>
+</dialog>
+{%- endfor %}
 {% endblock %}
 
 {% block bodyScripts %}
