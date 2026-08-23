@@ -155,10 +155,15 @@
 </g>
 {%- endfor %}
 
-{#- The balloon, at the step it describes rather than at the end of the arrow. Fixed width tied to
-    the column, growing downward as the text needs; its connector steps into a lane just clear of
-    this feature's own ribbon and travels vertically inside this column, so it cannot cross a
-    neighbour. No next step, no balloon. -#}
+{#- The balloon: the one place this page speaks in sentences.
+
+    It attaches to the end of the arrow whose subject it is speaking about — a HAPPENING NOW balloon
+    at the tip of the solid arrow, a NEXT one at the row that head points at — and it says what the
+    drawing cannot: what the step IS, emphasised, and then what is holding it. Both are decided in
+    `src/chart.mjs`; this file renders the lines it is handed and classifies nothing.
+
+    Fixed width tied to the column, growing downward as the text needs; its connector travels
+    vertically inside this column, so it cannot cross a neighbour. No next step, no balloon. -#}
 {%- if lane.balloon %}
 <g class="balloon tone-{{ lane.balloon.tone }}">
 <path class="balloon-line" d="{{ lane.balloon.connector }}" fill="none"/>
@@ -166,7 +171,7 @@
 <path class="balloon-body" d="{{ lane.balloon.path }}" filter="url(#balloon-shadow)"/>
 <text class="bl-k" x="{{ lane.balloon.textX }}" y="{{ lane.balloon.kickerY }}">{{ lane.balloon.kicker }}</text>
 {%- for line in lane.balloon.lines %}
-<text class="bl-t" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
+<text class="{% if line.strong %}bl-s{% else %}bl-t{% endif %}" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
 {%- endfor %}
 </g>
 {%- endif %}

@@ -786,9 +786,18 @@ h3 {
   fill: var(--sky-positive-text);
 }
 
-.bl-t {
+/* The step the balloon leads with — what this milestone IS, which the drawing cannot say. Set
+ * against the gate beneath it, which is quieter, so the two are told apart before being read. */
+.bl-s {
   fill: var(--sky-text-primary);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* What is holding it. */
+.bl-t {
+  fill: var(--sky-text-secondary);
+  font-size: 0.68rem;
 }
 
 /* --- the ordering control, and the key --------------------------------------------------------- */

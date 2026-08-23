@@ -532,9 +532,17 @@ test('chart: a future milestone shows nothing at all, and a project with no date
 
 // --- the balloons ---------------------------------------------------------------------------------
 
-test('chart: a balloon points at the step it describes, not at the end of the arrow', () => {
-  // #780's second correction: Keystone's belongs beside M1, where its arrowhead is — not at the
-  // bottom of the faint reach.
+test('chart: a NEXT balloon attaches at the row the arrowhead points at', () => {
+  // #780 says two things that look incompatible: an earlier comment pins Keystone's balloon beside
+  // M1, "where its arrowhead is"; a later one says balloons "attach at the end of the arrow, not
+  // the middle and not somewhere else on the ribbon."
+  //
+  // The owner settled it as owner: "a balloon attaches to the end of the arrow whose subject it is
+  // speaking about. A balloon describing what is happening now attaches to the end of the solid
+  // arrow. A balloon describing what is NEXT attaches to the head that points at it. Keystone's is
+  // a next balloon, so it attaches where the faint arrow begins — which is M1, and is what the
+  // earlier comment already drew." So the two were never in conflict about placement, only about
+  // which arrow, and the later instruction is the general rule with the earlier as its instance.
   const { chart } = draw([
     entry('Keystone', {
       stage: 'planned',
@@ -554,11 +562,112 @@ test('chart: a balloon points at the step it describes, not at the end of the ar
   const lane = laneOf(chart, 'Keystone');
   assert.ok(lane.balloon, 'the feature has a next step and no balloon was drawn');
 
-  // It attaches to a dot on the ribbon at the row it describes — the head's row, not the arrow's
-  // end, and the balloon itself drops clear of the whole six-milestone reach before speaking.
+  assert.equal(lane.balloon.kicker, 'Next', 'Keystone has begun nothing, so its balloon is a NEXT one');
+
+  // M1 — the row this feature's arrowhead points at. Not the Planned row where the solid arrow
+  // physically ends, and not M6 where the faint one does.
   const headRow = chart.rows.find((r) => r.id === 'depth-1');
   assert.equal(lane.balloon.dot.y, headRow.centre, 'the balloon attaches at the wrong row');
+  assert.notEqual(
+    lane.balloon.dot.y,
+    headTipY(lane.solid.head),
+    'a NEXT balloon attached to the end of the solid arrow rather than to what it points at',
+  );
+  // On the lane's own spine, so it reads as a mark on the arrow rather than beside it.
+  assert.equal(lane.balloon.dot.x, lane.centre, 'the balloon attaches off the lane’s spine');
+  // And the balloon itself drops clear of the whole six-milestone reach before speaking, which is
+  // #780's own per-feature placement: "Keystone drops past its whole six-milestone reach."
   assert.ok(lane.balloon.y > lane.arrowBottom, 'the balloon overlaps the arrow it belongs to');
+});
+
+test('chart: a HAPPENING NOW balloon attaches at the END of the solid arrow', () => {
+  // The other half of the same ruling. Where the arrow has actually reached is what a balloon
+  // about what is happening now is talking about, so it attaches there — at the tip of the solid
+  // arrow's head, not at the centre of the row that head happens to sit in, which is where M2.1
+  // put every balloon regardless of what it said.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', title: 'Keeper console', plan: 'm2-plan.md' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'blocked', plan: 'm3-plan.md' }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Beacon');
+  assert.equal(lane.balloon.kicker, 'Happening now', 'M2 is under way, so this is a NOW balloon');
+  assert.equal(
+    lane.balloon.dot.y,
+    headTipY(lane.solid.head),
+    'a NOW balloon does not attach at the end of the solid arrow',
+  );
+  assert.equal(lane.balloon.dot.x, lane.centre, 'the arrow ends on the lane’s spine, and so must the balloon');
+
+  // The row's centre is a different y, so the assertion above is not passing by coincidence.
+  const headRow = chart.rows.find((r) => r.id === 'depth-2');
+  assert.notEqual(headRow.centre, headTipY(lane.solid.head), 'this fixture stopped telling the two apart');
+});
+
+test('chart: a balloon says what the step is AND what is holding it', () => {
+  // #780: "be deliberate about what data a balloon actually shows ... what would genuinely be
+  // presented back to the owner and be understandable — not what happens to be available in the
+  // manifest. The balloon is the one place the page speaks in sentences."
+  //
+  // M2.1's mapping was asymmetric, and that asymmetry is the whole problem. A feature still in the
+  // stages got its GATE — an actionable sentence. A feature at a milestone got that milestone's
+  // TITLE — a two-word fragment. So the balloon on the features that are actually moving said the
+  // least.
+  //
+  // THE RULE, and it is one rule rather than two: a balloon says what the drawing cannot.
+  //
+  //   * At a milestone, the drawing says "M4" and nothing about what M4 IS, so the balloon leads
+  //     with the milestone's title — and then carries the gate, because "what is holding it" is
+  //     the question this page exists to answer and the phone view already ends every card on it.
+  //   * In the stages, the drawing already names the row the head points at — Designing, Planned —
+  //     so repeating it would be the balloon saying what the reader can already see. It carries
+  //     the gate alone, which is what it did and what reads well.
+  //
+  // The two surfaces now end on the same sentence for the same feature, which is the property
+  // decision 29 exists to protect and which a field mapping picked per surface kept losing.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      gate: 'Owner sign-off on the M4 demo before M5 starts',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', title: 'Keeper console', plan: 'm2-plan.md' }),
+      ],
+    }),
+    entry('Harbor', { stage: 'designing', gate: 'Owner approval of the harbor-master authority', milestones: [] }),
+  ]);
+
+  const beacon = laneOf(chart, 'Beacon').balloon;
+  const strong = beacon.lines.filter((line) => line.strong).map((line) => line.text).join(' ');
+  const quiet = beacon.lines.filter((line) => !line.strong).map((line) => line.text).join(' ');
+  assert.match(strong, /Keeper console/, 'the milestone balloon does not lead with what the step is');
+  assert.match(quiet, /Owner sign-off on the M4 demo/, 'the milestone balloon does not say what is holding it');
+
+  // The step is emphasised and the gate is not, so the two are told apart without reading them.
+  assert.ok(beacon.lines.some((line) => line.strong), 'nothing in the balloon is the step');
+  assert.ok(beacon.lines.some((line) => !line.strong), 'nothing in the balloon is the gate');
+
+  // In the stages the drawing already names the row, so the balloon does not repeat it.
+  const harbor = laneOf(chart, 'Harbor').balloon;
+  assert.match(harbor.lines.map((l) => l.text).join(' '), /Owner approval of the harbor-master/);
+  assert.ok(
+    !/Planned|Designing/.test(harbor.lines.map((l) => l.text).join(' ')),
+    'the balloon repeats the ladder row the arrowhead already points at',
+  );
+
+  // Every line still carries its own baseline, and they descend: the template stacks nothing.
+  const ys = beacon.lines.map((line) => line.y);
+  assert.deepEqual(ys, [...ys].sort((a, b) => a - b), 'the balloon’s lines are not in reading order');
+  assert.ok(
+    beacon.y + beacon.height >= ys[ys.length - 1],
+    'the balloon is not tall enough for the lines it was given',
+  );
 });
 
 test('chart: no next step, no balloon', () => {

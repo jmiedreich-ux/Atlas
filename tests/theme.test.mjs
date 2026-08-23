@@ -1190,12 +1190,28 @@ test('planning: the milestone identifiers are in the ladder column, and in no fe
   assert.deepEqual(captions, computeChart(ladder, assemble(workstreams)).rows.map((r) => r.caption));
   assert.ok(captions.includes('M1'), 'the ladder does not name the milestone depths at all');
 
+  // The rule governs what ATLAS SAYS, not what a record says. Decision 2: Atlas is never the
+  // record, so it does not edit the owner's own sentences — and a gate reading "Owner sign-off on
+  // the M4 demo before M5 starts" is the owner's sentence, quoted verbatim into the balloon. Once
+  // the balloon carried the gate, scanning every text node in the lane made this test fail on a
+  // manifest doing nothing wrong, which would have been "fixed" by censoring a record.
+  //
+  // The class on a text node is what tells the two apart, so it is what the exclusion is written
+  // against: `col-h`, `bl-s` and `bl-t` carry a record's own words through unaltered; everything
+  // else in a lane — the dates, the skip marker's caption and reason — is Atlas composing, and
+  // that is where an identifier would be a repetition of the ladder.
+  const QUOTED_VERBATIM = /^(?:col-h|bl-s|bl-t)$/;
+
   for (const stream of workstreams) {
     const lane = laneMarkup(depthHtml, stream.slug);
-    // Anywhere in the lane's own TEXT, not just as a whole text node. The first version of this
+    // Anywhere in the composed TEXT, not just as a whole text node. The first version of this
     // required an exact `>M3<`, so the skip marker's own "M3 skipped" walked straight past it —
     // which is precisely the repetition the rule forbids.
-    const spoken = [...lane.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join(' | ');
+    const spoken = [...lane.matchAll(/<text class="([^"]*)"[^>]*>([^<]*)<\/text>/g)]
+      .filter((m) => !QUOTED_VERBATIM.test(m[1]))
+      .map((m) => m[2])
+      .join(' | ');
+    assert.ok(spoken.length > 0, `${stream.slug}: nothing in this lane is Atlas's own words, so this rule checks nothing`);
     for (const milestone of stream.manifest.milestones) {
       assert.ok(
         !new RegExp(`(?<![\\w.])${milestone.label}(?![\\w.])`).test(spoken),

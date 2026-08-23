@@ -130,6 +130,9 @@ export const CHART = Object.freeze({
   balloonPad: 14,
   balloonChars: 28,
   balloonMaxLines: 5,
+  // The step a balloon leads with gets two lines at most; the gate under it gets the budget
+  // above. A milestone title that needs more than two lines is a title, not a paragraph.
+  balloonStepLines: 2,
 
   dotRadius: 7,
   skipRadius: 12,
@@ -486,64 +489,114 @@ function buildLane(stream, rows) {
     faint,
     dots,
     skips,
-    balloon: buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre }),
+    balloon: buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre, solidTipY: solidBottom }),
     arrowBottom,
   };
 }
 
 // --- the balloon ------------------------------------------------------------------------------------
 
-// #780, after three corrections: a balloon points at the STEP IT DESCRIBES rather than at the end
-// of the arrow; if nothing is next there is no balloon at all, because one reading "nothing is
-// next" is noise; and each is placed for its own feature rather than by one rule across the page,
-// which produced worse results.
-function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre }) {
-  const column = stream.column;
+/**
+ * The balloon: the one place on this page that speaks in sentences.
+ *
+ * WHERE IT ATTACHES. #780 says two things that read as incompatible — an earlier comment pins
+ * one feature's balloon at its first milestone, "where its arrowhead is"; a later one says balloons
+ * "attach at the end of the arrow, not the middle and not somewhere else on the ribbon" — and the
+ * owner settled it as owner:
+ *
+ *   "A balloon attaches to the end of the arrow whose subject it is speaking about. A balloon
+ *    describing what is happening now attaches to the end of the solid arrow. A balloon describing
+ *    what is next attaches to the head that points at it."
+ *
+ * So the two were never in conflict about placement, only about which arrow. A NOW balloon attaches
+ * at the tip of the solid arrow's head — where the work has actually reached, which is what it is
+ * about. A NEXT balloon attaches at the row that head POINTS AT — which, for a feature whose
+ * solid arrow ends in the stages and whose records run on past it, is its first milestone: exactly
+ * where the earlier comment already drew it. M2.1 put every balloon at the head row's centre
+ * whatever it said, which is right for one of the two cases by accident.
+ *
+ * WHAT IT SAYS, which #780 asked to be worked as a design decision rather than picked from the
+ * manifest's field list: A BALLOON SAYS WHAT THE DRAWING CANNOT.
+ *
+ *   * At a milestone, the drawing says "M4" and nothing about what M4 IS. So the balloon leads with
+ *     the milestone's title, emphasised — and then carries the GATE, because "what is holding it"
+ *     is the question this page exists to answer, and the phone view already ends every card on it.
+ *   * In the stages, the drawing already names the row the head points at — Designing, Planned — so
+ *     repeating it would be the balloon saying what the reader can already see. It carries the gate
+ *     alone.
+ *
+ * M2.1's mapping was the title at a milestone and the gate in the stages, and the asymmetry was the
+ * defect: the features actually moving got a two-word fragment while the ones that had not started
+ * got an actionable sentence. Both now end on the same gate the phone view ends on, so the two
+ * surfaces speak the same sentence about the same feature.
+ *
+ * AND THE RULES M2.1 ESTABLISHED, WHICH ALL STILL HOLD. No next step, no balloon — one reading
+ * "nothing is next" is noise. Fixed width tied to the column, growing downward, never into a
+ * neighbour. The connector stays inside its own column. Placement is per feature, not one global
+ * pass, which is #780's own ruling after a global pass produced worse results.
+ */
+function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre, solidTipY }) {
   const headRow = rows[headIndex];
   if (!headRow) return null;
 
-  let text;
+  const live = headIndex === liveIndex;
+  const gate = stream.manifest.gate;
+
+  // `step` is the emphasised line — what this step IS. Null in the stages, where the ladder already
+  // names it. `holding` is the quieter one under it — what has to happen before it moves.
+  let step = null;
   let kicker;
   if (headRow.kind === 'stage') {
-    // Still in the stages: what is next is the thing the owner is holding, which is the gate.
-    text = stream.manifest.gate;
     kicker = 'Next';
   } else {
     const milestone = stream.manifest.milestones.find((m) => m.depth === headRow.depth);
     // Nothing recorded at the head's own row: the feature has run past its records, and there is
     // genuinely nothing to say. No balloon.
     if (!milestone) return null;
-    text = milestone.title;
-    kicker = headIndex === liveIndex ? 'Happening now' : 'Next';
+    step = milestone.title;
+    kicker = live ? 'Happening now' : 'Next';
   }
-  if (!text) return null;
 
-  const lines = wrapText(text);
+  // A gate that merely restates the step would be the balloon saying one thing twice.
+  const holding = gate && gate !== step ? gate : null;
+
+  const lines = [
+    ...wrapText(step ?? '', CHART.balloonChars, CHART.balloonStepLines).map((text) => ({ text, strong: true })),
+    ...wrapText(holding ?? '', CHART.balloonChars, CHART.balloonMaxLines).map((text) => ({ text, strong: false })),
+  ];
   if (lines.length === 0) return null;
 
   const x = CHART.balloonInset;
   const width = CHART.balloonWidth;
   const tailX = centre + 30;
-  const headCentre = rowTop(headIndex) + Math.round(CHART.rowHeight / 2);
 
-  // Below this feature's own arrow, clear of the head it points at. Per feature, by #780's own
+  // The attachment point, per the ruling above. Both sit on the lane's own spine, so a balloon
+  // reads as a mark ON its arrow rather than as something parked beside it.
+  const attachY = live ? solidTipY : rowTop(headIndex) + Math.round(CHART.rowHeight / 2);
+
+  // Below this feature's own arrow, clear of what it attaches to. Per feature, by #780's own
   // ruling — there is deliberately no cross-column placement pass.
-  const y = Math.max(arrowBottom + 34, headCentre + 74);
+  const y = Math.max(arrowBottom + 34, attachY + 74);
   const height = CHART.balloonPad * 2 + 14 + lines.length * CHART.balloonLine;
 
   return {
     kicker,
-    tone: headIndex === liveIndex ? 'live' : 'next',
+    tone: live ? 'live' : 'next',
     x,
     y,
     width,
     height,
     path: balloonPath(x, y, width, height, tailX),
-    connector: connectorPath(centre + Math.round(CHART.ribbonWidth / 2), headCentre, tailX, y - CHART.balloonTailRise),
-    dot: { x: centre + Math.round(CHART.ribbonWidth / 2), y: headCentre, r: CHART.balloonPinRadius },
+    connector: connectorPath(centre, attachY, tailX, y - CHART.balloonTailRise),
+    dot: { x: centre, y: attachY, r: CHART.balloonPinRadius },
     textX: x + CHART.balloonPad,
     kickerY: y + CHART.balloonPad + 8,
-    lines: lines.map((line, i) => ({ text: line, y: y + CHART.balloonPad + 14 + (i + 1) * CHART.balloonLine - 4 })),
+    // Each line carries its own baseline and whether it is the step or the gate. The template
+    // stacks nothing and classifies nothing.
+    lines: lines.map((line, i) => ({
+      ...line,
+      y: y + CHART.balloonPad + 14 + (i + 1) * CHART.balloonLine - 4,
+    })),
   };
 }
 
