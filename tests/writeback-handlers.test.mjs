@@ -506,10 +506,11 @@ test('acceptance: the SHA precondition is the acceptance record\'s, not the mani
 
 // --- decision 35's boundary -----------------------------------------------------------------------
 
-test('decision 35: the Function exports exactly two write handlers and no third', async () => {
+test('decision 35: the Function exports exactly three write handlers', async () => {
   const module = await import('../api/lib/handlers.mjs');
   const handlers = Object.keys(module).filter((name) => name.startsWith('handle'));
-  assert.deepEqual(handlers.sort(), ['handleAcceptance', 'handleAnswer']);
+  // Amended for M8: a third write handler, deployment transitions — decision 35 now names three writable things, not two.
+  assert.deepEqual(handlers.sort(), ['handleAcceptance', 'handleAnswer', 'handleDeploymentTransition']);
 });
 
 test('every request names the configured repository, and there is no way to make it name another', async () => {
