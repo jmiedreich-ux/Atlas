@@ -21,7 +21,7 @@
 <p class="lede">Expand a feature to see what it's doing right now.</p>
 
 <div class="planning-controls">
-<p class="controls-note">Your order and any hidden features are <strong>remembered on this device only</strong> — they do not follow you to another browser, or to your phone.</p>
+<p class="controls-note">Drag a feature to reorder it, or press <kbd>H</kbd> to hide one — hidden features come back from the controls below.</p>
 <div class="hidden-bar" data-hidden-bar hidden></div>
 <p class="order-said" data-order-said role="status" aria-live="polite"></p>
 </div>
@@ -46,9 +46,13 @@
 <span class="milestone-strip" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
 {%- for filled in stream.column.covered %}<span class="strip-seg{% if filled %} is-filled{% endif %}"></span>{% endfor -%}
 </span>
+{%- else %}
+<span class="milestone-strip-empty">No milestones yet</span>
 {%- endif %}
-{%- if stream.column.tipLabel or stream.manifest.gate %}
-<span class="feature-next">{{ stream.column.tipLabel or stream.manifest.gate }}</span>
+{%- if stream.column.tipLabel %}
+<span class="feature-next">Next: {{ stream.column.tipLabel }}</span>
+{%- elif stream.manifest.gate %}
+<span class="feature-next">{{ stream.manifest.gate }}</span>
 {%- endif %}
 {{ ui.chip('triage', stream.triage) }}
 </div>
