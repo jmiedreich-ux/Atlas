@@ -134,6 +134,14 @@ test('order: a drag lands on the nearest column, and cannot leave the row', () =
   assert.equal(dropIndex(1, 9000, 240, 4), 3, 'dragged off the right, it stops at the right');
 });
 
+test('dropIndex: a downward drag past half the row height moves to the next row', () => {
+  assert.equal(dropIndex(0, 30, 52, 4), 1); // 30 > 52/2, rounds up to index 1
+});
+
+test('dropIndex: a small drag within half a row height snaps back to the same row', () => {
+  assert.equal(dropIndex(0, 10, 52, 4), 0);
+});
+
 // --- saying it out loud ------------------------------------------------------------------------------
 
 test('order: a keyboard move is said out loud, because moving a lane is silent otherwise', () => {

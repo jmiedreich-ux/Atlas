@@ -10,9 +10,10 @@
 // and a page that needs a library to let a reader drag a column has lost an argument somewhere.
 // Pointer events, which handle mouse, touch and pen with one code path.
 //
-// NO GEOMETRY HERE EITHER. `src/chart.mjs` draws every lane about its own origin and places it
-// with a single `transform`, so reordering is arithmetic on one number per lane. Nothing on this
-// page is measured, and nothing is redrawn.
+// NO GEOMETRY HERE EITHER. The feature list is real DOM rows, not an SVG drawing — reordering
+// them is `container.appendChild` in the wanted order, which also moves each row in the tab
+// order and the accessibility tree for free. There is no chart to redraw and nothing to measure
+// except a row's own rendered height, used only as the drag's distance unit.
 //
 // WHAT IS TESTABLE IS EXPORTED. The rules that can be got wrong are pure functions with their
 // own tests, because a unit test states what is meant to be true where a rendered page only
@@ -218,27 +219,27 @@ export function writeHidden(storage, hidden) {
 }
 
 /**
- * Where each lane sits, given an order and the column pitch the drawing was built at.
+ * Where each row sits, given an order and the row height the list is rendered at.
  *
  * @param {string[]} order
- * @param {number} pitch
- * @returns {Map<string, number>} slug to x offset.
+ * @param {number} rowHeight
+ * @returns {Map<string, number>} slug to y offset.
  */
-export function layout(order, pitch) {
-  return new Map(order.map((slug, index) => [slug, index * pitch]));
+export function layout(order, rowHeight) {
+  return new Map(order.map((slug, index) => [slug, index * rowHeight]));
 }
 
 /**
- * Which index a lane dragged by `dx` from position `from` should land at.
+ * Which index a row dragged by `dy` from position `from` should land at.
  *
- * @param {number} from - the lane's current index.
- * @param {number} dx - how far it has been dragged, in user units.
- * @param {number} pitch
+ * @param {number} from - the row's current index.
+ * @param {number} dy - how far it has been dragged, in pixels.
+ * @param {number} rowHeight
  * @param {number} count
  * @returns {number}
  */
-export function dropIndex(from, dx, pitch, count) {
-  const moved = from + Math.round(dx / pitch);
+export function dropIndex(from, dy, rowHeight, count) {
+  const moved = from + Math.round(dy / rowHeight);
   return Math.min(count - 1, Math.max(0, moved));
 }
 
@@ -287,34 +288,28 @@ export function writeOrder(storage, order) {
 // in the test runner exercises the rules above without going near a document that is not there.
 
 function wire(doc, storage) {
-  const chart = doc.querySelector('[data-planning-chart]');
-  const container = doc.querySelector('[data-lanes]');
-  if (!chart || !container) return;
+  const container = doc.querySelector('[data-feature-list]');
+  if (!container) return;
 
-  const pitch = Number(chart.getAttribute('data-column-pitch')) || 0;
-  if (!pitch) return;
-
-  const lanes = new Map();
+  const rows = new Map();
   for (const node of container.querySelectorAll('[data-slug]')) {
-    lanes.set(node.getAttribute('data-slug'), node);
+    rows.set(node.getAttribute('data-slug'), node);
   }
-  const generated = [...lanes.keys()];
+  const generated = [...rows.keys()];
   if (generated.length < 2) return;
 
-  const reset = doc.querySelector('[data-order-reset]');
+  // The row height IS the drag unit here — there is no SVG column pitch any more. Measured from
+  // the first row's own rendered height rather than hard-coded, so it tracks whatever the
+  // stylesheet actually does at any viewport width.
+  const rowHeight = rows.values().next().value.getBoundingClientRect().height || 1;
+
   const said = doc.querySelector('[data-order-said]');
   const hiddenBar = doc.querySelector('[data-hidden-bar]');
   let order = orderSlugs(generated, readOrder(storage));
   let hidden = partitionHidden(order, readHidden(storage)).hidden;
 
-  const nameOf = (slug) => {
-    const handle = lanes.get(slug)?.querySelector('[data-lane-head]');
-    return handle?.getAttribute('data-name') || slug;
-  };
+  const nameOf = (slug) => rows.get(slug)?.querySelector('[data-row-handle]')?.getAttribute('data-name') || slug;
 
-  // The strip that makes hiding recoverable. It NAMES what is hidden rather than counting it, so
-  // bringing a feature back never needs the reader to remember which ones they put away — and it
-  // is rebuilt from the live list every render, so it cannot go stale against the chart.
   function renderHiddenBar() {
     if (!hiddenBar) return;
     hiddenBar.textContent = '';
@@ -337,7 +332,6 @@ function wire(doc, storage) {
       button.textContent = `Show ${nameOf(slug)}`;
       hiddenBar.appendChild(button);
     }
-
     if (hidden.length > 1) {
       const all = doc.createElement('button');
       all.type = 'button';
@@ -350,34 +344,16 @@ function wire(doc, storage) {
 
   function render() {
     const { visible } = partitionHidden(order, hidden);
-    // Only what is on the page takes a place, so the remaining features close up rather than
-    // leaving a gap where a hidden one used to be.
-    const places = layout(visible, pitch);
-    for (const [slug, node] of lanes) {
-      const place = places.get(slug);
-      if (place === undefined) {
-        // `display: none` rather than the `hidden` attribute: SVG elements do not honour `hidden`
-        // in every browser, and this also takes the header out of the tab order, which the
-        // attribute alone would not.
-        node.style.display = 'none';
-        node.setAttribute('aria-hidden', 'true');
+    for (const [slug, node] of rows) {
+      if (visible.includes(slug)) {
+        node.removeAttribute('hidden');
       } else {
-        node.style.removeProperty('display');
-        node.removeAttribute('aria-hidden');
-        node.setAttribute('transform', `translate(${place},0)`);
+        node.setAttribute('hidden', '');
       }
     }
-    // Follow the visual order in the DOM too, so tabbing through the features and reading them
-    // with assistive technology both go left to right rather than in the order the build happened
-    // to render.
-    for (const slug of order) container.appendChild(lanes.get(slug));
-
-    if (reset) {
-      const changed = order.some((slug, i) => slug !== generated[i]);
-      if (changed) reset.removeAttribute('hidden');
-      else reset.setAttribute('hidden', '');
-    }
-
+    // Reordering real DOM children IS the repaint — no transform, no pixel math for the settled
+    // state. Only a live drag (see pointermove below) needs a visual nudge before it lands.
+    for (const slug of order) container.appendChild(rows.get(slug));
     renderHiddenBar();
   }
 
@@ -391,76 +367,92 @@ function wire(doc, storage) {
     hidden = partitionHidden(order, next).hidden;
     writeHidden(storage, hidden.length ? hidden : null);
     render();
-    // Focus follows the feature. Hiding one moves it to its own restore button, so a keyboard
-    // reader is never left focused on something that is no longer on the page — and lands on the
-    // way back rather than having to go looking for it.
     const landing = focusSlug
       ? hiddenBar?.querySelector(`[data-restore="${focusSlug}"]`) ||
-        lanes.get(focusSlug)?.querySelector('[data-lane-head]')
+        rows.get(focusSlug)?.querySelector('[data-row-handle]')
       : null;
     if (landing && typeof landing.focus === 'function') landing.focus();
   }
 
+  function toggleExpand(handle) {
+    const expanded = handle.getAttribute('aria-expanded') === 'true';
+    const spine = doc.getElementById(handle.getAttribute('aria-controls'));
+    handle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+    if (spine) {
+      if (expanded) spine.setAttribute('hidden', '');
+      else spine.removeAttribute('hidden');
+    }
+  }
+
   render();
 
-  if (reset) {
-    reset.addEventListener('click', () => {
-      writeOrder(storage, null);
-      order = [...generated];
-      render();
-    });
-  }
+  for (const [slug, node] of rows) {
+    const handle = node.querySelector('[data-row-handle]');
+    if (!handle) continue;
 
-  // --- the feature's own triage, as a modal (#780) -----------------------------------------------
-  //
-  // The standalone Triage page is gone from the desk. Everything the modal SAYS is rendered by the
-  // build; this composes nothing and only opens and closes.
-  //
-  // FOCUS IS HANDED BACK EXPLICITLY rather than left to the platform. A `<dialog>` restores focus
-  // to whatever had it when it opened — but the thing that opens this is an SVG group, and a group
-  // that was clicked rather than tabbed to may not have had focus at all. #780 asks specifically
-  // that focus return to the header that opened it, so it is done here where it can be relied on.
-  let openedFrom = null;
-
-  function openModal(handle) {
-    // The header names its own modal. Read from the attribute rather than from the lane's key, so
-    // the markup and this module cannot come to disagree about which modal belongs to which
-    // feature without the page simply not opening one.
-    const slug = handle?.getAttribute?.('data-opens-modal');
-    if (!slug) return false;
-    const dialog = doc.querySelector(`[data-feature-modal="${slug}"]`);
-    if (!dialog || typeof dialog.showModal !== 'function') return false;
-    openedFrom = handle || null;
-    dialog.showModal();
-    return true;
-  }
-
-  for (const dialog of doc.querySelectorAll('[data-feature-modal]')) {
-    dialog.addEventListener('click', (event) => {
-      const target = event.target;
-      if (target?.closest?.('[data-modal-close]')) {
-        dialog.close();
-        return;
-      }
-      const hide = target?.closest?.('[data-modal-hide]');
-      if (hide) {
-        const slug = hide.getAttribute('data-modal-hide');
-        dialog.close();
+    handle.addEventListener('keydown', (event) => {
+      if (event.key === 'h' || event.key === 'H') {
+        event.preventDefault();
         commitHidden(toggleHidden(hidden, slug), slug);
         if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        toggleExpand(handle);
+        return;
+      }
+      // Vertical list: up/down move a row, matching arrow-key semantics to the actual layout
+      // direction (the SVG version used left/right, because lanes sat side by side).
+      const delta = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+      if (delta === 0) return;
+      event.preventDefault();
+      commit(moveSlug(order, slug, delta));
+      handle.focus();
+      if (said) said.textContent = announce(order, slug, handle.getAttribute('data-name') || slug);
+    });
+
+    let startY = null;
+    let startIndex = 0;
+
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== undefined && event.button !== 0) return;
+      startY = event.clientY;
+      startIndex = order.indexOf(slug);
+      node.classList.add('is-dragging');
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch (err) {
+        // Not every pointer can be captured; move/up still fire on the handle.
       }
     });
-    // Covers every way out — the close button, the Esc key the platform handles, and a click on
-    // the backdrop — because focus has to come back from all of them, not from the one we wired.
-    dialog.addEventListener('close', () => {
-      const handle = openedFrom;
-      openedFrom = null;
-      // Not when the feature has just been hidden: `commitHidden` has already moved focus to the
-      // way of getting it back, and a header that is no longer on the page cannot take focus.
-      if (handle && handle.isConnected && handle.closest('[data-slug]')?.style.display !== 'none') {
-        handle.focus();
-      }
+
+    handle.addEventListener('pointermove', (event) => {
+      if (startY === null) return;
+      const dy = event.clientY - startY;
+      // A live visual nudge only — the settled position always comes from `render()`'s DOM
+      // reorder. No scale correction needed here: real pixels, not a scaled SVG viewBox.
+      node.style.transform = `translateY(${dy}px)`;
     });
+
+    function end(event) {
+      if (startY === null) return;
+      const dy = event.clientY - startY;
+      startY = null;
+      node.classList.remove('is-dragging');
+      node.style.removeProperty('transform');
+
+      if (Math.abs(dy) < CLICK_SLOP) {
+        toggleExpand(handle);
+        return;
+      }
+
+      const to = dropIndex(startIndex, dy, rowHeight, order.length);
+      commit(moveSlug(order, slug, to - order.indexOf(slug)));
+    }
+
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
   }
 
   if (hiddenBar) {
@@ -473,91 +465,8 @@ function wire(doc, storage) {
       }
       const slug = target.getAttribute('data-restore');
       commitHidden(toggleHidden(hidden, slug), slug);
-      if (said) said.textContent = `${nameOf(slug)} is back on the chart.`;
+      if (said) said.textContent = `${nameOf(slug)} is back on the list.`;
     });
-  }
-
-  for (const [slug, node] of lanes) {
-    const handle = node.querySelector('[data-lane-head]');
-    if (!handle) continue;
-
-    handle.addEventListener('keydown', (event) => {
-      // Hiding, from the keyboard. Drag and click alone are not enough, and the instruction every
-      // header points at with `aria-describedby` names this key.
-      if (event.key === 'h' || event.key === 'H') {
-        event.preventDefault();
-        const next = toggleHidden(hidden, slug);
-        commitHidden(next, slug);
-        if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
-        return;
-      }
-
-      // The header carries `role="button"`, and a button that does nothing on Enter or Space is a
-      // button only to the eye. This is the keyboard's half of "clicking a header opens a modal".
-      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
-        event.preventDefault();
-        openModal(handle);
-        return;
-      }
-
-      const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
-      if (delta === 0) return;
-      event.preventDefault();
-      commit(moveSlug(order, slug, delta));
-      handle.focus();
-      // Said whether or not the position changed: at either end the useful answer is that the key
-      // worked and the feature is already first or last.
-      if (said) said.textContent = announce(order, slug, handle.getAttribute('data-name') || slug);
-    });
-
-    let startX = null;
-    let startIndex = 0;
-
-    handle.addEventListener('pointerdown', (event) => {
-      if (event.button !== undefined && event.button !== 0) return;
-      startX = event.clientX;
-      startIndex = order.indexOf(slug);
-      node.classList.add('is-dragging');
-      try {
-        handle.setPointerCapture(event.pointerId);
-      } catch (err) {
-        // Not every pointer can be captured; the move and up handlers still fire on the handle.
-      }
-    });
-
-    handle.addEventListener('pointermove', (event) => {
-      if (startX === null) return;
-      // Screen pixels to user units. The drawing is rendered at its natural size unless the
-      // viewport is narrower, in which case the browser scales it; measuring the rendered width
-      // against the drawn width is what keeps a drag tracking the pointer either way.
-      const scale = chart.getBoundingClientRect().width / (Number(chart.getAttribute('width')) || 1);
-      const dx = (event.clientX - startX) / (scale || 1);
-      node.setAttribute('transform', `translate(${startIndex * pitch + dx},0)`);
-    });
-
-    function end(event) {
-      if (startX === null) return;
-      const scale = chart.getBoundingClientRect().width / (Number(chart.getAttribute('width')) || 1);
-      const dx = (event.clientX - startX) / (scale || 1);
-      startX = null;
-      node.classList.remove('is-dragging');
-
-      // A CLICK IS A DRAG THAT WENT NOWHERE. The header is both the drag handle and the way into
-      // this feature's triage, so the two have to be told apart from one gesture — by distance,
-      // because time would call a slow, deliberate click a drag. Below the threshold the lane goes
-      // back where it was and the modal opens; above it, the drag lands.
-      if (Math.abs(dx) < CLICK_SLOP) {
-        render();
-        openModal(handle);
-        return;
-      }
-
-      const to = dropIndex(startIndex, dx, pitch, order.length);
-      commit(moveSlug(order, slug, to - order.indexOf(slug)));
-    }
-
-    handle.addEventListener('pointerup', end);
-    handle.addEventListener('pointercancel', end);
   }
 }
 
