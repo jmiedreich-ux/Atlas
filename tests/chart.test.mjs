@@ -112,6 +112,75 @@ test('chart: one lane per feature, at one column pitch apart, each drawn about i
   assert.equal(centres.size, 1, 'a lane that positions itself absolutely cannot be reordered');
 });
 
+test('chart: a feature’s name box and its ribbon share one centre line', () => {
+  // #780: "centre the arrow on its feature's name box. The ribbon is currently offset from the
+  // header above it; they should share a centre line." M2.1 gave the header the whole column and
+  // left the ribbon at the far left of it.
+  //
+  // Asserted rather than eyeballed, and asserted as ONE COMPUTED VALUE: a test that recomputed the
+  // centre from the same constants the drawing used would agree with any bug that lived in those
+  // constants. Both sides here are read off the drawing.
+  const { chart } = draw([entry('Alpha'), entry('Bravo'), entry('Charlie')]);
+
+  const boxCentre = chart.head.x + chart.head.width / 2;
+  for (const lane of chart.lanes) {
+    assert.equal(boxCentre, lane.centre, `${lane.codename}: the name box and the ribbon are off-centre`);
+  }
+  // Both are drawn about the lane's own origin, so this holds at every viewport width — the SVG is
+  // in user units and the page scales nothing. It is the same markup at 1600px and at 390px.
+  assert.ok(chart.head.x >= 0, 'the name box hangs off the left of its own column');
+  assert.ok(chart.head.x + chart.head.width <= CHART.columnPitch, 'the name box runs into the next column');
+});
+
+test('chart: the date column clears the ARROWHEAD, not just the ribbon it grows out of', () => {
+  // The first of the two defects #780 found on first render: "an arrowhead is wider than its
+  // ribbon, and it eats into the date column beside it ... the text column starts at a fixed
+  // offset from the ribbon's CENTRE, which is right for the ribbon and wrong for the head."
+  //
+  // The three cases named there — Beacon M4's `23 Mar 2026`, Tide M2's `6 Apr 2026` clipped to
+  // `6 Apr`, and Reef M5's `11 Jun 2026 → 30 Jun 2026` clipped at the left — are all one bug: a
+  // head's flare reaching past `textX`.
+  //
+  // This pins the RELATION rather than the number, reading both sides off the drawing, so a later
+  // change to the head's width or its flare cannot silently re-break it: every arrowhead actually
+  // emitted has to end left of the text column its own lane draws in.
+  const { chart } = draw([
+    entry('Beacon', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done', started: '2026-03-02', completed: '2026-03-05' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', plan: 'm2-plan.md', started: '2026-03-23' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'blocked', plan: 'm3-plan.md' }),
+      ],
+    }),
+    entry('Harbor', { stage: 'designing', milestones: [] }),
+  ]);
+
+  const rightEdgeOf = (head) => {
+    const numbers = head.d.match(/-?\d+(\.\d+)?/g).map(Number);
+    return Math.max(...numbers.filter((_, i) => i % 2 === 0));
+  };
+
+  let headsChecked = 0;
+  for (const lane of chart.lanes) {
+    for (const arrow of [lane.solid, lane.faint].filter(Boolean)) {
+      headsChecked += 1;
+      assert.ok(
+        rightEdgeOf(arrow.head) < lane.textX,
+        `${lane.codename}: an arrowhead reaches x=${rightEdgeOf(arrow.head)}, into a text column that starts at ${lane.textX}`,
+      );
+    }
+  }
+  assert.ok(headsChecked >= 3, 'this test stopped exercising both arrows');
+
+  // And the text still has to sit beside the ribbon rather than halfway across the column: the fix
+  // is to clear the head, not to push the dates out of reach of the thing they date.
+  assert.ok(
+    chart.lanes[0].textX - chart.lanes[0].centre < CHART.columnPitch / 3,
+    'the date column was pushed away from the ribbon rather than past the head',
+  );
+});
+
 test('chart: the ladder is horizontal rules, one per row, and never a vertical grid', () => {
   const { ladder, chart } = draw([entry('Alpha', { stage: 'shipping', milestones: [milestone({ status: 'done' })] })]);
 
@@ -417,8 +486,11 @@ test('chart: a closed milestone shows both stored days and how long it took', ()
 
   const [dot] = laneOf(chart, 'Tide').dots;
   const text = dot.lines.map((l) => l.text).join(' | ');
-  assert.match(text, /2 Mar 2026/, 'the start day is missing');
+  // Both ends are stated; the YEAR is stated once, because both fall in it. See
+  // `formatDayRange` — the span is what has to be actionable, and it is.
+  assert.match(text, /2 Mar\b/, 'the start day is missing');
   assert.match(text, /5 Mar 2026/, 'the close day is missing');
+  assert.match(text, /\b2026\b/, 'the span carries no year at all');
   assert.match(text, /3 days/, 'how long it took is missing');
 });
 
@@ -522,6 +594,52 @@ test('chart: a feature still in the stages speaks its gate; one in flight says s
   const tide = laneOf(chart, 'Tide');
   assert.equal(tide.balloon.kicker, 'Happening now', 'a milestone under way must not read as merely next');
   assert.match(tide.balloon.lines.map((l) => l.text).join(' '), /Buoy telemetry/);
+});
+
+test('chart: the widest date a lane can print stays clear of the next feature’s balloon', () => {
+  // Moving the ribbon onto its name box's centre line (#780) moved the date column right by the
+  // same amount, and the widest thing on the chart — a closed milestone's span — then ran out of
+  // its own column and under the NEXT feature's balloon, which is painted after it and opaque.
+  // Found by looking at the rendered page; no coordinate assertion could have seen it, because the
+  // text's width is a font measurement this pure module does not hold.
+  //
+  // So it is modelled: `textCharWidth` is a declared per-character budget, exactly as
+  // `balloonChars` is a declared wrap budget, and the constraint is asserted against it. The
+  // balloon in the next column starts at that column's `balloonInset`, which is the real edge the
+  // text must not reach.
+  const { chart } = draw([
+    entry('Reef', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done', started: '2026-06-11', completed: '2026-06-30' }),
+        // A span across a year boundary, which is the widest a date line can honestly get.
+        milestone({
+          id: 'M2',
+          label: 'M2',
+          depth: 2,
+          status: 'done',
+          plan: 'm2-plan.md',
+          started: '2026-12-30',
+          completed: '2027-01-04',
+        }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Reef');
+  const lines = [
+    ...lane.dots.flatMap((dot) => dot.lines.map((line) => line.text)),
+    ...lane.skips.flatMap((skip) => [skip.label, skip.reason]),
+  ];
+  assert.ok(lines.length > 0, 'this test stopped drawing any dates at all');
+
+  const widest = Math.max(...lines.map((text) => text.length)) * CHART.textCharWidth;
+  const reaches = lane.textX + widest;
+  const nextBalloonStartsAt = CHART.columnPitch + CHART.balloonInset;
+  assert.ok(
+    reaches <= nextBalloonStartsAt,
+    `a date line reaches x=${Math.round(reaches)}, past the next feature's balloon at ${nextBalloonStartsAt}`,
+  );
 });
 
 test('chart: a balloon never expands into a neighbouring column — it grows downward', () => {

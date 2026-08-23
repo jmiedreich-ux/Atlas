@@ -42,7 +42,38 @@
 // `theme/order.js` move a whole feature — ribbon, dots, dates, skip markers and balloon together —
 // by rewriting one number, with no geometry on the client at all.
 
-import { daysBetween, formatDay, formatDuration } from './dates.mjs';
+import { daysBetween, formatDay, formatDayRange, formatDuration } from './dates.mjs';
+
+// An arrowhead's base is WIDER than the body it grows from — that flare is what makes it read as a
+// head rather than as the bar simply stopping, and #780 calls the head "the one cell on the chart
+// that answers the question the page exists for". So the flare stays.
+//
+// What that costs, and what M2.1 got wrong, is that a head is therefore wider than its ribbon and
+// the date column beside it must clear the HEAD, not the body. Both the drawing and the constants
+// below go through this one function, so the two can never disagree — which is the whole of the
+// defect #780 found on first render.
+const HEAD_FLARE = 0.42;
+
+function flareOf(width) {
+  return Math.round(width * HEAD_FLARE);
+}
+
+/** How far an arrowhead of this body width reaches either side of its own centre line. */
+export function headHalfWidth(width) {
+  return Math.round(width / 2) + flareOf(width);
+}
+
+// The lane's own geometry, derived rather than written down twice.
+//
+// `ribbonCentre` is the lane's spine: #780 requires the feature's NAME BOX and its ribbon to share
+// a centre line, so the name box is placed about this value rather than given the whole column.
+// The box is therefore narrower than the column, and the space to its right is where the dates go —
+// which is the only arrangement that fits at this column pitch. The alternative, a full-width name
+// box with the ribbon centred under it, pushes the date column past the pitch and needs the whole
+// chart about 45% wider; at 1600px that puts two of six features off-screen.
+const RIBBON_CENTRE = 62;
+const RIBBON_WIDTH = 36;
+const HEAD_MARGIN = 4;
 
 // Every measurement the page is built from, in one place and in user units. Frozen because a
 // caller adjusting one of these at runtime would move half a drawing and not the other half.
@@ -54,8 +85,8 @@ export const CHART = Object.freeze({
   rightMargin: 16,
 
   // Within a lane, measured from the lane's own origin.
-  ribbonCentre: 36,
-  ribbonWidth: 36,
+  ribbonCentre: RIBBON_CENTRE,
+  ribbonWidth: RIBBON_WIDTH,
   faintWidth: 28,
   headLength: 30,
   faintHeadLength: 26,
@@ -63,16 +94,36 @@ export const CHART = Object.freeze({
   faintRadius: 5,
 
   // The column of text beside every ribbon: the dates, and a skipped milestone's reason.
-  textX: 62,
+  //
+  // DERIVED, not written down. M2.1 set this to a fixed offset from the ribbon's centre, which is
+  // right for the ribbon and wrong for the head that grows out of it — so the head's flare covered
+  // the dates on three of the fixture's six features and several hundred tests passed anyway.
+  // Deriving it from `headHalfWidth` is what makes the relation survive the next change to either.
+  textX: RIBBON_CENTRE + headHalfWidth(RIBBON_WIDTH) + 6,
   textLine: 13,
+
+  // How wide a character of that text is, as a BUDGET rather than a measurement — the same kind of
+  // declared approximation `balloonChars` is, and for the same reason: a measurement taken in one
+  // browser would not survive the reader's own font settings.
+  //
+  // It exists so that one thing this module genuinely cannot see can still be asserted. The date
+  // column is the only run of free text laid beside the drawing, and the widest line in it must
+  // not reach the NEXT feature's balloon, which is painted after it and is opaque. That collision
+  // was invisible to every coordinate test in the suite and visible the moment the page was
+  // rendered. `tests/chart.test.mjs` holds the constraint.
+  textCharWidth: 6.4,
 
   // A ribbon stops short of its row's boundary so the light rule beneath it stays visible either
   // side of the head, rather than being buried under a solid block.
   topInset: 8,
   bottomInset: 8,
 
-  balloonInset: 12,
-  balloonWidth: 208,
+  // The balloon sits far enough into its own column that the PREVIOUS feature's date column
+  // cannot reach it. That is the collision the rendered page revealed: a span across a year
+  // boundary is the widest line the chart can print, and at an inset of 12 it landed under the
+  // neighbour. Its width shrinks by the same amount, so the balloon still ends where it did.
+  balloonInset: 24,
+  balloonWidth: 196,
   balloonRadius: 14,
   balloonTailRise: 26,
   balloonLine: 15,
@@ -85,17 +136,21 @@ export const CHART = Object.freeze({
   detourReach: 28,
   balloonPinRadius: 4,
 
-  // A feature's header: the drag handle, its accent spine, and the two lines inside it. It is
-  // inset a little on its left and rather more on its right, so two adjacent headers read as two
-  // rather than as one bar with a seam.
-  headMargin: 4,
-  headGutter: 12,
+  // A feature's NAME BOX: the drag handle, its accent spine, and the two lines inside it.
+  //
+  // #780: "centre the arrow on its feature's name box ... they should share a centre line." M2.1
+  // gave the box the whole column width, which put the ribbon at the far left of it. The box is
+  // now a plate centred on the lane's spine, so its width is fixed by where that spine sits:
+  // twice the margin's distance from it. The rest of the column is the date column, which is what
+  // the plate used to sit over.
+  headMargin: HEAD_MARGIN,
+  headWidth: 2 * (RIBBON_CENTRE - HEAD_MARGIN),
   headTop: 6,
   headHeight: 44,
   headRadius: 8,
   headAccentWidth: 5,
   headAccentRadius: 2,
-  headTextX: 18,
+  headTextX: 16,
   headTitleY: 26,
   headChipY: 32,
 
@@ -184,10 +239,14 @@ function splitAroundDetours(top, bottom, detourRows) {
 // An arrowhead as a path, growing straight out of the body that ends at `y`. The base is wider
 // than the body it grows from — that flare is what makes it read as a head rather than as the
 // bar simply stopping — and the two share an edge, so nothing floats.
+//
+// The half-width comes from `headHalfWidth`, the same function the date column's own `textX` is
+// derived through. That is deliberate: M2.1 computed the flare here and the text offset up there,
+// and the two drifted apart the moment either moved.
 function headPath(centre, width, y, length) {
-  const flare = Math.round(width * 0.42);
-  const left = centre - Math.round(width / 2) - flare;
-  const right = centre + Math.round(width / 2) + flare;
+  const half = headHalfWidth(width);
+  const left = centre - half;
+  const right = centre + half;
   // Explicit `L x y` rather than the shorter `H x`: every command here takes a full coordinate
   // pair, so the path can be read back as points. A unit test can then assert that the
   // head's base and the body's end are the same line — which is the whole of #780's "nothing
@@ -269,7 +328,7 @@ function dateLines(milestone, live) {
   }
   if (started && completed) {
     return [
-      { text: `${formatDay(started)} → ${formatDay(completed)}`, strong: true },
+      { text: formatDayRange(started, completed), strong: true },
       { text: formatDuration(daysBetween(started, completed)) },
     ];
   }
@@ -558,11 +617,14 @@ export function computeChart(ladder, workstreams) {
     ladderBottom,
     // Where the gutter's right-aligned row captions sit.
     ladderCaptionX: CHART.ladderWidth - CHART.ladderCaptionInset,
-    // A feature's header. Identical for every lane, because a lane is drawn about its own origin.
+    // A feature's name box. Identical for every lane, because a lane is drawn about its own
+    // origin — and CENTRED ON THE RIBBON below it (#780), which is what fixes its width: the
+    // margin decides where it starts, and the spine decides where its centre is, so the two
+    // together decide how wide it can be.
     head: {
       x: CHART.headMargin,
       y: CHART.headTop,
-      width: CHART.columnPitch - CHART.headMargin - CHART.headGutter,
+      width: CHART.headWidth,
       height: CHART.headHeight,
       radius: CHART.headRadius,
       accentWidth: CHART.headAccentWidth,

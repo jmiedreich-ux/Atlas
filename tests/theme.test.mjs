@@ -1263,7 +1263,8 @@ test('planning: a skipped milestone is marked in its own row, with the reason be
 
 test('planning: the stored dates reach the page beside the milestone they belong to', () => {
   const reef = laneMarkup(depthHtml, 'reef');
-  assert.match(reef, /4 May 2026 → 8 May 2026/, "the closed milestone's two stored days are missing");
+  // The span states its year once, because both ends fall in it — see `formatDayRange`.
+  assert.match(reef, /4 May → 8 May 2026/, "the closed milestone's two stored days are missing");
   assert.match(reef, /4 days/, 'how long it took is missing');
 
   const tide = laneMarkup(depthHtml, 'tide');
