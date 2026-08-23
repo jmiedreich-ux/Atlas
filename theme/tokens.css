@@ -628,6 +628,97 @@ h3 {
   padding: var(--sky-space-4);
 }
 
+.spine-empty {
+  color: var(--sky-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.milestone-spine {
+  border-left: 2px solid var(--sky-color-border);
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--sky-space-4);
+}
+
+.milestone-node {
+  padding: var(--sky-space-2) 0 var(--sky-space-2) var(--sky-space-4);
+  position: relative;
+}
+
+.milestone-icon {
+  background: var(--sky-color-border-control);
+  border-radius: 50%;
+  height: 10px;
+  left: calc(-1 * var(--sky-space-4) - 5px);
+  position: absolute;
+  top: var(--sky-space-2);
+  width: 10px;
+}
+
+.milestone-node.tone-done .milestone-icon {
+  background: var(--atlas-tone-done, var(--sky-color-primary));
+}
+
+.milestone-node.tone-next .milestone-icon {
+  background: var(--sky-card-background);
+  border: 2px solid var(--atlas-tone-live, var(--sky-color-primary));
+}
+
+.milestone-node.tone-parked .milestone-icon {
+  background: var(--sky-danger-text);
+}
+
+.milestone-head {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+}
+
+.milestone-label {
+  font-family: var(--atlas-font-mono, monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.milestone-title {
+  font-weight: 600;
+}
+
+.task-list {
+  list-style: none;
+  margin: var(--sky-space-2) 0 0;
+  padding: 0;
+}
+
+.task-list.is-muted {
+  opacity: 0.65;
+}
+
+.task-line {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+  padding: 2px 0;
+}
+
+.task-line.is-done .task-text {
+  color: var(--sky-text-muted);
+  text-decoration: line-through;
+}
+
+.task-owner {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+.milestone-task-count {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  margin: var(--sky-space-1) 0 0;
+}
+
 /* --- surface two: the mobile triage view -------------------------------------------------------- */
 
 .card-list {

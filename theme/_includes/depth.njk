@@ -53,9 +53,40 @@
 {{ ui.chip('triage', stream.triage) }}
 </div>
 <div class="feature-spine" id="spine-{{ stream.slug }}" data-feature-spine hidden>
-{#- Task 6 fills this in. Left as an empty, correctly-hidden panel here so this task's own
-    tests (and the drag wiring in Task 7, which only touches .feature-row-head) are true
-    independent of what Task 6 adds. -#}
+{%- if stream.milestones.length == 0 %}
+<p class="spine-empty">No milestones on record yet.</p>
+{%- else %}
+<ol class="milestone-spine">
+{%- for milestone in stream.milestones %}
+{%- set detail = stream.spineDetail[loop.index0] %}
+<li class="milestone-node tone-{{ milestone.manifest.status }}" data-milestone-node="{{ stream.slug }}-{{ milestone.manifest.id }}">
+<span class="milestone-icon" aria-hidden="true"></span>
+<div class="milestone-body">
+<div class="milestone-head">
+<span class="milestone-label">{{ milestone.manifest.label }}</span>
+<span class="milestone-title">{{ milestone.manifest.title }}</span>
+{{ ui.chip('status', milestone.manifest.status) }}
+</div>
+{%- if detail == 'full' or detail == 'full-muted' %}
+{%- if milestone.manifest.tasks.length %}
+<ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
+{%- for t in milestone.manifest.tasks %}
+<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}">
+<span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
+<span class="task-text">{{ t.text }}</span>
+<span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
+</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+{%- elif detail == 'count' and milestone.manifest.tasks.length %}
+<p class="milestone-task-count">{{ milestone.manifest.tasks.length }} sub-task{{ 's' if milestone.manifest.tasks.length != 1 else '' }}</p>
+{%- endif %}
+</div>
+</li>
+{%- endfor %}
+</ol>
+{%- endif %}
 </div>
 </li>
 {%- endfor %}

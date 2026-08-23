@@ -1084,6 +1084,58 @@ test('planning: nothing on the desk is called Triage any more, and the phone kee
   assert.ok(!/<dialog/.test(mobileHtml), 'the phone view grew a desk affordance');
 });
 
+// --- surface one: the milestone spine (2b), nested inside an expanded row (Task 6) --------------
+
+test('spine: a done milestone collapses to one line — no task checklist', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => m.status === 'done'));
+  assert.ok(stream, 'fixture needs a workstream with a done milestone');
+  const milestone = stream.manifest.milestones.find((m) => m.status === 'done');
+  const nodeMatch = new RegExp(
+    `data-milestone-node="${stream.slug}-${milestone.id}"[\\s\\S]*?</div>\\s*</div>`,
+  ).exec(depthHtml);
+  assert.ok(nodeMatch, `no spine node rendered for ${stream.slug}/${milestone.id}`);
+  assert.doesNotMatch(nodeMatch[0], /data-task-list/, 'a done milestone must not render a task list');
+});
+
+test('spine: every milestone node shows its own real label, always', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.length > 0);
+  // Anchored on </ol> rather than the bare </div></li> the brief's draft used: each
+  // milestone-node <li> also closes with its own </div></li> (the milestone-body div, then the
+  // li), so a lazy match on that pair alone stops at the FIRST milestone rather than the whole
+  // spine. </ol> only closes once per stream, right after every milestone <li> in it, so this is
+  // the boundary that actually reaches every milestone this stream has.
+  const spineBlock = new RegExp(`id="spine-${stream.slug}"[\\s\\S]*?</ol>\\s*</div>\\s*</li>`).exec(depthHtml)[0];
+  for (const milestone of stream.manifest.milestones) {
+    assert.ok(spineBlock.includes(milestone.label), `milestone ${milestone.id}'s own label is not on its node`);
+  }
+});
+
+test('spine: the current milestone renders its full task list, unmuted', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => m.status === 'next' && m.tasks && m.tasks.length));
+  if (!stream) return; // fixture may not have this shape; Task 4's build.test.mjs covers the parse itself
+  const milestone = stream.manifest.milestones.find((m) => m.status === 'next');
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-${milestone.id}"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(depthHtml);
+  assert.ok(nodeMatch, 'current milestone did not render a task list');
+  assert.doesNotMatch(nodeMatch[0], /class="task-list is-muted"/, 'the current milestone\'s task list must not be muted');
+});
+
+test('spine: a task line shows its owner, or "Unassigned" when it has none', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => (m.tasks || []).length));
+  if (!stream) return;
+  const milestone = stream.manifest.milestones.find((m) => (m.tasks || []).length);
+  const html = depthHtml;
+  for (const t of milestone.tasks) {
+    const label = t.owner || 'Unassigned';
+    assert.ok(html.includes(label), `task "${t.text}" should show owner label "${label}"`);
+  }
+});
+
+test('spine: a done task is struck through', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => (m.tasks || []).some((t) => t.done)));
+  if (!stream) return;
+  assert.match(depthHtml, /class="task-line is-done"/);
+});
+
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------
 
 test('mobile: workstreams are ordered by what needs the owner, not alphabetically', () => {
