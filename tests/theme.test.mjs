@@ -1223,6 +1223,31 @@ test('planning: the faint second arrow is drawn only where records remain beyond
   assert.ok(chart.lanes.some((l) => !l.faint), 'the fixture no longer exercises the single arrow at all');
 });
 
+test('planning: the faint arrow is drawn FIRST, so the solid one is painted on top of it', () => {
+  // #780: the two arrows overlay. SVG has no z-index — the painter's order IS the document order —
+  // so an overlay that is emitted the wrong way round draws the faint arrow over the solid one and
+  // the page shows a pale bar where the work is. `src/chart.mjs` cannot express this; only the
+  // order of the elements in the markup can, which is why it is asserted here.
+  const chart = computeChart(ladder, assemble(workstreams));
+  const withFaint = chart.lanes.filter((l) => l.faint);
+  assert.ok(withFaint.length > 0, 'the fixture no longer exercises the overlay at all');
+
+  for (const lane of withFaint) {
+    const markup = laneMarkup(depthHtml, lane.slug);
+    // The faint body carries the faint arrow's own width; the solid body carries the solid one's.
+    const faintBody = markup.indexOf(`<rect class="ribbon-body tone-ahead" x="${lane.faint.x}"`);
+    const solidHead = markup.indexOf(`<path class="ribbon-head tone-${lane.solid.head.tone}" d="${lane.solid.head.d}"`);
+    const faintHead = markup.indexOf(`<path class="ribbon-head tone-ahead" d="${lane.faint.head.d}"`);
+    assert.ok(faintBody >= 0, `${lane.slug}: no faint body in the markup`);
+    assert.ok(solidHead >= 0, `${lane.slug}: no solid head in the markup`);
+    assert.ok(faintHead >= 0, `${lane.slug}: no faint head in the markup`);
+    assert.ok(
+      faintBody < solidHead && faintHead < solidHead,
+      `${lane.slug}: the faint arrow is painted over the solid one, not under it`,
+    );
+  }
+});
+
 test('planning: a skipped milestone is marked in its own row, with the reason beside it', () => {
   const reef = laneMarkup(depthHtml, 'reef');
   assert.match(reef, /<circle class="skip-ring"/, 'the milestone the work went round was not marked');

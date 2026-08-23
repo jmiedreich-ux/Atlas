@@ -211,9 +211,19 @@ test('chart: an arrowhead grows straight out of its own body, with no gap betwee
   }
 });
 
-test('chart: where records remain, a second fainter and narrower arrow covers the rest', () => {
-  // The reference case #780 names: a solid arrow through the stages ending at Planned, then a
-  // faint arrow covering all six recorded milestones — not five, and not overlapping the solid one.
+test('chart: the faint arrow spans the whole recorded length and the solid one is laid OVER it', () => {
+  // INVERTED FROM M2.1, deliberately rather than deleted, so the correction is visible in the
+  // suite. That version was called "where records remain, a second fainter and narrower arrow
+  // covers the rest" and asserted the two arrows TILED — the solid one stopping and the faint one
+  // beginning below it, with `assert.ok(faint.segments[0].y > headTipY(solid.head), 'the two
+  // arrows overlap')` as its guard.
+  //
+  // #780 corrects that outright: "the faint arrow runs the whole recorded span, and the solid
+  // arrow overlays it as far as the work has actually reached ... they are one object seen twice,
+  // not two objects in sequence." So the guard that used to forbid an overlap now REQUIRES one.
+  //
+  // The reference case is the one #780 names: Keystone, six recorded milestones and nothing
+  // started — a faint arrow the full six with the solid one over the stages on top of it.
   const { ladder, chart } = draw([
     entry('Keystone', {
       stage: 'planned',
@@ -234,13 +244,66 @@ test('chart: where records remain, a second fainter and narrower arrow covers th
   assert.ok(headTipY(lane.solid.head) > planned.y, 'the solid arrow stops short of Planned');
   assert.ok(headTipY(lane.solid.head) <= planned.y + planned.height, 'the solid arrow runs past Planned');
 
-  // The faint one starts below it and ends inside M6 — all six, and they do not overlap.
-  assert.ok(lane.faint.segments[0].y > headTipY(lane.solid.head), 'the two arrows overlap');
+  // THE CORRECTION. The faint arrow begins at the very top of the ladder, exactly where the solid
+  // one begins — not below it — and runs to the end of the records. The solid arrow is therefore
+  // laid entirely over it.
+  assert.equal(
+    lane.faint.segments[0].y,
+    lane.solid.segments[0].y,
+    'the faint arrow does not start where the solid one does — they are tiled, not overlaid',
+  );
+  assert.ok(
+    headTipY(lane.faint.head) > headTipY(lane.solid.head),
+    'the faint arrow must reach past the solid one, which is the whole of it being seen twice',
+  );
+  // And the solid one has to cover the faint body where the two coincide, or the overlay reads as
+  // a faint stripe running down the middle of a solid arrow. Width alone is not enough: the head
+  // flares wider than its body, so the SOLID head's flare must clear the FAINT body's edge too.
+  assert.ok(lane.faint.width < lane.solid.width, 'the faint arrow must be the narrower of the two');
+  const halfWidthOf = (head) => {
+    const numbers = head.d.match(/-?\d+(\.\d+)?/g).map(Number);
+    const xs = numbers.filter((_, i) => i % 2 === 0);
+    return (Math.max(...xs) - Math.min(...xs)) / 2;
+  };
+  assert.ok(
+    halfWidthOf(lane.solid.head) >= lane.faint.width / 2,
+    'the solid head is narrower than the faint body behind it, so the faint one shows either side',
+  );
+
   const sixth = chart.rows.find((r) => r.id === 'depth-6');
   assert.ok(headTipY(lane.faint.head) > sixth.y, 'the faint reach stops short of the sixth milestone');
   assert.ok(headTipY(lane.faint.head) <= sixth.y + sixth.height, 'the faint reach runs past the records');
   assert.equal(ladder.columns[0].recordedTo, 'depth-6');
   assert.ok(rowY('depth-1') > planned.y, 'the ladder is out of order');
+});
+
+test('chart: one object, so the faint arrow leaves its lane at the same milestones the solid one does', () => {
+  // The faint arrow is not a second mark that happens to sit behind the first; #780 says the two
+  // are ONE OBJECT seen twice. Where the work went round a milestone, the object went round it —
+  // once. Without this, a straight faint band shows through the gap the solid ribbon's detour
+  // leaves, and the crossed marker sits on top of a bar rather than beside a break.
+  const { chart } = draw([
+    entry('Reef', {
+      stage: 'shipping',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'parked', issue: 709, plan: 'm2-plan.md' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'done', plan: 'm3-plan.md' }),
+        milestone({ id: 'M4', label: 'M4', depth: 4, status: 'blocked', plan: 'm4-plan.md' }),
+        milestone({ id: 'M5', label: 'M5', depth: 5, status: 'blocked', plan: 'm5-plan.md' }),
+      ],
+    }),
+  ]);
+
+  const lane = laneOf(chart, 'Reef');
+  assert.ok(lane.faint, 'M4 and M5 are on record past the work, and no faint reach was drawn');
+  assert.equal(lane.skips.length, 1, 'the fixture for this test no longer exercises a detour');
+
+  const skipRow = chart.rows.find((r) => r.id === 'depth-2');
+  const covers = (arrow, y) => arrow.segments.some((s) => y > s.y && y < s.y + s.height);
+  const midSkip = skipRow.y + Math.round(skipRow.height / 2);
+  assert.ok(!covers(lane.solid, midSkip), 'the solid ribbon runs straight through the milestone it went round');
+  assert.ok(!covers(lane.faint, midSkip), 'the faint arrow runs straight through the detour the solid one takes');
 });
 
 test('chart: a feature with nothing recorded beyond its position has one arrow only', () => {

@@ -103,10 +103,27 @@
 {{ ui.svgChip("stage", lane.stage, chart.head.textX, chart.head.chipY) }}
 </g>
 
-{#- The ribbon. One object per feature, drawn in two weights: solid over what has begun, faint over
-    what is on record beyond it. Each arrow ends in its own head, growing straight out of its own
-    body — nothing floats, and there is never a gap between the two. -#}
+{#- The ribbon. ONE OBJECT PER FEATURE, SEEN TWICE. The faint arrow spans the whole recorded length
+    of the feature; the solid arrow is laid OVER it, as far as the work has actually reached. They
+    overlay — M2.1 tiled them, solid stopping where faint began, and #780 corrected that on sight.
+
+    DRAW ORDER IS THE OVERLAY. SVG has no z-index: the painter's order is the document order, so
+    the faint arrow is emitted FIRST and the solid one on top of it. Swapping these two blocks
+    paints a pale bar over the work, and nothing in `src/chart.mjs` can catch it — which is why
+    `tests/theme.test.mjs` asserts the order of the elements themselves.
+
+    Each arrow ends in its own head, growing straight out of its own body — nothing floats, and
+    there is never a gap between body and head. -#}
 <g class="ribbon">
+{%- if lane.faint %}
+{%- for segment in lane.faint.segments %}
+<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
+{%- endfor %}
+{%- for d in lane.faint.detours %}
+<path class="ribbon-detour tone-ahead" d="{{ d }}" fill="none"/>
+{%- endfor %}
+<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
+{%- endif %}
 {%- for segment in lane.solid.segments %}
 <rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.solid.x }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="{{ lane.solid.radius }}" ry="{{ lane.solid.radius }}"/>
 {%- endfor %}
@@ -114,12 +131,6 @@
 <path class="ribbon-detour" d="{{ d }}" fill="none"/>
 {%- endfor %}
 <path class="ribbon-head tone-{{ lane.solid.head.tone }}" d="{{ lane.solid.head.d }}"/>
-{%- if lane.faint %}
-{%- for segment in lane.faint.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
-{%- endfor %}
-<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
-{%- endif %}
 </g>
 
 {#- A dot per milestone the ribbon covers, with its stored days beside it. Nothing below the final

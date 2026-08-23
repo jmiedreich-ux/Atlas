@@ -21,10 +21,15 @@
 //   * One continuous ribbon per feature, from the top of the ladder through the stages and on
 //     into the milestones. EVERY feature has one, including those with no milestones at all —
 //     progress through the stages is progress, and it is drawn as such.
-//   * A SOLID arrow covers what has begun: finished work in one colour, the milestone actually in
-//     flight in another. Where records exist beyond it, a SECOND, FAINTER, slightly narrower
-//     arrow covers the remainder. The two are one object drawn in two weights, and they tile the
-//     ladder without overlapping.
+//   * ONE OBJECT, SEEN TWICE. A FAINT arrow spans the whole recorded length of the feature, from
+//     the top of the ladder to the last milestone that has a record. The SOLID arrow is laid OVER
+//     it, from the same top, as far as the work has actually reached: finished work in one colour,
+//     the milestone actually in flight in another. They OVERLAY; they do not tile.
+//
+//     M2.1 built them tiled — the solid one stopping and the faint one starting below it — and
+//     #780 corrected it on sight: "you cannot have the first arrow without the second ... they are
+//     one object seen twice, not two objects in sequence." A feature with nothing recorded beyond
+//     where it stands has the solid arrow alone, because there is nothing for it to be a portion of.
 //   * Each arrow ends in its own head, growing straight out of its own body. Nothing floats and
 //     there is never a gap between body and head.
 //   * The arrow's length is the last milestone that has a RECORD. Nothing beyond it — no expected
@@ -324,16 +329,36 @@ function buildLane(stream, rows) {
     radius: CHART.ribbonRadius,
   };
 
-  // The faint reach: everything on record past where the work has got. Its own arrow, its own
-  // head, slightly narrower, so the two read as related but distinct — and absent entirely when
-  // there is nothing recorded beyond, because a feature with no records ahead has one arrow only.
+  // The faint reach. M2.1 drew this as a SECOND arrow beginning below the solid one, the two
+  // tiling the ladder end to end. #780 corrected that after seeing it rendered:
+  //
+  //   "The faint arrow runs the whole recorded span, and the solid arrow overlays it as far as the
+  //    work has actually reached ... they are one object seen twice, not two objects in sequence."
+  //
+  // So the faint arrow starts where the solid one starts — the top of the ladder — and runs to the
+  // end of the records. The solid one is then laid over it, and because the solid body and its
+  // head's flare are both wider than the faint body, what shows of the faint arrow is exactly the
+  // part the work has not reached. That is the whole construction, and it is why an "expected
+  // depth" field was never needed: the faint arrow is the object, and the solid one is how much of
+  // it has happened.
+  //
+  // The two are one object, so the detour round a skipped milestone belongs to both: the object
+  // went round that milestone once. Without this the faint band runs straight through the gap the
+  // solid ribbon's detour leaves, and the crossed marker sits on a bar instead of beside a break.
+  //
+  // Still absent entirely when nothing is recorded beyond where the work has got — a feature with
+  // no records ahead has one arrow only, and #780 has not changed that.
+  //
+  // DRAW ORDER IS LOAD-BEARING and this module cannot express it: SVG paints in document order, so
+  // `theme/_includes/depth.njk` must emit this arrow BEFORE the solid one. `tests/theme.test.mjs`
+  // pins that, because getting it backwards draws a pale bar over the work.
   let faint = null;
   if (recordedIndex > solidEndIndex) {
-    const faintTop = solidBottom + 10;
     const faintBottom = rowTop(recordedIndex) + CHART.rowHeight - CHART.bottomInset;
     const faintHeadTop = faintBottom - CHART.faintHeadLength;
     faint = {
-      segments: [{ y: faintTop, height: faintHeadTop - faintTop, tone: 'ahead' }],
+      segments: splitAroundDetours(top, faintHeadTop, detourRows).map((run) => ({ ...run, tone: 'ahead' })),
+      detours: detourRows.map((index) => detourPath(centre, index)),
       head: { d: headPath(centre, CHART.faintWidth, faintHeadTop, CHART.faintHeadLength), tone: 'ahead' },
       x: centre - Math.round(CHART.faintWidth / 2),
       width: CHART.faintWidth,
