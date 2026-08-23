@@ -35,8 +35,11 @@ function functionDirs() {
     .sort();
 }
 
-test('decision 35: the deployable holds exactly two functions', () => {
-  assert.deepEqual(functionDirs(), ['acceptance', 'answer']);
+test('decision 35: the deployable holds exactly three functions', () => {
+  // Amended for M8: a third Function, `deployment-transition`, joins `acceptance` and `answer`.
+  // `functionDirs()` sorts alphabetically, and `'answer' < 'deployment-transition'` there, so the
+  // new entry lands last, not in creation order.
+  assert.deepEqual(functionDirs(), ['acceptance', 'answer', 'deployment-transition']);
 });
 
 test('the Function app declares no dependencies at all, so there are none to justify', () => {
@@ -61,7 +64,8 @@ test('host.json is a v2 Functions host, which is what Static Web Apps runs', () 
   assert.equal(host.version, '2.0');
 });
 
-for (const name of ['answer', 'acceptance']) {
+// Amended for M8: 'deployment-transition' joins the two functions this loop already covered.
+for (const name of ['answer', 'acceptance', 'deployment-transition']) {
   test(`${name}: the binding accepts POST and nothing else`, () => {
     const binding = json(name, 'function.json');
     const trigger = binding.bindings.find((b) => b.type === 'httpTrigger');
@@ -97,6 +101,13 @@ test('answer: the adapter maps a handler response onto the Functions context', a
 
 test('acceptance: the adapter maps a handler response onto the Functions context', async () => {
   const { default: handler } = await import('../api/acceptance/index.mjs');
+  const context = {};
+  await handler(context, { method: 'POST', headers: {}, body: {} });
+  assert.equal(context.res.status, 401);
+});
+
+test('deployment-transition: the adapter maps a handler response onto the Functions context', async () => {
+  const { default: handler } = await import('../api/deployment-transition/index.mjs');
   const context = {};
   await handler(context, { method: 'POST', headers: {}, body: {} });
   assert.equal(context.res.status, 401);

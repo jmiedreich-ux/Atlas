@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { appendDeploymentTransition } from '../api/lib/records.mjs';
+import { RecordError, appendDeploymentTransition } from '../api/lib/records.mjs';
 
 test('appendDeploymentTransition adds one entry to an empty array', () => {
   const before = JSON.stringify([], null, 2);
@@ -58,6 +58,34 @@ test('appendDeploymentTransition handles empty string or empty array as initial 
   const afterArray = appendDeploymentTransition('[]', { stage: 'development' });
   assert.deepEqual(JSON.parse(afterEmpty), JSON.parse(afterArray));
   assert.deepEqual(JSON.parse(afterEmpty), [{ stage: 'development' }]);
+});
+
+// Amended for M8's Task 5 handler wiring: a real file handler now sits on top of this function
+// for the first time, and its input is a committed file that can be tampered with or corrupted
+// like any other record. Every other record function here (`answerQuestion`, `recordAcceptance`,
+// via `assertWritable`) raises a `RecordError` on an invalid state rather than proceeding on a
+// guess. Silently resetting a malformed log to `[]` would instead discard every prior transition
+// with no error at all — the write would still succeed, just against a truncated log — so this
+// is hardened to raise instead.
+test('appendDeploymentTransition raises rather than silently discarding a malformed log', () => {
+  assert.throws(
+    () => appendDeploymentTransition('{not json', { stage: 'development' }),
+    (error) => {
+      assert.ok(error instanceof RecordError, 'not a RecordError');
+      assert.equal(error.code, 'unreadable-deployment-log');
+      assert.match(error.message, /not valid JSON/);
+      return true;
+    },
+  );
+});
+
+test('appendDeploymentTransition still treats empty or whitespace-only text as a new, empty log', () => {
+  // The one case malformed JSON must NOT cover: a log that has never been written yet. A missing
+  // or blank file is a legitimate starting state, not corruption.
+  for (const text of ['', '   ', '\n']) {
+    const after = appendDeploymentTransition(text, { stage: 'development' });
+    assert.deepEqual(JSON.parse(after), [{ stage: 'development' }]);
+  }
 });
 
 test('appendDeploymentTransition preserves formatting with 2-space indent and trailing newline', () => {

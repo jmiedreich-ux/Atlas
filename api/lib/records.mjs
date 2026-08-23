@@ -295,15 +295,31 @@ export function recordAcceptance(text, { result, note, author }) {
  * @param {string} opts.stage - the deployment stage.
  * @param {string} [opts.note] - optional note; omitted from output if undefined, null, or empty.
  * @returns {string} the new JSON text with one more entry appended, with trailing newline.
+ * @throws {RecordError} `unreadable-deployment-log` if `text` is non-blank and is not valid JSON.
+ *   An empty or whitespace-only `text` is a legitimate starting state — a log that has never been
+ *   written yet — and is treated as `[]`, not as corruption.
  */
 export function appendDeploymentTransition(text, { stage, note }) {
-  // Handle empty or missing input as an empty array
-  const input = text.trim() === '' ? '[]' : text;
+  // A blank file is a log that has never been written yet, which is fine. Anything else that
+  // fails to parse is a log that WAS written and is now malformed — by a manual edit, a merge
+  // conflict, truncation, whatever — and every other record function here raises on a state like
+  // that (`assertWritable`, via `answerQuestion` and `recordAcceptance`) rather than guessing.
+  // Silently resetting to `[]` here would discard every prior transition with no error at all: the
+  // write would still succeed, just against a log the caller never asked to truncate.
   let arr;
-  try {
-    arr = JSON.parse(input);
-  } catch {
+  if (text.trim() === '') {
     arr = [];
+  } else {
+    try {
+      arr = JSON.parse(text);
+    } catch (error) {
+      throw new RecordError(
+        `the deployment log is not valid JSON (${error.message}), so Atlas will not append to it ` +
+          `by silently discarding what is already there. Fix the file, or clear it to an empty ` +
+          `array, and try again.`,
+        'unreadable-deployment-log',
+      );
+    }
   }
 
   // Build the new entry, omitting `note` if it's absent/empty

@@ -15,7 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 
-import { handleAcceptance, handleAnswer } from '../api/lib/handlers.mjs';
+import { handleAcceptance, handleAnswer, handleDeploymentTransition } from '../api/lib/handlers.mjs';
 import { renderMarkdown } from '../src/markdown.mjs';
 
 const { privateKey } = generateKeyPairSync('rsa', {
@@ -54,9 +54,12 @@ const REGISTER = [
   '',
 ].join('\n');
 
+const DEPLOYMENT_LOG_PATH = 'docs/features/a-stream/deployment-log.json';
+
 const MANIFEST = JSON.stringify(
   {
     codename: 'A stream',
+    deploymentLog: DEPLOYMENT_LOG_PATH,
     milestones: [
       { id: 'M1', acceptance: { kind: 'demo-script', record: 'docs/features/a-stream/m1-demo.md' } },
       { id: 'M2', acceptance: { kind: 'demo-script', record: null } },
@@ -67,6 +70,8 @@ const MANIFEST = JSON.stringify(
 );
 
 const DEMO = '# M1 demo script\n\n1. Start the thing.\n';
+
+const DEPLOYMENT_LOG = JSON.stringify([{ stage: 'development' }], null, 2) + '\n';
 
 // A repository in memory. What matters is that a write changes the SHA and that the API refuses a
 // write carrying the old one — but the SHAs are real 40-character hex, because the stub's own
@@ -157,7 +162,12 @@ const MANIFEST_PATH = 'docs/features/a-stream/workstream.json';
 const DEMO_PATH = 'docs/features/a-stream/m1-demo.md';
 
 function repo() {
-  return gitHub({ [REGISTER_PATH]: REGISTER, [MANIFEST_PATH]: MANIFEST, [DEMO_PATH]: DEMO });
+  return gitHub({
+    [REGISTER_PATH]: REGISTER,
+    [MANIFEST_PATH]: MANIFEST,
+    [DEMO_PATH]: DEMO,
+    [DEPLOYMENT_LOG_PATH]: DEPLOYMENT_LOG,
+  });
 }
 
 // --- the happy paths ---------------------------------------------------------------------------
@@ -183,7 +193,8 @@ test('answer: the answer is the only thing written — Atlas keeps no state of i
   const github = repo();
   await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per tenant.' }), deps(github));
 
-  assert.equal(github.files.size, 3, 'a file appeared that nobody asked for');
+  // Amended for M8: `repo()` now also seeds a deployment log, so the fixture holds 4 files, not 3.
+  assert.equal(github.files.size, 4, 'a file appeared that nobody asked for');
   const writes = github.calls.filter((call) => call.method === 'PUT');
   assert.equal(writes.length, 1);
   assert.ok(writes[0].url.includes('open-questions.md'), 'something other than the register was written');
@@ -502,6 +513,131 @@ test('acceptance: the SHA precondition is the acceptance record\'s, not the mani
     deps(github),
   );
   assert.equal(response.status, 200);
+});
+
+// --- deployment transition (Task 5) -------------------------------------------------------------
+//
+// Same five-step shape as `handleAcceptance`, with `manifest.deploymentLog` in place of
+// `milestone.acceptance.record` and no milestone lookup at all — a deployment transition is
+// feature-level, not milestone-level.
+
+test('deployment-transition: an authorised transition becomes a commit, and the endpoint returns it', async () => {
+  const github = repo();
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'staging', note: 'smoke-tested' }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.path, DEPLOYMENT_LOG_PATH);
+  assert.equal(response.body.stage, 'staging');
+  assert.equal(response.body.commit, 'https://github.com/an-owner/a-repo/commit/c1');
+  const written = JSON.parse(github.files.get(DEPLOYMENT_LOG_PATH).text);
+  assert.deepEqual(written, [{ stage: 'development' }, { stage: 'staging', note: 'smoke-tested' }]);
+  // The manifest was read to find the log and was not itself written to — decision 35 keeps
+  // manifest edits out of Atlas entirely.
+  assert.equal(github.files.get(MANIFEST_PATH).text, MANIFEST);
+});
+
+test('deployment-transition: a workstream whose manifest names no deploymentLog is a 409, and writes nothing', async () => {
+  const manifest = JSON.stringify({ codename: 'A stream', milestones: [] }, null, 2);
+  const github = gitHub({ [MANIFEST_PATH]: manifest });
+
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'development' }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error, 'no-deployment-log');
+  assert.match(response.body.message, /deploymentLog/);
+  assert.match(response.body.message, /workstream\.json/);
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+});
+
+test('deployment-transition: a stale SHA is a conflict — the other transition is not overwritten', async () => {
+  const github = repo();
+  const staleSha = github.files.get(DEPLOYMENT_LOG_PATH).sha;
+
+  github.someoneElseCommits(DEPLOYMENT_LOG_PATH, JSON.stringify([{ stage: 'development' }, { stage: 'release' }], null, 2) + '\n');
+
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'staging', sha: staleSha }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 409);
+  assert.equal(response.body.error, 'conflict');
+  const written = JSON.parse(github.files.get(DEPLOYMENT_LOG_PATH).text);
+  assert.deepEqual(written, [{ stage: 'development' }, { stage: 'release' }], "the other commit was overwritten");
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+});
+
+test('deployment-transition: a manifest naming a deploymentLog outside the repository is refused', async () => {
+  const manifest = JSON.stringify({ milestones: [], deploymentLog: '../../../etc/passwd' });
+  const github = gitHub({ [MANIFEST_PATH]: manifest });
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'development' }),
+    deps(github),
+  );
+  assert.ok(response.status >= 400);
+  assert.equal(response.body.error, 'unwritable-record');
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
+});
+
+test('deployment-transition: a manifest that is not JSON is reported against its path, not swallowed', async () => {
+  const github = gitHub({ [MANIFEST_PATH]: 'not json at all' });
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'development' }),
+    deps(github),
+  );
+  assert.ok(response.status >= 400);
+  assert.match(response.body.message, /workstream\.json/);
+});
+
+test('deployment-transition: a `reader` is refused there too — the check is not on two endpoints only', async () => {
+  const github = repo();
+  const response = await handleDeploymentTransition(
+    post(READER, { workstream: 'a-stream', stage: 'development' }),
+    deps(github),
+  );
+  assert.equal(response.status, 403);
+  assert.equal(github.calls.length, 0);
+});
+
+test('deployment-transition: an empty credential refuses the same way, not with a different failure', async () => {
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'development' }),
+    deps(repo(), {}),
+  );
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, 'credential-unavailable');
+});
+
+test('deployment-transition: a stage outside the closed vocabulary is rejected BY NAME', async () => {
+  const github = repo();
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'shipping' }),
+    deps(github),
+  );
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid-payload');
+  assert.match(response.body.message, /"shipping"/);
+  assert.equal(github.calls.length, 0);
+});
+
+test('deployment-transition: a malformed deployment log is a clean refusal, not a silent truncation', async () => {
+  // The hardening from `api/lib/records.mjs`'s `appendDeploymentTransition`, exercised through the
+  // real handler: a corrupted log is reported, not quietly replaced with a fresh one-entry array.
+  const github = gitHub({ [MANIFEST_PATH]: MANIFEST, [DEPLOYMENT_LOG_PATH]: '{not json' });
+  const response = await handleDeploymentTransition(
+    post(AUTHOR, { workstream: 'a-stream', stage: 'development' }),
+    deps(github),
+  );
+  assert.ok(response.status >= 400);
+  assert.equal(response.body.error, 'unreadable-deployment-log');
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0);
 });
 
 // --- decision 35's boundary -----------------------------------------------------------------------
