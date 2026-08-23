@@ -655,11 +655,13 @@ test('tokens.css: every derived dark value says what it was derived from', () =>
 });
 
 test('tokens.css: no component selector is declared twice, in two places, saying two things', () => {
-  // The defect this closes was made in this very milestone. Adding the modal added a second
-  // `.lane-head` rule five hundred lines below the first, setting `cursor: pointer` where the
-  // original set `cursor: grab` — and being later, it won. The header quietly stopped looking like
-  // something you can drag on the day it also became something you can click, and nothing in a
-  // stylesheet reads as wrong when the two halves are that far apart.
+  // The defect this closes was made in this very milestone. Adding the (since-retired) triage
+  // modal added a second `.lane-head` rule five hundred lines below the first, setting
+  // `cursor: pointer` where the original set `cursor: grab` — and being later, it won. The header
+  // quietly stopped looking like something you can drag on the day it also became something you
+  // can click, and nothing in a stylesheet reads as wrong when the two halves are that far apart.
+  // `.lane-head` itself is long gone along with the modal (the accordion replaced both) — this
+  // guard is what is left to catch the SHAPE of that mistake recurring on whatever selector next.
   //
   // The palette blocks are excluded by name: the dark palette is deliberately written twice, once
   // guarded by a media query and once by an attribute, and a test above already pins that the two
@@ -1060,8 +1062,8 @@ test('planning: a row carries a milestone progress strip sized to its own milest
 });
 
 test('planning: no dates or duration render anywhere on this page', () => {
-  // The design doc's core rule for this rebuild. formatDay/formatDayRange output looks like real
-  // dates (e.g. "23 Aug 2026"); a milestone month name is the cheapest reliable signal one leaked.
+  // The design doc's core rule for this rebuild. formatDay's output looks like a real date (e.g.
+  // "23 Aug 2026"); a milestone month name is the cheapest reliable signal one leaked.
   const MONTHS = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/;
   assert.doesNotMatch(depthHtml, MONTHS, 'a date rendered on the feature-planning page');
 });
@@ -1125,30 +1127,141 @@ test('spine: every milestone node shows its own real label, always', () => {
   }
 });
 
+// Rewritten against hand-built synthetic entries (final branch review): the fixture has zero
+// milestones with a populated `tasks` array (`taskBodies` only ever gets populated by a real,
+// non-offline `fetchIssueBodies` call — see tests/build.test.mjs — and this file always renders
+// through `assemble()` alone), so every one of these used to hit `if (!stream) return` before a
+// single real assertion ran, and reported green regardless of what the template did.
+
 test('spine: the current milestone renders its full task list, unmuted', () => {
-  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => m.status === 'next' && m.tasks && m.tasks.length));
-  if (!stream) return; // fixture may not have this shape; Task 4's build.test.mjs covers the parse itself
-  const milestone = stream.manifest.milestones.find((m) => m.status === 'next');
-  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-${milestone.id}"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(depthHtml);
-  assert.ok(nodeMatch, 'current milestone did not render a task list');
+  const stream = entry('Nomad', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Ship the relay', done: false, owner: 'Ada' },
+          { text: 'Wire the housing', done: true, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the current milestone did not render a task list');
   assert.doesNotMatch(nodeMatch[0], /class="task-list is-muted"/, 'the current milestone\'s task list must not be muted');
+  assert.ok(nodeMatch[0].includes('Ship the relay'), 'the current milestone is missing one of its own tasks');
+  assert.ok(nodeMatch[0].includes('Wire the housing'), 'the current milestone is missing one of its own tasks');
 });
 
 test('spine: a task line shows its owner, or "Unassigned" when it has none', () => {
-  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => (m.tasks || []).length));
-  if (!stream) return;
-  const milestone = stream.manifest.milestones.find((m) => (m.tasks || []).length);
-  const html = depthHtml;
-  for (const t of milestone.tasks) {
-    const label = t.owner || 'Unassigned';
-    assert.ok(html.includes(label), `task "${t.text}" should show owner label "${label}"`);
-  }
+  const stream = entry('Compass', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Owned task', done: false, owner: 'Grace' },
+          { text: 'Unowned task', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the milestone did not render a task list');
+  assert.match(nodeMatch[0], /class="task-owner">Grace</, 'the owned task should show its owner');
+  assert.match(nodeMatch[0], /class="task-owner">Unassigned</, 'the unowned task should show "Unassigned"');
 });
 
 test('spine: a done task is struck through', () => {
-  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => (m.tasks || []).some((t) => t.done)));
-  if (!stream) return;
-  assert.match(depthHtml, /class="task-line is-done"/);
+  const stream = entry('Drift', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Finished task', done: true, owner: null },
+          { text: 'Open task', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the milestone did not render a task list');
+
+  const doneLine = /<li class="task-line is-done"[^>]*>[\s\S]*?<\/li>/.exec(nodeMatch[0]);
+  assert.ok(doneLine, 'no task line carries "is-done"');
+  assert.ok(doneLine[0].includes('Finished task'), 'the done task is not the one struck through');
+
+  const openLine = /<li class="task-line" [^>]*>[\s\S]*?<\/li>/.exec(nodeMatch[0]);
+  assert.ok(openLine, 'the undone task is missing, or wrongly struck through');
+  assert.ok(openLine[0].includes('Open task'), 'the undone task line does not carry the undone task');
+});
+
+// Zero coverage anywhere in the theme layer for either of these two `spineDetail` states before
+// this fix wave — only 'full' and 'none' were ever exercised.
+
+test('spine: the first unplanned milestone after the current one previews muted', () => {
+  const stream = entry('Beacon2', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [{ text: 'Current task', done: false, owner: null }],
+      }),
+      milestone({
+        id: 'M2',
+        label: 'M2',
+        depth: 2,
+        status: 'unplanned',
+        tasks: [{ text: 'Preview task', done: false, owner: 'Ada' }],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M2"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the preview milestone did not render a task list');
+  assert.match(nodeMatch[0], /class="task-list is-muted"/, 'the "coming next" preview must render muted');
+  assert.ok(nodeMatch[0].includes('Preview task'), 'the preview milestone is missing its own task');
+});
+
+test('spine: any other milestone with tasks collapses to a count, not a list', () => {
+  const stream = entry('Beacon3', {
+    milestones: [
+      milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next', tasks: [] }),
+      milestone({ id: 'M2', label: 'M2', depth: 2, status: 'unplanned', tasks: [] }),
+      milestone({
+        id: 'M3',
+        label: 'M3',
+        depth: 3,
+        status: 'unplanned',
+        tasks: [
+          { text: 'One', done: false, owner: null },
+          { text: 'Two', done: true, owner: 'Grace' },
+          { text: 'Three', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  // M1 is current ('full'), M2 is the preview right after it ('full-muted', empty here), and M3 —
+  // neither current nor the one preview slot — is the 'count' state this test is for.
+  const nodeMatch = new RegExp(
+    `data-milestone-node="${stream.slug}-M3"[\\s\\S]*?<p class="milestone-task-count">([\\s\\S]*?)</p>`,
+  ).exec(html);
+  assert.ok(nodeMatch, 'the count-state milestone did not render its task count');
+  assert.doesNotMatch(nodeMatch[0], /data-task-list/, 'a "count" milestone must not also render a task list');
+  assert.match(nodeMatch[1], /^3 sub-tasks$/, 'the count line does not name how many tasks are on record');
 });
 
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------

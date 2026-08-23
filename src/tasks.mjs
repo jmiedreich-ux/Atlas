@@ -6,10 +6,22 @@
 // Deliberately no hierarchy: an indented sub-item reads as an ordinary top-level line, because the
 // owner has said sub-tasks, if they ever appear, "would all just get listed sequentially."
 
-// A line may end with an owner tag: an em-dash or a plain hyphen, preceded by whitespace, followed
-// by a name. Whitespace before the dash is what keeps this from misfiring on a hyphenated word
-// inside the task text itself ("Write-back" has no space before its hyphen, so it never matches).
-const OWNER_TAG = /\s+[—-]\s*(\S.*)$/;
+// A line may end with an owner tag: an em-dash, an en-dash, or a plain hyphen, preceded by
+// whitespace, followed by a name. Whitespace before the dash is what keeps this from misfiring on
+// a hyphenated word inside the task text itself ("Write-back" has no space before its hyphen, so
+// it never matches).
+//
+// The owner tag is defined as "optional, trailing" — the LAST dash-delimited segment, never the
+// first. `.exec()` finds the leftmost position a pattern can match, and a naive `(\S.*)$` is
+// greedy: from the first qualifying dash it swallows everything after, including any later dash,
+// which misreads a task whose own text happens to contain a dash-separated aside ("Deploy -
+// staging and prod — Claude" used to read as owner "staging and prod — Claude"). The fix is the
+// capture group itself: it excludes every dash character, so it can only ever match a run of text
+// with NO dash in it at all. A run reaching all the way to `$` with zero dashes is only possible
+// starting from the LAST dash in the string — trying any earlier dash hits a later one before `$`
+// and fails to match, so the engine's normal leftmost-first search lands on the last dash for us,
+// with no lookahead or backtracking trick required.
+const OWNER_TAG = /\s+[—–-]\s*([^\s—–-][^—–-]*)$/;
 
 // GitHub task-list syntax: "- [ ] text" or "- [x] text", any leading indentation, case-insensitive
 // mark. Anything else on a line — prose, a heading, an ordinary bullet with no checkbox — is not a

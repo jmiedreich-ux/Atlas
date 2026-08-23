@@ -72,7 +72,7 @@
 {%- if milestone.manifest.tasks.length %}
 <ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
 {%- for t in milestone.manifest.tasks %}
-<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}">
+<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}" aria-describedby="task-note">
 <span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
 <span class="task-text">{{ t.text }}</span>
 <span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
@@ -94,6 +94,7 @@
 </ul>
 
 <p class="visually-hidden" id="row-note">Drag a feature's header to put the features in the order you want, or focus one and press the up and down arrow keys to move it. Press Enter or Space to open it. Press H to hide a feature; hidden features can be brought back from the controls above the list.</p>
+<p class="visually-hidden" id="task-note">Drag a task to put this milestone's tasks in the order you want, or focus one and press the up and down arrow keys to move it.</p>
 {% endblock %}
 
 {% block bodyScripts %}

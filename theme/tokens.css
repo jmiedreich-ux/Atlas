@@ -151,10 +151,11 @@
   /* Layout measures. Lengths, not colours; nothing in the contract covers them.
    *
    * Only ONE, deliberately. `--atlas-column-width` and `--atlas-ladder-width` lived here until
-   * #780 replaced the table with a drawing, and their last consumers went with it — leaving two
-   * authoritative-looking tokens quietly disagreeing with the real values in `src/chart.mjs`
-   * (`columnPitch: 240` against 184px, `ladderWidth: 104` against 112px). A measurement the
-   * drawing owns does not get a second home in the stylesheet. */
+   * #780 replaced the table with a drawing, and later still the drawing itself (and `src/chart.mjs`
+   * with it) was replaced by the accordion this rebuild renders — and each time, their last
+   * consumers went with them, leaving authoritative-looking tokens quietly disagreeing with
+   * whatever had actually replaced their reason to exist. A measurement a layout owns does not get
+   * a second home in the stylesheet. */
   --atlas-measure: 42rem;
 
   /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
@@ -194,12 +195,6 @@
    * `ahead` and `stopped` are aliases, because the contract does have a name for each: the control
    * hairline for what is on record and not begun, and its own danger colour for what stopped. An
    * alias also moves with the palette, so neither needs restating in a dark block. */
-  /* The scrim behind a modal. Atlas's own: the contract has no token for one, and it is not a
-   * surface colour — it is the page being pushed back. Stated once here and inherited by the
-   * dialog, because `::backdrop` inherits from the originating element in current browsers and
-   * from nothing at all in older ones. */
-  --atlas-modal-backdrop: rgb(15 23 42 / 0.45);
-
   --atlas-tone-done: #2b6ea8;
   --atlas-tone-live: #12905c;
   --atlas-tone-ahead: var(--sky-color-border-control);
@@ -840,101 +835,6 @@ h3 {
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-/* --- a feature's own triage, as a modal (#780) --------------------------------------------------
- *
- * The dedicated Triage page is gone from the desk; a feature's header opens this instead. It is a
- * native <dialog>, so focus trapping, Esc and the backdrop come from the platform rather than from
- * a re-implementation nothing here could check.
- *
- * `::backdrop` does NOT inherit from the page, so its colour cannot be a token that resolves on
- * :root — it is written against the same ink the shadows use, at an alpha that reads in both
- * themes without needing a dark block of its own. */
-.feature-modal {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border);
-  border-radius: var(--sky-card-radius);
-  box-shadow: var(--sky-shadow-card);
-  color: var(--sky-text-primary);
-  font-family: var(--atlas-font-sans);
-  max-width: 32rem;
-  padding: var(--sky-space-5);
-  width: calc(100% - var(--sky-space-6));
-}
-
-.feature-modal::backdrop {
-  background: var(--atlas-modal-backdrop);
-}
-
-.modal-head {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sky-space-3);
-  justify-content: space-between;
-}
-
-.modal-head h2 {
-  font-size: 1.15rem;
-  margin: 0;
-}
-
-.modal-what,
-.modal-position {
-  margin: var(--sky-space-3) 0 0;
-}
-
-.modal-position {
-  color: var(--sky-text-secondary);
-  font-size: 0.9rem;
-}
-
-/* The gate is the last line, exactly as it is on the phone's card: decision 27 ends every card on
- * what is holding the feature, and this surface says the same thing about the same feature. */
-.modal-gate {
-  border-top: 1px solid var(--sky-color-border);
-  color: var(--sky-text-secondary);
-  font-size: 0.9rem;
-  margin-top: var(--sky-space-4);
-  padding-top: var(--sky-space-3);
-}
-
-.modal-gate-label {
-  color: var(--sky-text-secondary);
-  display: block;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.modal-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sky-space-3);
-  margin-top: var(--sky-space-5);
-}
-
-.modal-link {
-  margin-right: auto;
-}
-
-.modal-hide,
-.modal-close {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border-control);
-  border-radius: var(--sky-radius-pill);
-  color: var(--sky-text-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  padding: var(--sky-space-1) var(--sky-space-4);
-}
-
-.modal-close {
-  background: var(--sky-color-fill-subtle);
-  color: var(--sky-text-primary);
 }
 
 /* --- surface three: the document pages ---------------------------------------------------------- */

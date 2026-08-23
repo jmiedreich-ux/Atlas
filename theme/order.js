@@ -30,11 +30,11 @@ export const ORDER_KEY = 'atlas-feature-order';
 // back must not reshuffle the page.
 export const HIDDEN_KEY = 'atlas-hidden-features';
 
-// How far a pointer may travel and still count as a click rather than a drag. In the drawing's own
-// user units, because that is what the drag is measured in. It exists because the feature's header
-// is both the drag handle and the way into that feature's triage (#780), so one gesture has to
-// resolve to one of two meanings — by DISTANCE rather than by time, since a slow, deliberate click
-// is still a click.
+// How far a pointer may travel and still count as a click rather than a drag. In real screen
+// pixels, because that is what the drag is measured in — there is no drawing here, no scaled SVG
+// viewBox to correct for. It exists because the feature's header is both the drag handle and the
+// way into that feature's own spine, so one gesture has to resolve to one of two meanings — by
+// DISTANCE rather than by time, since a slow, deliberate click is still a click.
 export const CLICK_SLOP = 4;
 
 /**
@@ -140,9 +140,10 @@ export function moveSlug(order, slug, delta) {
 /**
  * What to say when a feature moves, for the live region on the page.
  *
- * A move rewrites a `transform` on an SVG group, which a screen reader has no reason to announce,
- * so a reader moving a feature with the arrow keys would otherwise get silence and no way to tell
- * whether the key did anything — including at either end, where the answer is that it did not.
+ * A move reorders real DOM rows with `container.appendChild`, which a screen reader has no reason
+ * to announce on its own, so a reader moving a feature with the arrow keys (or a drag) would
+ * otherwise get silence and no way to tell whether the move happened — including at either end,
+ * where the answer is that it did not.
  *
  * @param {string[]} order
  * @param {string} slug
@@ -208,8 +209,8 @@ export function toggleHidden(hidden, slug) {
 /**
  * What to say when a feature is hidden.
  *
- * Hiding sets a style on an SVG group, which a screen reader has no reason to announce — so a
- * keyboard user would press a key, get silence, and have a column gone. It carries the way back,
+ * Hiding sets a `hidden` attribute on the row, which a screen reader has no reason to announce —
+ * so a keyboard user would press a key, get silence, and have a row gone. It carries the way back,
  * because "recoverable without knowing it is hidden" has to hold for a reader who cannot see the
  * strip either.
  *
@@ -219,7 +220,7 @@ export function toggleHidden(hidden, slug) {
  */
 export function announceHidden(name, count) {
   const many = count === 1 ? '1 feature is' : `${count} features are`;
-  return `${name} hidden. ${many} now hidden; bring them back from the controls above the chart.`;
+  return `${name} hidden. ${many} now hidden; bring them back from the controls above the list.`;
 }
 
 /**
@@ -328,12 +329,10 @@ function wire(doc, storage) {
     rows.set(node.getAttribute('data-slug'), node);
   }
   const generated = [...rows.keys()];
-  if (generated.length < 2) return;
-
-  // The row height IS the drag unit here — there is no SVG column pitch any more. Measured from
-  // the first row's own rendered height rather than hard-coded, so it tracks whatever the
-  // stylesheet actually does at any viewport width.
-  const rowHeight = rows.values().next().value.getBoundingClientRect().height || 1;
+  // Expand/collapse (below) is every row's own affordance and has to be wired regardless of how
+  // many rows there are — a project with exactly one workstream still has to open. Reordering,
+  // dragging and hiding are meaningless for a single row, and stay gated behind this instead.
+  const canReorder = generated.length >= 2;
 
   const said = doc.querySelector('[data-order-said]');
   const hiddenBar = doc.querySelector('[data-hidden-bar]');
@@ -423,7 +422,7 @@ function wire(doc, storage) {
     if (!handle) continue;
 
     handle.addEventListener('keydown', (event) => {
-      if (event.key === 'h' || event.key === 'H') {
+      if (canReorder && (event.key === 'h' || event.key === 'H')) {
         event.preventDefault();
         commitHidden(toggleHidden(hidden, slug), slug);
         if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
@@ -434,6 +433,7 @@ function wire(doc, storage) {
         toggleExpand(handle);
         return;
       }
+      if (!canReorder) return;
       // Vertical list: up/down move a row, matching arrow-key semantics to the actual layout
       // direction (the SVG version used left/right, because lanes sat side by side).
       const delta = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
@@ -446,11 +446,17 @@ function wire(doc, storage) {
 
     let startY = null;
     let startIndex = 0;
+    let rowHeight = 1;
 
     handle.addEventListener('pointerdown', (event) => {
       if (event.button !== undefined && event.button !== 0) return;
       startY = event.clientY;
       startIndex = order.indexOf(slug);
+      // Measured here, not once at setup: at load every `.feature-spine` is `hidden`, and a row
+      // that later expands is far taller than its collapsed self. Reading the DRAGGED row's own
+      // current height, right as the drag begins, is the only time both "visible" and "this
+      // row's real height" are guaranteed true together.
+      rowHeight = node.getBoundingClientRect().height || 1;
       node.classList.add('is-dragging');
       try {
         handle.setPointerCapture(event.pointerId);
@@ -463,7 +469,8 @@ function wire(doc, storage) {
       if (startY === null) return;
       const dy = event.clientY - startY;
       // A live visual nudge only — the settled position always comes from `render()`'s DOM
-      // reorder. No scale correction needed here: real pixels, not a scaled SVG viewBox.
+      // reorder. No scale correction needed here: real pixels on the page, not a scaled SVG
+      // viewBox.
       node.style.transform = `translateY(${dy}px)`;
     });
 
@@ -474,13 +481,16 @@ function wire(doc, storage) {
       node.classList.remove('is-dragging');
       node.style.removeProperty('transform');
 
-      if (Math.abs(dy) < CLICK_SLOP) {
+      if (!canReorder || Math.abs(dy) < CLICK_SLOP) {
         toggleExpand(handle);
         return;
       }
 
       const to = dropIndex(startIndex, dy, rowHeight, order.length);
       commit(moveSlug(order, slug, to - order.indexOf(slug)));
+      // Parity with the keyboard path, which has always announced its move: a drag that commits
+      // a reorder is otherwise silent to anyone not watching the pointer.
+      if (said) said.textContent = announce(order, slug, handle.getAttribute('data-name') || slug);
     }
 
     handle.addEventListener('pointerup', end);
@@ -509,7 +519,6 @@ function wireTaskLists(doc, storage) {
 
     const items = [...list.querySelectorAll('[data-task]')];
     if (items.length < 2) continue;
-    const rowHeight = items[0].getBoundingClientRect().height || 1;
 
     function readStored() {
       try {
@@ -541,15 +550,34 @@ function wireTaskLists(doc, storage) {
 
     render();
 
+    const said = doc.querySelector('[data-order-said]');
+
+    // The task's own text, for the same kind of live announcement feature rows already get —
+    // matching `announce()`'s pattern/wording rather than inventing a second one.
+    function taskName(index) {
+      return items[index]?.querySelector('.task-text')?.textContent || `task ${index + 1}`;
+    }
+    function announceTaskMove(originalIndex) {
+      if (!said) return;
+      const at = order.indexOf(originalIndex);
+      if (at === -1) return;
+      said.textContent = `${taskName(originalIndex)} moved to position ${at + 1} of ${order.length}.`;
+    }
+
     items.forEach((item, originalIndex) => {
       item.setAttribute('tabindex', '0');
       let startY = null;
       let startPos = 0;
+      let rowHeight = 1;
 
       item.addEventListener('pointerdown', (event) => {
         if (event.button !== undefined && event.button !== 0) return;
         startY = event.clientY;
         startPos = order.indexOf(originalIndex);
+        // Measured here, not once at setup: at load, every task list's `.feature-spine` ancestor
+        // is `hidden`, so a height read at that point is always 0. The spine is guaranteed
+        // visible by the time a drag can start at all.
+        rowHeight = item.getBoundingClientRect().height || 1;
         item.classList.add('is-dragging');
         try {
           item.setPointerCapture(event.pointerId);
@@ -573,6 +601,7 @@ function wireTaskLists(doc, storage) {
         }
         const to = dropIndex(startPos, dy, rowHeight, order.length);
         commit(moveSlug(order.map(String), String(originalIndex), to - order.indexOf(originalIndex)).map(Number));
+        announceTaskMove(originalIndex);
       }
       item.addEventListener('pointerup', end);
       item.addEventListener('pointercancel', end);
@@ -583,6 +612,7 @@ function wireTaskLists(doc, storage) {
         event.preventDefault();
         commit(moveSlug(order.map(String), String(originalIndex), delta).map(Number));
         item.focus();
+        announceTaskMove(originalIndex);
       });
     });
   }

@@ -30,14 +30,6 @@
 
 {% block bodyClass %}page page-mobile{% endblock %}
 
-{% set SECTION_LABEL = {
-  "awaiting-decision": "Waiting on you",
-  "moving": "Moving",
-  "blocked": "Blocked",
-  "designing": "Designing",
-  "not-started": "Not started"
-} %}
-
 {% block content %}
 <h1>What needs you</h1>
 <p class="lede">Grouped by what's blocking, not by feature. Every card ends on the gate that is holding it.</p>
@@ -48,7 +40,7 @@
 {%- if stream.triage != currentState %}
 {%- if not loop.first %}</ul>{% endif %}
 {%- set currentState = stream.triage %}
-<h2 class="triage-heading">{{ SECTION_LABEL[currentState] }} <span class="triage-count">{{ sectionCounts[currentState] | length }}</span></h2>
+<h2 class="triage-heading">{{ ui.chipLabel(currentState) }} <span class="triage-count">{{ sectionCounts[currentState] | length }}</span></h2>
 <ul class="card-list">
 {%- endif %}
 <li>
