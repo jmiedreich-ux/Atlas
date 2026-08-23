@@ -98,10 +98,14 @@ not-yet-reached, top to bottom in ladder order.
 
 Each milestone node:
 * An icon on the line: filled circle for `done`, a ring for `next` (the live one — same "hollow"
-  visual language the old chart used for its live dot), a crossed marker for `parked` (the
-  existing "skipped, work went round it" case), a dashed outline for anything not yet reached.
-  `blocked`/`unplanned` render as an outline with the status name, since #780 never established a
-  distinct glyph for those and nothing in this rebuild needs to invent one.
+  visual language the old chart used for its live dot), and a solid colored dot per status for
+  `parked`/`blocked`/`unplanned` — colour distinguishes them from each other, but never carries
+  the status alone: the adjacent status chip labels every state in words on every node, the same
+  redundancy #780 required of the retired chart. (Shipped: an earlier draft of this spec asked for
+  a literal crossed marker on `parked` and a dashed outline for not-yet-reached milestones; ruled
+  during the final branch review that the colored-dot-plus-chip treatment already ships makes no
+  information depend on colour alone, so the distinct glyphs added complexity without adding
+  meaning. Revisit only as a deliberate visual-polish pass, not a correctness fix.)
 * The milestone's own **label** — `M3`, `M2.1`, `M6.1` — always shown here, on the node itself.
   This is the resolution of the divergent-label problem the last round patched narrowly: the
   spine has no shared ladder gutter to conflict with, so every milestone says its own real label,
