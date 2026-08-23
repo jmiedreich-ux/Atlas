@@ -1385,11 +1385,7 @@ test('build: a failure DURING RENDERING leaves the published site exactly as it 
   const broken = path.join(TMP_ROOT, 'broken-generator');
   rmSync(broken, { recursive: true, force: true });
   mkdirSync(broken, { recursive: true });
-  // `api` comes along with `src`: `src/schema.mjs` re-exports the closed vocabularies and the
-  // workstream-slug rule from `api/lib/contract.mjs`, which is where the managed Function that
-  // writes back can also reach them (Static Web Apps packages an api directory on its own). A
-  // copy of the generator without it does not import at all.
-  for (const entry of ['src', 'api', 'theme', '.eleventy.js', 'package.json']) {
+  for (const entry of ['src', 'theme', '.eleventy.js', 'package.json']) {
     cpSync(path.join(REPO_ROOT, entry), path.join(broken, entry), { recursive: true });
   }
   // No `node_modules` is copied or linked. The copy lives under the repository, so Node resolves

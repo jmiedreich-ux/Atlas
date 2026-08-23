@@ -202,11 +202,6 @@ function readPaths(projectRoot, generatorRoot) {
     [path.join(projectRoot, 'docs'), "the project's records"],
     [path.join(generatorRoot, 'theme'), "Atlas's own theme"],
     [path.join(generatorRoot, 'src'), "Atlas's own code"],
-    // `src/schema.mjs` imports the closed vocabularies and the workstream-slug rule out of
-    // `api/lib/contract.mjs`, so the write-back Function and the generator share one definition of
-    // each rather than two that look alike. That makes `api/` a path every build reads, and this
-    // guard's contract is that every path the build reads is protected.
-    [path.join(generatorRoot, 'api'), "Atlas's own write-back Function"],
     [path.join(generatorRoot, '.eleventy.js'), "Atlas's own Eleventy config"],
     [path.join(generatorRoot, 'package.json'), "Atlas's own package manifest"],
     [path.join(generatorRoot, 'node_modules'), "Atlas's own dependencies"],
