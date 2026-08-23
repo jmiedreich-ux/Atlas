@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { fetchProjectIssues } from '../src/github.mjs';
+import { fetchIssueBodies, fetchProjectIssues } from '../src/github.mjs';
 
 // All fixture data below is invented for this test file only — the generator holds no project
 // content of its own (decision 40).
@@ -275,4 +275,108 @@ test('fetchProjectIssues: the page it asks for is large enough to be worth havin
   // this is a combined figure. A page size quietly reduced would make every backlog on the site
   // short, and before this test nothing noticed.
   assert.equal(await requestedPageSize(), 100, 'GitHub\'s maximum page size for this endpoint');
+});
+
+// --- fetchIssueBodies ------------------------------------------------------
+
+function fetchImplForIssues(bodiesByNumber) {
+  const calls = [];
+  const impl = async (url) => {
+    calls.push(url);
+    const match = /\/issues\/(\d+)$/.exec(String(url));
+    const number = match ? Number(match[1]) : null;
+    if (number === null || !(number in bodiesByNumber)) {
+      return { ok: false, status: 404, json: async () => ({ message: 'Not Found' }) };
+    }
+    return { ok: true, status: 200, json: async () => ({ number, body: bodiesByNumber[number] }) };
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+test('fetchIssueBodies: fetches one issue per distinct number and maps number to body', async () => {
+  const fetchImpl = fetchImplForIssues({ 101: 'body one', 102: 'body two' });
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 102], fetchImpl });
+
+  assert.equal(result.get(101), 'body one');
+  assert.equal(result.get(102), 'body two');
+});
+
+test('fetchIssueBodies: duplicate issue numbers are fetched once', async () => {
+  const fetchImpl = fetchImplForIssues({ 101: 'body one' });
+  await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 101, 101], fetchImpl });
+
+  assert.equal(fetchImpl.calls.length, 1);
+});
+
+test('fetchIssueBodies: requests the single-issue endpoint, not the list endpoint', async () => {
+  const fetchImpl = fetchImplForIssues({ 101: 'body one' });
+  await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
+
+  assert.match(fetchImpl.calls[0], /\/repos\/atlas-fixtures\/lighthouse\/issues\/101$/);
+});
+
+test('fetchIssueBodies: an empty issueNumbers list makes no request and resolves to an empty map', async () => {
+  const fetchImpl = fetchImplForIssues({});
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [], fetchImpl });
+
+  assert.equal(fetchImpl.calls.length, 0);
+  assert.equal(result.size, 0);
+});
+
+test('fetchIssueBodies: sends an Authorization header when a token is given, omits it otherwise', async () => {
+  const calls = [];
+  const withToken = async (url, options) => {
+    calls.push(options);
+    return { ok: true, status: 200, json: async () => ({ number: 101, body: 'x' }) };
+  };
+  await fetchIssueBodies({ repo: REPO, issueNumbers: [101], token: 'secret-token', fetchImpl: withToken });
+  assert.ok(
+    Object.entries(calls[0].headers).some(
+      ([k, v]) => k.toLowerCase() === 'authorization' && String(v).includes('secret-token'),
+    ),
+  );
+});
+
+test('fetchIssueBodies: a non-OK response for one issue yields null for that issue only, and warns', async () => {
+  await withSilencedWarn(async (warnCalls) => {
+    const fetchImpl = fetchImplForIssues({ 101: 'body one' }); // 102 will 404
+    const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 102], fetchImpl });
+
+    assert.equal(result.get(101), 'body one');
+    assert.equal(result.get(102), null);
+    assert.ok(warnCalls.length >= 1, 'expected a warning for the failed issue');
+    const message = warnCalls[warnCalls.length - 1].join(' ');
+    assert.match(message, /^atlas: /);
+    assert.ok(message.includes('102'), `warning should name the failed issue number: ${message}`);
+  });
+});
+
+test('fetchIssueBodies: a network failure for one issue yields null for that issue only, and warns', async () => {
+  await withSilencedWarn(async (warnCalls) => {
+    const fetchImpl = async (url) => {
+      if (String(url).endsWith('/101')) return { ok: true, status: 200, json: async () => ({ number: 101, body: 'ok' }) };
+      throw new Error('network unreachable');
+    };
+    const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 999], fetchImpl });
+
+    assert.equal(result.get(101), 'ok');
+    assert.equal(result.get(999), null);
+    assert.ok(warnCalls.some((call) => call.join(' ').includes('999')));
+  });
+});
+
+test('fetchIssueBodies: an issue whose body is not a string maps to null', async () => {
+  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ number: 101, body: null }) });
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
+  assert.equal(result.get(101), null);
+});
+
+test('fetchIssueBodies: never rejects, whatever the fetch does', async () => {
+  await withSilencedWarn(async () => {
+    const fetchImpl = async () => {
+      throw new Error('boom');
+    };
+    await assert.doesNotReject(fetchIssueBodies({ repo: REPO, issueNumbers: [1, 2, 3], fetchImpl }));
+  });
 });

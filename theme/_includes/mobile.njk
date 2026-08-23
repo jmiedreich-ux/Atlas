@@ -1,22 +1,22 @@
-{#- Atlas — surface two: triage on a phone (decision 27).
+{#- Atlas — surface two: triage on a phone (decision 27), grouped by state (design doc: 1c).
 
-  Not a squeezed depth chart. On a phone the question is never "how far has this got" but "why has
-  it stopped", so the cards are ordered by what needs the owner and every card ends on its gate.
+  Presentation only. src/triage.mjs still decides everything: which state a workstream is in, and
+  the order both this page and state.json read. This layout adds section headers over groups that
+  were always contiguous in `triaged` — it classifies nothing and sorts nothing.
 
-  The order decision 27 fixes:
+  Section-boundary detection: `{% set currentState = stream.triage %}` reassigns the outer-scope
+  scalar from inside the loop (nested inside an `{% if %}`, itself inside the `{% for %}`), and
+  Nunjucks 3.2.4 — the version pinned in package.json, arriving via @11ty/eleventy — does carry
+  that reassignment forward into later iterations. Verified with a scratch template before this
+  file was written, because "Nunjucks can't mutate an outer-scope variable inside a for loop" reads
+  like it should forbid exactly this pattern.
 
-    1. waiting on a decision — the workstream is designed but not approved, or its next milestone
-       is blocked, or nothing is left on record for it to do
-    2. moving   — a milestone is in flight
-    3. blocked  — work is parked on something outside the workstream
-    4. designing
-    5. not started
-
-  This layout classifies nothing and sorts nothing: `src/triage.mjs` decides both, and hands the
-  cards over already in order. That is deliberate. `state.json` (decision 29) is built from the
-  same function, so the machine-readable output and this page cannot disagree about what needs the
-  owner — and a mapping that lives in a template is one no table test can pin and no other surface
-  can reuse.
+  The per-section count deliberately does NOT use `triaged | selectattr("triage", "equalto", ...)`.
+  That scratch check also turned up a real bug in this pinned Nunjucks: `selectattr`'s filter
+  implementation (theirs, not ours) ignores the test name and comparison value entirely and just
+  returns every item whose attribute is truthy — so it would report the same total workstream count
+  on every heading, not each section's own count. `triaged | groupby("triage")` plus a dynamic
+  subscript (`groups[currentState] | length`) does not go through that broken path.
 
   Data this layout expects:
     triaged — orderByTriage(...)'s output: the workstreams already in card order, each one a
@@ -32,15 +32,21 @@
 
 {% block content %}
 <h1>What needs you</h1>
-<p class="lede">Ordered by what is waiting on a decision, not by name. Every card ends on the gate that is holding it.</p>
+<p class="lede">Grouped by what's blocking, not by feature. Every card ends on the gate that is holding it.</p>
 
-<ul class="card-list">
+{%- set sectionCounts = triaged | groupby("triage") %}
+{%- set currentState = "" %}
 {%- for stream in triaged %}
+{%- if stream.triage != currentState %}
+{%- if not loop.first %}</ul>{% endif %}
+{%- set currentState = stream.triage %}
+<h2 class="triage-heading">{{ ui.chipLabel(currentState) }} <span class="triage-count">{{ sectionCounts[currentState] | length }}</span></h2>
+<ul class="card-list">
+{%- endif %}
 <li>
 <article class="card" data-workstream="{{ stream.manifest.codename }}" data-triage="{{ stream.triage }}">
 <header class="card-head">
-<h2><a href="{{ stream.url }}">{{ stream.manifest.codename }}</a></h2>
-{{ ui.chip("triage", stream.triage) }}
+<h3><a href="{{ stream.url }}">{{ stream.manifest.codename }}</a></h3>
 </header>
 <p class="card-what">{{ stream.manifest.what }}</p>
 <p class="card-position">{{ stream.manifest.position }}</p>
@@ -70,6 +76,6 @@
 <p class="card-gate"><span class="card-gate-label">Gate</span>{{ stream.manifest.gate }}</p>
 </article>
 </li>
-{% endfor %}
-</ul>
+{%- if loop.last %}</ul>{% endif %}
+{%- endfor %}
 {% endblock %}

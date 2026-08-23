@@ -151,10 +151,11 @@
   /* Layout measures. Lengths, not colours; nothing in the contract covers them.
    *
    * Only ONE, deliberately. `--atlas-column-width` and `--atlas-ladder-width` lived here until
-   * #780 replaced the table with a drawing, and their last consumers went with it — leaving two
-   * authoritative-looking tokens quietly disagreeing with the real values in `src/chart.mjs`
-   * (`columnPitch: 240` against 184px, `ladderWidth: 104` against 112px). A measurement the
-   * drawing owns does not get a second home in the stylesheet. */
+   * #780 replaced the table with a drawing, and later still the drawing itself (and `src/chart.mjs`
+   * with it) was replaced by the accordion this rebuild renders — and each time, their last
+   * consumers went with them, leaving authoritative-looking tokens quietly disagreeing with
+   * whatever had actually replaced their reason to exist. A measurement a layout owns does not get
+   * a second home in the stylesheet. */
   --atlas-measure: 42rem;
 
   /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
@@ -194,12 +195,6 @@
    * `ahead` and `stopped` are aliases, because the contract does have a name for each: the control
    * hairline for what is on record and not begun, and its own danger colour for what stopped. An
    * alias also moves with the palette, so neither needs restating in a dark block. */
-  /* The scrim behind a modal. Atlas's own: the contract has no token for one, and it is not a
-   * surface colour — it is the page being pushed back. Stated once here and inherited by the
-   * dialog, because `::backdrop` inherits from the originating element in current browsers and
-   * from nothing at all in older ones. */
-  --atlas-modal-backdrop: rgb(15 23 42 / 0.45);
-
   --atlas-tone-done: #2b6ea8;
   --atlas-tone-live: #12905c;
   --atlas-tone-ahead: var(--sky-color-border-control);
@@ -375,6 +370,21 @@ th.num {
   z-index: 2;
 }
 
+/* Present for assistive technology, absent from the page. Not `display: none`, which removes it
+ * from the accessibility tree too and would take the instruction every feature header points at
+ * with `aria-describedby`. */
+.visually-hidden {
+  border: 0;
+  clip-path: inset(50%);
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 /* --- shell ------------------------------------------------------------------------------------ */
 
 .site-head {
@@ -529,484 +539,212 @@ h3 {
   color: var(--sky-text-secondary);
 }
 
-/* --- surface one: the feature planning drawing -------------------------------------------------
- *
- * #780 rebuilt this surface from an HTML table into drawn SVG paths, and every rule below is a
- * rule about a drawing rather than about cells. There are no cells, so there is nothing here that
- * gives one a border, a label or equal weight — which is what M1's table did, and which is what
- * turned the arrow into a glyph in a box.
- *
- * COLOUR CARRIES STATE, and it does so THREE ways so it never carries it alone: the tone classes
- * below, the shape (a solid ribbon, a narrower faint one, a crossed marker), and a text key under
- * the drawing. The dates and the balloon say the same things in words.
- */
+/* --- surface one: feature planning, the accordion ------------------------------------------- */
 
-/* The chart owns its own sideways scroll; the page never scrolls sideways. The ladder gutter is a
- * separate drawing inside this box, stuck to its left edge, so the row it names stays readable
- * however far the lanes are scrolled. `left: 0` and not `top: 0`: the drawing is as tall as it
- * needs to be and the page scrolls it vertically, so there is no vertical scrollport to stick to
- * and pretending otherwise is how M1's sticky headers came to resolve against a box that could
- * never move. */
-.chart-scroll {
-  align-items: flex-start;
-  background: var(--sky-card-background);
+.feature-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sky-space-2);
+  list-style: none;
+  margin: var(--sky-space-5) 0 0;
+  padding: 0;
+}
+
+.feature-row {
   border: 1px solid var(--sky-color-border);
   border-radius: var(--sky-radius-md);
-  display: flex;
-  max-width: 100%;
-  overflow-x: auto;
+  background: var(--sky-card-background);
 }
 
-.planning-ladder {
-  flex: 0 0 auto;
-  left: 0;
-  position: sticky;
-  z-index: 2;
-}
-
-.planning-chart {
-  display: block;
-  flex: 0 0 auto;
-}
-
-/* An opaque ground under the ladder, or the lanes show through it as they pass beneath. */
-.ladder-ground {
-  fill: var(--sky-card-background);
-}
-
-.ladder-edge {
-  stroke: var(--sky-color-border);
-  stroke-width: 1;
-}
-
-.lad-stage {
-  fill: var(--sky-text-secondary);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.lad-num {
-  fill: var(--sky-text-secondary);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.band-name {
-  fill: var(--sky-text-muted);
-  font-size: 0.68rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-/* The four bands. Faint enough that the ribbons stay the subject (#780), and taken from the
- * contract's own surfaces rather than invented. The execution band is by far the tallest, so its
- * tint is the palest of the four: what reads as a whisper across one row reads as a wash down
- * twenty. */
-.band-not-started {
-  fill: var(--sky-color-fill-subtle);
-}
-
-.band-designing {
-  fill: var(--sky-color-secondary);
-}
-
-.band-planned {
-  fill: var(--atlas-tone-exploring-bg);
-}
-
-.band-execution {
-  fill: var(--sky-color-live-surface);
-}
-
-.rule {
-  stroke: var(--sky-color-border);
-  stroke-width: 1;
-}
-
-/* --- a lane, and its header ---------------------------------------------------------------- */
-
-/* The header is also the drag handle, so it says so before anyone touches it.
- *
- * `touch-action: none` is what makes the drag work on a phone at all. `.chart-scroll` scrolls
- * sideways, so without this the browser claims a touch that starts on a header for its own pan
- * gesture and the drag arrives as `pointercancel` — the interaction would simply do nothing on
- * the one device decision 4 says this is read on. It is scoped to the handle, so the drawing
- * still pans normally everywhere else. */
-.lane-head {
+.feature-row-head {
+  align-items: center;
   cursor: grab;
+  display: flex;
+  gap: var(--sky-space-3);
+  padding: var(--sky-space-3) var(--sky-space-4);
   touch-action: none;
 }
 
-/* Removed after the owner saw it live: a bordered plate behind every name read as a row of
- * uneven cards rather than a row of names, and the box's WIDTH is fixed regardless of the name —
- * a long two-word feature name sits close to that fixed edge while a short one-word name floats
- * in mostly empty space, which is exactly what a mismatched-width row of boxes looks like even
- * though every box measures identically in the markup. The rect stays in the DOM as the click and
- * drag hit target — the header is still the whole control — but paints invisibly at rest instead
- * of as a card. */
-.lane-head-box {
-  fill: transparent;
-  stroke: none;
+.feature-row-head:focus-visible {
+  outline: var(--sky-focus-ring);
+  outline-offset: -2px;
 }
 
-.lane-head:hover .lane-head-box {
-  fill: var(--sky-color-fill-subtle);
-}
-
-/* Focus says something hover does not, so it must not look the same. An `outline` on an SVG group
- * is not dependable across browsers; the plate's own stroke is — and it is the one state that
- * still gets one, because focus has to be seen without hovering to find it. */
-.lane-head:focus-visible .lane-head-box {
-  fill: var(--sky-color-fill-subtle);
-  stroke: var(--sky-focus-color);
-  stroke-width: 2;
-}
-
-.lane.is-dragging {
+.feature-row.is-dragging .feature-row-head {
   cursor: grabbing;
 }
 
-.lane.is-dragging .lane-head-box {
-  fill: var(--sky-color-fill-subtle);
-  stroke: var(--sky-focus-color);
-  stroke-width: 2;
-}
-
-/* Removed in M4's craft pass: a pale accent bar down the left edge of every feature's plate. It
- * was a coloured border on a list item — a decoration the surface never chose — and the reason
- * recorded beside it, that it was "where the drag grip sits", was not true of the code: the whole
- * plate is the handle. The plate's border and its hover, focus and dragging states say what it is,
- * and the accent stops competing with the ribbons, which #780 calls the thing to look at.
- *
- * The rule stays, with no fill, so the element it styles is styled by something rather than
- * silently unstyled. `--sky-color-primary` is still the contract's fill accent elsewhere — the
- * filled track segments on the phone. */
-.lane-head-accent {
-  fill: none;
-}
-
-/* The feature's name. NOT the link colour: the header stopped being a link when it became the
- * control that opens the feature's modal, and text that looks like a link but navigates nowhere is
- * a lie about the affordance. The plate around it carries the control's states instead. */
-.col-h {
-  fill: var(--sky-text-primary);
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.chip-box {
-  fill: var(--sky-color-fill-subtle);
-}
-
-.chip-text {
-  fill: var(--sky-text-secondary);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-/* --- the ribbons ---------------------------------------------------------------------------- */
-
-.tone-done .dot,
-.ribbon-body.tone-done,
-.ribbon-head.tone-done {
-  fill: var(--atlas-tone-done);
-}
-
-.tone-live .dot,
-.ribbon-body.tone-live,
-.ribbon-head.tone-live {
-  fill: var(--atlas-tone-live);
-}
-
-.ribbon-body.tone-ahead,
-.ribbon-head.tone-ahead {
-  fill: var(--atlas-tone-ahead);
-}
-
-/* The ribbon leaving its lane and rejoining below it, round the milestone the work went round.
- *
- * NARROWER than the body it bridges but still a ribbon, and dashed, so it reads as a way round
- * rather than as more of the same work. M2.1 drew it at 10 against a 36 ribbon and left a comment
- * claiming it was "the same weight as the body it bridges", which was false: a stopped milestone
- * read as the ribbon ENDING and a hairline appearing beside it. That is the separation between
- * stopped and in progress #780 says the approved mock had and the build lost.
- *
- * `tests/theme.test.mjs` reads this width back against `CHART.ribbonWidth`, so the claim above is
- * now checked rather than asserted in prose. */
-.ribbon-detour {
-  stroke: var(--atlas-tone-done);
-  stroke-dasharray: 15 11;
-  stroke-linecap: round;
-  stroke-width: 20;
-}
-
-/* The detour belonging to the faint arrow behind it: the same way round, in the state of the
- * arrow it is part of. */
-.ribbon-detour.tone-ahead {
-  stroke: var(--atlas-tone-ahead);
-}
-
-.dot {
-  stroke: var(--sky-card-background);
-  stroke-width: 3;
-}
-
-/* The milestone in flight: the same dot, opened out, so "under way" is a shape as well as a
- * colour. */
-.dot-hollow {
-  fill: var(--sky-card-background);
-  stroke: var(--atlas-tone-live);
-}
-
-.dt {
-  fill: var(--sky-text-secondary);
-  font-size: 0.66rem;
-}
-
-.dt-b {
-  fill: var(--sky-text-primary);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-/* --- the skipped milestone ------------------------------------------------------------------- */
-
-.skip-ring {
-  fill: var(--sky-color-off-surface);
-  stroke: var(--atlas-tone-stopped);
-  stroke-width: 3;
-}
-
-.skip-cross {
-  stroke: var(--atlas-tone-stopped);
-  stroke-linecap: round;
-  stroke-width: 2.6;
-}
-
-.skip-t {
-  fill: var(--sky-danger-text);
-  font-size: 0.66rem;
-  font-weight: 600;
-}
-
-/* --- the balloon ------------------------------------------------------------------------------
- *
- * #780: "a rounded rectangle with a triangle is the boring answer." The body and its curved horn
- * of a tail are one path, so there is no seam where a separate triangle would meet the edge it is
- * supposed to grow out of, and the edge and the kicker are coloured by state. */
-.balloon-body {
-  fill: var(--sky-card-background);
-  stroke: var(--sky-color-border-control);
-  stroke-width: 1.5;
-}
-
-.balloon-line {
-  stroke: var(--sky-color-border-control);
-  stroke-linecap: round;
-  stroke-width: 1.8;
-}
-
-.balloon-pin {
-  fill: var(--sky-color-border-control);
-}
-
-.balloon.tone-live .balloon-body,
-.balloon.tone-live .balloon-line {
-  stroke: var(--atlas-tone-live);
-}
-
-.balloon.tone-live .balloon-pin {
-  fill: var(--atlas-tone-live);
-}
-
-.balloon.tone-next .balloon-body,
-.balloon.tone-next .balloon-line {
-  stroke: var(--sky-focus-color);
-}
-
-.balloon.tone-next .balloon-pin {
-  fill: var(--sky-focus-color);
-}
-
-.bl-k {
-  fill: var(--sky-focus-color);
-  font-size: 0.6rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.balloon.tone-live .bl-k {
-  fill: var(--sky-positive-text);
-}
-
-/* The step the balloon leads with — what this milestone IS, which the drawing cannot say. Set
- * against the gate beneath it, which is quieter, so the two are told apart before being read. */
-.bl-s {
-  fill: var(--sky-text-primary);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-/* What is holding it. */
-.bl-t {
-  fill: var(--sky-text-secondary);
-  font-size: 0.7rem;
-}
-
-/* --- the ordering control, and the key --------------------------------------------------------- */
-
-/* The chart's own strip of chrome, directly above it (#780 cut the header block to the title
- * alone, and this is where the two things that block was carrying went). It is one quiet line, so
- * the page still opens on the chart. */
-.planning-controls {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sky-space-3);
-  justify-content: flex-end;
-  margin-bottom: var(--sky-space-3);
-}
-
-.controls-note {
+.disclosure {
   color: var(--sky-text-muted);
-  font-size: 0.76rem;
-  margin: 0;
-  margin-right: auto;
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+  width: 0.8em;
 }
 
-/* Present for assistive technology, absent from the page. Not `display: none`, which removes it
- * from the accessibility tree too and would take the instruction every feature header points at
- * with `aria-describedby`. */
-.visually-hidden {
-  border: 0;
-  clip-path: inset(50%);
-  height: 1px;
-  margin: 0;
+.feature-row-head[aria-expanded="true"] .disclosure {
+  transform: rotate(90deg);
+}
+
+.feature-name {
+  font-weight: 600;
+}
+
+.milestone-strip {
+  display: flex;
+  gap: 2px;
+}
+
+.strip-seg {
+  background: var(--sky-color-border-control);
+  border-radius: 1px;
+  height: 8px;
+  width: 8px;
+}
+
+.strip-seg.is-filled {
+  background: var(--atlas-tone-done, var(--sky-color-primary));
+}
+
+.feature-next {
+  color: var(--sky-text-secondary);
+  flex: 1;
+  font-size: 0.85rem;
   overflow: hidden;
-  padding: 0;
-  position: absolute;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  width: 1px;
 }
 
-/* What is hidden, named rather than counted. Decision 49: per-device state may hide a feature but
- * never silently — a page that quietly omits a workstream is worse than one that shows too many,
- * so this strip is always visible while anything is hidden and always says which. */
-.hidden-bar {
+/* Secondary affordance, not the row's primary action (that's expand/reorder/hide on
+   .feature-row-head) — small and muted, lined up under the row's own text column. */
+.feature-link {
+  color: var(--sky-text-muted);
+  display: block;
+  font-size: 0.8rem;
+  padding: 0 var(--sky-space-4) var(--sky-space-3);
+}
+
+.feature-link:hover {
+  color: var(--sky-text-secondary);
+}
+
+.feature-spine[hidden] {
+  display: none;
+}
+
+.feature-spine {
+  border-top: 1px solid var(--sky-color-border);
+  padding: var(--sky-space-4);
+}
+
+.spine-empty {
+  color: var(--sky-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.milestone-spine {
+  border-left: 2px solid var(--sky-color-border);
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 var(--sky-space-4);
+}
+
+.milestone-node {
+  padding: var(--sky-space-2) 0 var(--sky-space-2) var(--sky-space-4);
+  position: relative;
+}
+
+.milestone-icon {
+  background: var(--sky-color-border-control);
+  border-radius: 50%;
+  height: 10px;
+  left: calc(-1 * var(--sky-space-4) - 5px);
+  position: absolute;
+  top: var(--sky-space-2);
+  width: 10px;
+}
+
+.milestone-node.tone-done .milestone-icon {
+  background: var(--atlas-tone-done, var(--sky-color-primary));
+}
+
+.milestone-node.tone-next .milestone-icon {
+  background: var(--sky-card-background);
+  border: 2px solid var(--atlas-tone-live, var(--sky-color-primary));
+}
+
+.milestone-node.tone-parked .milestone-icon {
+  background: var(--sky-danger-text);
+}
+
+.milestone-head {
   align-items: baseline;
   display: flex;
-  flex-wrap: wrap;
   gap: var(--sky-space-2);
 }
 
-.hidden-bar[hidden] {
-  display: none;
+.milestone-label {
+  font-family: var(--atlas-font-mono, monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
 }
 
-.hidden-bar-label {
-  color: var(--sky-text-secondary);
-  font-size: 0.76rem;
+.milestone-title {
+  font-weight: 600;
 }
 
-.order-reset,
-.hidden-restore {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border-control);
-  border-radius: var(--sky-radius-pill);
-  color: var(--sky-text-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.78rem;
-  padding: var(--sky-space-1) var(--sky-space-3);
-}
-
-.order-reset[hidden],
-.hidden-restore[hidden] {
-  display: none;
-}
-
-/* One vocabulary for every pill on this surface — the ordering reset, the restore chips, and the
- * modal's own two — so the same shape means the same thing wherever it appears, and none of them
- * ships with only a default state. */
-.order-reset:hover,
-.hidden-restore:hover,
-.modal-hide:hover,
-.modal-close:hover {
-  background: var(--sky-color-fill-subtle);
-  border-color: var(--sky-text-muted);
-  color: var(--sky-text-primary);
-}
-
-.order-reset:active,
-.hidden-restore:active,
-.modal-hide:active,
-.modal-close:active {
-  background: var(--sky-color-shell);
-}
-
-/* The live region that says a keyboard move out loud. It carries no text until a feature moves,
- * so it takes no room; it is deliberately NOT `display: none`, which would stop it being
- * announced at all. */
-/* The live region that says a move or a hide out loud. It keeps its own row AND a height, so an
- * announcement appears in space already reserved for it rather than pushing the chart down the
- * page — feedback that moves the thing you are working on is worse than no feedback. It is
- * deliberately not `display: none`, which would stop it being announced at all. */
-.order-said {
-  color: var(--sky-text-secondary);
-  flex-basis: 100%;
-  font-size: 0.78rem;
-  margin: 0;
-  min-height: 1.15rem;
-}
-
-.chart-key {
-  color: var(--sky-text-secondary);
-  display: flex;
-  flex-wrap: wrap;
-  font-size: 0.8rem;
-  gap: var(--sky-space-2) var(--sky-space-5);
+.task-list {
   list-style: none;
-  margin: var(--sky-space-4) 0 0;
+  margin: var(--sky-space-2) 0 0;
   padding: 0;
 }
 
-.chart-key li {
-  align-items: center;
+.task-list.is-muted {
+  opacity: 0.65;
+}
+
+.task-line {
+  align-items: baseline;
   display: flex;
   gap: var(--sky-space-2);
+  padding: 2px 0;
 }
 
-.key-swatch {
-  border-radius: 3px;
-  display: inline-block;
-  height: 0.7rem;
-  width: 1.1rem;
+.task-line.is-done .task-text {
+  color: var(--sky-text-muted);
+  text-decoration: line-through;
 }
 
-.key-swatch.tone-done {
-  background: var(--atlas-tone-done);
+.task-owner {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin-left: auto;
 }
 
-.key-swatch.tone-live {
-  background: var(--atlas-tone-live);
-}
-
-.key-swatch.tone-ahead {
-  background: var(--atlas-tone-ahead);
-}
-
-.key-skip {
-  background: var(--sky-color-off-surface);
-  border: 2px solid var(--atlas-tone-stopped);
-  border-radius: 50%;
-  display: inline-block;
-  height: 0.8rem;
-  width: 0.8rem;
+.milestone-task-count {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  margin: var(--sky-space-1) 0 0;
 }
 
 /* --- surface two: the mobile triage view -------------------------------------------------------- */
+
+.triage-heading {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+  margin: var(--sky-space-6) 0 var(--sky-space-3);
+}
+
+.triage-heading:first-of-type {
+  margin-top: var(--sky-space-4);
+}
+
+.triage-count {
+  color: var(--sky-text-muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
 
 .card-list {
   display: flex;
@@ -1097,101 +835,6 @@ h3 {
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-/* --- a feature's own triage, as a modal (#780) --------------------------------------------------
- *
- * The dedicated Triage page is gone from the desk; a feature's header opens this instead. It is a
- * native <dialog>, so focus trapping, Esc and the backdrop come from the platform rather than from
- * a re-implementation nothing here could check.
- *
- * `::backdrop` does NOT inherit from the page, so its colour cannot be a token that resolves on
- * :root — it is written against the same ink the shadows use, at an alpha that reads in both
- * themes without needing a dark block of its own. */
-.feature-modal {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border);
-  border-radius: var(--sky-card-radius);
-  box-shadow: var(--sky-shadow-card);
-  color: var(--sky-text-primary);
-  font-family: var(--atlas-font-sans);
-  max-width: 32rem;
-  padding: var(--sky-space-5);
-  width: calc(100% - var(--sky-space-6));
-}
-
-.feature-modal::backdrop {
-  background: var(--atlas-modal-backdrop);
-}
-
-.modal-head {
-  align-items: baseline;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sky-space-3);
-  justify-content: space-between;
-}
-
-.modal-head h2 {
-  font-size: 1.15rem;
-  margin: 0;
-}
-
-.modal-what,
-.modal-position {
-  margin: var(--sky-space-3) 0 0;
-}
-
-.modal-position {
-  color: var(--sky-text-secondary);
-  font-size: 0.9rem;
-}
-
-/* The gate is the last line, exactly as it is on the phone's card: decision 27 ends every card on
- * what is holding the feature, and this surface says the same thing about the same feature. */
-.modal-gate {
-  border-top: 1px solid var(--sky-color-border);
-  color: var(--sky-text-secondary);
-  font-size: 0.9rem;
-  margin-top: var(--sky-space-4);
-  padding-top: var(--sky-space-3);
-}
-
-.modal-gate-label {
-  color: var(--sky-text-secondary);
-  display: block;
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.modal-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sky-space-3);
-  margin-top: var(--sky-space-5);
-}
-
-.modal-link {
-  margin-right: auto;
-}
-
-.modal-hide,
-.modal-close {
-  background: var(--sky-card-background);
-  border: 1px solid var(--sky-color-border-control);
-  border-radius: var(--sky-radius-pill);
-  color: var(--sky-text-secondary);
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.8rem;
-  padding: var(--sky-space-1) var(--sky-space-4);
-}
-
-.modal-close {
-  background: var(--sky-color-fill-subtle);
-  color: var(--sky-text-primary);
 }
 
 /* --- surface three: the document pages ---------------------------------------------------------- */

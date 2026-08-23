@@ -15,11 +15,10 @@ import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
-import { CHART, computeChart } from '../src/chart.mjs';
 import { formatDay } from '../src/dates.mjs';
-import { computeLadder } from '../src/depth.mjs';
+import { computeLadder, spineDetail } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
-import { TRIAGE_ORDER, orderByTriage, triageCards } from '../src/triage.mjs';
+import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -114,50 +113,42 @@ function entry(codename, overrides = {}) {
   };
 }
 
-// The shape `src/build.mjs` hands the layouts: each workstream carrying its own ladder column, its
-// own URL, and its milestones already enriched with theirs. Built here rather than hand-made, so a
-// layout is rendered against what the build actually produces — and the URLs come from build.mjs's
-// own exported helpers, so this cannot become a second URL convention.
+// The shape src/build.mjs hands the layouts, matching Task 4's wiring exactly: each workstream
+// carrying its own ladder column and triage state, its milestones already enriched with `tasks`
+// on the manifest and a sibling `spineDetail` array.
 function assemble(entries) {
   const ladder = computeLadder(entries);
+  const triaged = orderByTriage(entries.map((stream, index) => ({ ...stream, column: ladder.columns[index] })));
+  const triageBySlug = new Map(triaged.map((s) => [s.slug, s.triage]));
+
   return entries.map((stream, index) => ({
     ...stream,
     url: workstreamUrl(stream.slug),
     column: ladder.columns[index],
+    triage: triageBySlug.get(stream.slug),
     milestones: stream.manifest.milestones.map((entry) => ({
-      manifest: entry,
+      manifest: { ...entry, tasks: entry.tasks ?? [] },
       url: milestoneUrl(stream.slug, entry.id),
       planUrl: null,
       recordUrl: null,
       hrefBase: `docs/features/${stream.slug}`,
     })),
+    spineDetail: spineDetail(stream.manifest.milestones),
   }));
 }
 
-// #780 rebuilt this surface out of an HTML table into drawn SVG paths, so what the layout is
-// handed is the DRAWING — `src/chart.mjs`'s coordinates and paths — rather than the ladder. The
-// layout positions nothing of its own; `tests/chart.test.mjs` checks the geometry, and what is
-// checked here is that the drawing reaches the page intact.
 function renderDepth(entries) {
-  const assembled = assemble(entries);
   return env.render('depth.njk', {
     ...site,
     title: 'Feature planning',
-    chart: computeChart(computeLadder(entries), assembled),
-    // Exactly what the build hands it, through the same function, so this cannot become a second
-    // shape for the modal's content.
-    features: triageCards(assembled),
+    workstreams: assemble(entries),
   });
 }
 
-// Task 7 moved decision 27's mapping out of `mobile.njk` and into `src/triage.mjs`, so the page
-// is now handed its cards already classified and already in order. The assertions below are
-// unchanged: they still read the rendered HTML, so they pin the same behaviour they always did —
-// only the place that decides it moved.
 function renderMobile(entries) {
   return env.render('mobile.njk', {
     ...site,
-    title: 'Triage',
+    title: 'What needs you',
     triaged: orderByTriage(assemble(entries)),
   });
 }
@@ -217,6 +208,21 @@ function stripTags(html) {
 
 function attrValues(html, attr) {
   return [...html.matchAll(new RegExp(`${attr}="([^"]*)"`, 'g'))].map((m) => m[1]);
+}
+
+// Nunjucks autoescape entity-encodes text content (an apostrophe becomes `&#39;`), so a raw
+// manifest string containing one — the fixture's own prose does — never appears literally inside
+// rendered HTML. Encoding the needle the same way `env.render` encoded the haystack is what makes
+// `html.includes(...)` a fair check rather than one that only passes for punctuation-free fixtures.
+function htmlIncludesText(html, text) {
+  const escaped = text.replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[ch]);
+  return html.includes(escaped);
 }
 
 // --- CSS parsing ------------------------------------------------------------------------------
@@ -648,19 +654,14 @@ test('tokens.css: every derived dark value says what it was derived from', () =>
   }
 });
 
-// --- #780: a colour for done, and stopped told apart from in progress -------------------------
-
-// The four states the feature planning drawing has to say apart WITHOUT the reader consulting the
-// key beneath it. Named here as the drawing's own tokens rather than read out of the stylesheet,
-// because a list read from the file it is checking agrees with any drift in it.
-const CHART_TONES = ['--atlas-tone-done', '--atlas-tone-live', '--atlas-tone-ahead', '--atlas-tone-stopped'];
-
 test('tokens.css: no component selector is declared twice, in two places, saying two things', () => {
-  // The defect this closes was made in this very milestone. Adding the modal added a second
-  // `.lane-head` rule five hundred lines below the first, setting `cursor: pointer` where the
-  // original set `cursor: grab` — and being later, it won. The header quietly stopped looking like
-  // something you can drag on the day it also became something you can click, and nothing in a
-  // stylesheet reads as wrong when the two halves are that far apart.
+  // The defect this closes was made in this very milestone. Adding the (since-retired) triage
+  // modal added a second `.lane-head` rule five hundred lines below the first, setting
+  // `cursor: pointer` where the original set `cursor: grab` — and being later, it won. The header
+  // quietly stopped looking like something you can drag on the day it also became something you
+  // can click, and nothing in a stylesheet reads as wrong when the two halves are that far apart.
+  // `.lane-head` itself is long gone along with the modal (the accordion replaced both) — this
+  // guard is what is left to catch the SHAPE of that mistake recurring on whatever selector next.
   //
   // The palette blocks are excluded by name: the dark palette is deliberately written twice, once
   // guarded by a media query and once by an attribute, and a test above already pins that the two
@@ -710,41 +711,6 @@ test('tokens.css: nothing that is not a link is drawn in the link colour', () =>
   assert.ok(usesLinkColour.length > 0, 'nothing uses the link colour at all, so this rule checks nothing');
 });
 
-test('tokens.css: the chart’s four states are four different colours, in light and in dark', () => {
-  // #780: "a colour for done — finished work needs its own arrow colour, distinct from in
-  // progress", and "stopped and in progress were clearer in the earlier mock than they are now."
-  //
-  // M2.1 drew finished work in `--sky-action-link-text`, so a finished ribbon was the same ink as
-  // every link on the page and had no colour of its own at all. The drawing now has four tokens,
-  // and this checks the only property that makes them worth having: that they differ.
-  const resolve = (declared, name, fallback) => {
-    let value = declared.get(name) ?? fallback.get(name);
-    // A token defined as an alias moves with the palette; follow it to the colour it lands on.
-    for (let hops = 0; hops < 5 && /^var\(/.test(value ?? ''); hops += 1) {
-      const alias = /^var\(\s*(--[\w-]+)/.exec(value)[1];
-      value = declared.get(alias) ?? fallback.get(alias);
-    }
-    return value;
-  };
-
-  const light = bareRootDeclarations();
-  const states = { light: [light, light], ...darkBlockDeclarations() };
-
-  for (const [selector, declared] of Object.entries(states)) {
-    const block = Array.isArray(declared) ? declared[0] : declared;
-    const values = CHART_TONES.map((name) => {
-      const value = resolve(block, name, light);
-      assert.ok(value, `${selector}: ${name} resolves to nothing`);
-      return value.toLowerCase();
-    });
-    assert.equal(
-      new Set(values).size,
-      CHART_TONES.length,
-      `${selector}: two of the chart's four states are drawn in the same colour — ${values.join(', ')}`,
-    );
-  }
-});
-
 test('tokens.css: finished work has an arrow colour of its own, not the page’s link colour', () => {
   // The specific thing #780 asked for. Aliasing the link token would satisfy "there is a token
   // called done" while changing not one pixel, so what is checked is the VALUE.
@@ -763,54 +729,6 @@ test('tokens.css: finished work has an arrow colour of its own, not the page’s
     'var(--sky-action-link-text)',
     'finished work still resolves to the link colour through an alias',
   );
-});
-
-test('tokens.css: the key beneath the chart is drawn from the same tokens as the chart', () => {
-  // A key that disagrees with the drawing is worse than no key. It disagreed: the swatches were
-  // coloured from the link blue and the positive green while the ribbons moved to their own
-  // tokens, and — worse — the drawing's own rules listed `.key-swatch` alongside the ribbons and
-  // set `fill` on it, which does nothing at all to a `<span>`. So the key had TWO rules, one inert
-  // and one stale, and looked plausible in the stylesheet either way.
-  const declarationFor = (selector, property) => {
-    const rules = DECLARATION_RULES.filter((r) => r.selector.trim() === selector);
-    assert.ok(rules.length > 0, `no ${selector} rule`);
-    const found = rules
-      .map((r) => new Map(declarationsIn(r.body)).get(property))
-      .filter(Boolean);
-    assert.equal(found.length, 1, `${selector} sets ${property} in ${found.length} places, not one`);
-    return found[0];
-  };
-
-  for (const tone of ['done', 'live', 'ahead']) {
-    assert.equal(
-      declarationFor(`.key-swatch.tone-${tone}`, 'background'),
-      `var(--atlas-tone-${tone})`,
-      `the key's "${tone}" swatch is not the colour the drawing uses for it`,
-    );
-  }
-  assert.match(
-    declarationFor('.key-skip', 'border'),
-    /var\(--atlas-tone-stopped\)/,
-    "the key's skipped swatch is not the colour the drawing marks a stopped milestone in",
-  );
-});
-
-test('tokens.css: the ribbon going round a stopped milestone is a ribbon, not a hairline', () => {
-  // #780's approved mock: "the ribbon leaves its lane, curves around a crossed circular marker
-  // sitting in the milestone's row, and rejoins below it." M2.1 drew that at a 10px stroke against
-  // a 36px ribbon and left a comment claiming it was "the same weight as the body it bridges",
-  // which was false — so a stopped milestone read as the ribbon ENDING and a hairline appearing,
-  // and that is the separation between stopped and in progress that the build lost.
-  const rule = DECLARATION_RULES.find((r) => r.selector.trim() === '.ribbon-detour');
-  assert.ok(rule, 'no .ribbon-detour rule at all');
-  const width = Number(new Map(declarationsIn(rule.body)).get('stroke-width'));
-  assert.ok(Number.isFinite(width), 'the detour has no stroke-width');
-  assert.ok(
-    width >= CHART.ribbonWidth / 2,
-    `the detour is drawn at ${width} against a ${CHART.ribbonWidth} ribbon, which reads as a break rather than a way round`,
-  );
-  // And it must still be narrower than the ribbon: it is the work going ROUND, not more of it.
-  assert.ok(width < CHART.ribbonWidth, 'the detour is as wide as the ribbon, so nothing says the work went round');
 });
 
 test('tokens.css: every --sky- token carries the locked contract\'s own light value', () => {
@@ -998,29 +916,14 @@ function tokenFor(selector, property) {
 // how five of the six failures went unnoticed: `--sky-text-muted` is fine on the contract's plain
 // surfaces (4.55, 4.76) and fails on the status tints these labels actually sit on.
 //
-// #780 rebuilt the first surface out of an HTML table into drawn SVG, so the pairings on it are
-// now SVG text on an SVG fill: a `fill` rather than a `color`, and a `fill` rather than a
-// `background`. `tokenFor` below reads both, because what matters is which token the paint comes
-// from and not which property name CSS happens to use for it.
+// Task 5 rebuilt the first surface as a collapsed HTML accordion, so the SVG-specific pairings
+// that used to live here — the ladder gutter's captions, the drawing's own header, the ribbon's
+// dates and skip note, the balloon — no longer exist to check. `tokenFor` still reads `fill` as
+// well as `color`/`background`, because other surfaces (the chip macro's SVG form) may yet use it.
 const OCCURRING_PAIRS = [
-  // The ladder gutter paints its own opaque ground so the lanes do not show through it.
-  ['.lad-stage', '.ladder-ground'],
-  ['.lad-num', '.ladder-ground'],
-  ['.band-name', '.ladder-ground'],
-  // The plate paints only on hover, focus and drag now (the owner: a bordered plate behind every
-  // name read as a row of uneven cards, not a row of names); at rest the name sits directly on
-  // the chart's own card background.
-  ['.col-h', '.chart-scroll'],
-  ['.chip-text', '.chip-box'],
-  // The dates, the skip note and the balloon all sit over the execution band, which is the tint
-  // that covers the whole bottom of the drawing.
-  ['.dt', '.band-execution'],
-  ['.dt-b', '.band-execution'],
-  ['.skip-t', '.band-execution'],
-  ['.skip-t', '.skip-ring'],
-  ['.bl-k', '.balloon-body'],
-  ['.balloon.tone-live .bl-k', '.balloon-body'],
-  ['.bl-t', '.balloon-body'],
+  // The feature row's secondary text sits directly on the row's own card background.
+  ['.feature-next', '.feature-row'],
+  ['.disclosure', '.feature-row'],
   ['.meta-label', '.gate-callout'],
   ['.meta-label', '.contents'],
   ['.card-what', '.card'],
@@ -1081,61 +984,6 @@ test('tokens.css: the contrast check is reading real colours, not agreeing with 
   }
 });
 
-test('tokens.css: the drawing owns its sideways scroll, and the ladder is pinned to its left edge', () => {
-  // #780 rebuilt this surface into two SVGs side by side inside one horizontal scroller: the
-  // ladder gutter, which stays put, and the lanes, which scroll under it. The ladder names the row
-  // every ribbon is measured against, so a ladder that scrolls away takes the drawing's meaning
-  // with it.
-  //
-  // `left: 0`, NOT `top: 0`. M1's version bounded the box's height so that sticky column headers
-  // had a vertical scrollport to resolve against; the drawing is now as tall as it needs to be and
-  // the PAGE scrolls it, so there is no vertical scrollport at all and a `top: 0` inside would
-  // resolve against a box that can never move — which is exactly the bug M1's own comment
-  // described.
-  const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((x) => x.trim() === '.chart-scroll'));
-  assert.ok(scroller, 'no .chart-scroll rule');
-
-  const declarations = new Map(declarationsIn(scroller.body));
-  assert.match(scroller.body, /overflow-x\s*:\s*auto/, '.chart-scroll must scroll sideways itself');
-  assert.equal(declarations.get('display'), 'flex', 'the ladder and the lanes must sit side by side');
-  assert.ok(
-    !declarations.has('max-height'),
-    'the drawing no longer scrolls vertically, so bounding its height only clips it',
-  );
-
-  // Anything claiming an edge of that scrollport must actually be sticky, or the declaration does
-  // nothing at all.
-  const claimsEdge = new Set(
-    DECLARATION_RULES.filter((r) =>
-      declarationsIn(r.body).some(([p, v]) => (p === 'left' || p === 'top') && v === '0'),
-    ).flatMap((r) => r.selector.split(',').map((x) => x.trim())),
-  );
-  assert.ok(claimsEdge.has('.planning-ladder'), 'the ladder does not claim the left edge of the scroller');
-  for (const selector of claimsEdge) {
-    const sticky = DECLARATION_RULES.filter((r) =>
-      r.selector.split(',').some((x) => x.trim() === selector),
-    ).some((r) => /position\s*:\s*sticky/.test(r.body));
-    assert.ok(sticky, `${selector} claims an edge without position: sticky, which does nothing`);
-  }
-});
-
-test('tokens.css: the pinned ladder paints above the lanes, on a ground they cannot show through', () => {
-  // At `z-index: auto` a sticky element paints in DOM order, and the ladder is written FIRST — so
-  // every lane would slide over the top of it. And a transparent ground shows the ribbons passing
-  // underneath even once the stacking is right.
-  const rulesFor = (selector) =>
-    DECLARATION_RULES.filter((r) => r.selector.split(',').some((x) => x.trim() === selector));
-
-  const zIndex = rulesFor('.planning-ladder').flatMap((r) =>
-    declarationsIn(r.body).filter(([property]) => property === 'z-index'),
-  );
-  assert.ok(zIndex.length > 0, '.planning-ladder is sticky but sets no z-index, so it paints in DOM order');
-  assert.ok(Number(zIndex[zIndex.length - 1][1]) > 0, 'the pinned ladder must paint above the lanes');
-
-  const opaque = rulesFor('.ladder-ground').some((r) => /fill\s*:\s*var\(\s*--[\w-]+\s*\)/.test(r.body));
-  assert.ok(opaque, 'the ladder has no opaque ground, so the lanes show through it as they scroll past');
-});
-
 test('tokens.css: body sets an explicit background from a token', () => {
   const bodyRules = DECLARATION_RULES.filter((r) =>
     r.selector.split(',').some((s) => s.trim() === 'body'),
@@ -1176,474 +1024,60 @@ test('tokens.css: columns of digits are set in tabular numerals', () => {
   );
 });
 
-test('tokens.css: wide content scrolls inside its own container, never the page body', () => {
-  const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((s) => s.trim() === '.chart-scroll'));
-  assert.ok(scroller, 'no .chart-scroll rule');
-  assert.match(scroller.body, /overflow-x\s*:\s*auto/, '.chart-scroll must scroll horizontally itself');
-  assert.match(scroller.body, /max-width\s*:\s*100%/, '.chart-scroll must be bounded by its parent');
+// --- surface one: feature planning, the accordion (Task 5) --------------------------------------
 
-  const bodyRules = DECLARATION_RULES.filter((r) => r.selector.split(',').some((s) => s.trim() === 'body'));
-  assert.ok(
-    bodyRules.some((r) => /overflow-x\s*:\s*hidden/.test(r.body)),
-    'body must not scroll sideways',
-  );
-});
-
-// --- decisions 22/23/24 and #780: the feature planning drawing ----------------------------------
-//
-// This surface is a DRAWING now, not a table. `tests/chart.test.mjs` checks the geometry — which
-// arrows exist, where each ends, that a head grows out of its own body. What is checked here is
-// that the drawing reaches the page intact, and that the thing #780 put above everything else on
-// its list stays true: it is not a chart and they are not grid cells.
-
-function laneMarkup(html, slug) {
-  // A lane is one <g class="lane"> and the next one begins at the next `data-slug`, so the slice
-  // between them is exactly this feature's own markup — dots, dates, skip marker and balloon
-  // included. Read by splitting rather than by a lazy regex, which would stop at the first nested
-  // </g> and silently check a fragment.
-  const parts = html.split(/<g class="lane" data-slug="/).slice(1);
-  const mine = parts.find((part) => part.startsWith(`${slug}"`));
-  assert.ok(mine, `no lane rendered for ${slug}`);
-  return mine;
-}
-
-test('planning: nothing on this surface is rendered in a table cell', () => {
-  // #780's framing, and it sat above everything else on the list: "it was implemented as an HTML
-  // table — workstreams as columns, ladder rows as <tr>, every intersection a <td> — and every
-  // visual complaint above follows from that." A rebuild that quietly kept one table would
-  // reintroduce every one of them.
-  for (const tag of ['<table', '<td', '<tr', '<thead', '<tbody', '<caption']) {
-    assert.ok(!depthHtml.includes(tag), `the feature planning page still renders ${tag}`);
-  }
-  assert.match(depthHtml, /<svg[^>]*class="planning-chart"/, 'the features are not drawn at all');
-});
-
-test('planning: one lane per feature, in the order computeLadder returned, each placed by one translate', () => {
-  const chart = computeChart(ladder, assemble(workstreams));
-
-  const slugs = [...depthHtml.matchAll(/<g class="lane" data-slug="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(slugs, workstreams.map((w) => w.slug), 'the lanes are not the features, in order');
-
-  // One transform per lane, and nothing else positioning it: that is what lets the ordering move a
-  // whole feature by rewriting one number.
-  const transforms = [...depthHtml.matchAll(/<g class="lane" data-slug="[^"]+" transform="translate\((\d+),0\)"/g)].map(
-    (m) => Number(m[1]),
-  );
-  assert.deepEqual(transforms, chart.lanes.map((lane) => lane.x));
-
-  // And each header names its own feature, and its own modal. The LINK to the record used to be
-  // here and is not any more (#780 made the header a control that opens a modal); the modal
-  // carries it, and `planning: a feature's header opens that feature's own triage` checks that.
-  workstreams.forEach((stream) => {
-    const markup = laneMarkup(depthHtml, stream.slug);
-    assert.match(
-      markup,
-      new RegExp(`<text class="col-h"[^>]*>${stream.manifest.codename}</text>`),
-      `${stream.slug}'s header names the wrong feature`,
-    );
-    assert.match(
-      markup,
-      new RegExp(`data-opens-modal="${stream.slug}"`),
-      `${stream.slug}'s header opens the wrong feature's triage`,
-    );
-  });
-});
-
-test('planning: the milestone identifiers are in the ladder column, and in no feature’s own lane', () => {
-  // #780, correcting an earlier comment of its own: "the milestone ids belong in the ladder column
-  // only. Repeating them inside each workstream's cells is the actual problem; the cells should
-  // carry fill and nothing else."
-  const ladderMarkup = depthHtml.slice(
-    depthHtml.indexOf('class="planning-ladder"'),
-    depthHtml.indexOf('class="planning-chart"'),
-  );
-  const captions = [...ladderMarkup.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>([^<]+)<\/text>/g)].map(
-    (m) => m[1],
-  );
-  assert.deepEqual(captions, computeChart(ladder, assemble(workstreams)).rows.map((r) => r.caption));
-  assert.ok(captions.includes('M1'), 'the ladder does not name the milestone depths at all');
-
-  // The rule governs what ATLAS SAYS, not what a record says. Decision 2: Atlas is never the
-  // record, so it does not edit the owner's own sentences — and a gate reading "Owner sign-off on
-  // the M4 demo before M5 starts" is the owner's sentence, quoted verbatim into the balloon. Once
-  // the balloon carried the gate, scanning every text node in the lane made this test fail on a
-  // manifest doing nothing wrong, which would have been "fixed" by censoring a record.
-  //
-  // The class on a text node is what tells the two apart, so it is what the exclusion is written
-  // against: `col-h`, `bl-s` and `bl-t` carry a record's own words through unaltered; everything
-  // else in a lane — the dates, the skip marker's caption and reason — is Atlas composing, and
-  // that is where an identifier would be a repetition of the ladder.
-  const QUOTED_VERBATIM = /^(?:col-h|bl-s|bl-t)$/;
-
+test('planning: one row per workstream, each carrying its own slug', () => {
   for (const stream of workstreams) {
-    const lane = laneMarkup(depthHtml, stream.slug);
-    // Anywhere in the composed TEXT, not just as a whole text node. The first version of this
-    // required an exact `>M3<`, so the skip marker's own "M3 skipped" walked straight past it —
-    // which is precisely the repetition the rule forbids.
-    const spoken = [...lane.matchAll(/<text class="([^"]*)"[^>]*>([^<]*)<\/text>/g)]
-      .filter((m) => !QUOTED_VERBATIM.test(m[1]))
-      .map((m) => m[2])
-      .join(' | ');
-    assert.ok(spoken.length > 0, `${stream.slug}: nothing in this lane is Atlas's own words, so this rule checks nothing`);
-    for (const milestone of stream.manifest.milestones) {
-      assert.ok(
-        !new RegExp(`(?<![\\w.])${milestone.label}(?![\\w.])`).test(spoken),
-        `${stream.slug}'s lane says the milestone id ${milestone.label}; that belongs in the ladder alone (lane reads: ${spoken})`,
-      );
-    }
-    assert.ok(!/Passed/.test(lane), `${stream.slug}'s lane still carries the word "Passed"`);
+    assert.match(depthHtml, new RegExp(`data-slug="${stream.slug}"`));
   }
 });
 
-test('planning: every measurement on the page came from the drawing, never from the template', () => {
-  // The trap this closes, found in review. The template hard-coded a ribbon's left edge as
-  // `lane.centre - 18` — half of `CHART.ribbonWidth` — while reading the WIDTH from the drawing.
-  // Raising `ribbonWidth` to 44 therefore moved the arrowhead, which is computed, and left the
-  // body four pixels off-centre behind it, with the whole suite green. What shipped was correct;
-  // the trap was for whoever changed a constant next.
-  //
-  // So: every number the markup carries is read back and compared against the drawing that was
-  // handed to it. A literal written in the template is identical to the emitted value TODAY and
-  // diverges the moment the constant it duplicates moves — which is exactly when this fails.
-  const chart = computeChart(ladder, assemble(workstreams));
+test('planning: a row shows its codename, stage chip, and triage chip', () => {
+  const stream = workstreams[0];
+  // classifyTriage is per-manifest, so assembling this one stream alone still gives the triage
+  // `depthHtml` actually rendered for it — the same value `assemble(workstreams)` computed inside
+  // `renderDepth`.
+  const [assembled] = assemble([stream]);
+  const rowMatch = new RegExp(
+    `data-slug="${stream.slug}"[\\s\\S]*?</li>`,
+  ).exec(depthHtml);
+  assert.ok(rowMatch, `no row found for ${stream.slug}`);
+  const row = rowMatch[0];
+  assert.ok(row.includes(stream.manifest.codename), 'row is missing its own codename');
+  assert.match(row, new RegExp(`data-stage="${stream.manifest.stage}"`));
+  assert.match(row, new RegExp(`data-triage="${assembled.triage}"`), 'row is missing its own triage chip');
 
-  const attr = (markup, name) => {
-    const found = new RegExp(`\\b${name}="(-?[\\d.]+)"`).exec(markup);
-    assert.ok(found, `expected a ${name} on: ${markup}`);
-    return Number(found[1]);
-  };
-
-  // The header, identical for every lane because a lane is drawn about its own origin.
-  const heads = [...depthHtml.matchAll(/<rect class="lane-head-box"[^>]*>/g)].map((m) => m[0]);
-  assert.equal(heads.length, chart.lanes.length, 'expected one header per feature');
-  for (const markup of heads) {
-    assert.equal(attr(markup, 'x'), chart.head.x);
-    assert.equal(attr(markup, 'width'), chart.head.width);
-    assert.equal(attr(markup, 'height'), chart.head.height);
-    assert.equal(attr(markup, 'rx'), chart.head.radius);
-  }
-
-  // The gutter's row captions.
-  const captions = [...depthHtml.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>/g)].map((m) => m[0]);
-  assert.equal(captions.length, chart.rows.length);
-  captions.forEach((markup, i) => {
-    assert.equal(attr(markup, 'x'), chart.ladderCaptionX);
-    assert.equal(attr(markup, 'y'), chart.rows[i].captionY);
-  });
-
-  for (const lane of chart.lanes) {
-    const markup = laneMarkup(depthHtml, lane.slug);
-    const bodies = [...markup.matchAll(/<rect class="ribbon-body[^>]*>/g)].map((m) => m[0]);
-
-    // Both ribbons: the body's left edge, its width and its corner radius, all from the drawing.
-    for (const [arrow, name] of [
-      [lane.solid, 'solid'],
-      [lane.faint, 'faint'],
-    ]) {
-      if (!arrow) continue;
-      const mine = bodies.filter((body) => attr(body, 'width') === arrow.width);
-      assert.ok(mine.length > 0, `${lane.slug}: no ${name} ribbon body at all`);
-      for (const body of mine) {
-        assert.equal(attr(body, 'x'), arrow.x, `${lane.slug}: the ${name} body's left edge is not the drawing's`);
-        assert.equal(attr(body, 'rx'), arrow.radius, `${lane.slug}: the ${name} body's radius is not the drawing's`);
-      }
-    }
-
-    // And the property the whole trap turned on: a body is centred under its own head.
-    const arrowHeads = [...markup.matchAll(/<path class="ribbon-head[^"]*" d="M (-?[\d.]+) [\d.]+ L (-?[\d.]+) /g)];
-    assert.ok(arrowHeads.length > 0, `${lane.slug}: no arrowhead`);
-    for (const [, left, right] of arrowHeads) {
-      assert.equal(
-        (Number(left) + Number(right)) / 2,
-        lane.centre,
-        `${lane.slug}: an arrowhead is not centred on its own lane`,
-      );
-    }
-    for (const body of bodies) {
-      assert.equal(
-        attr(body, 'x') + attr(body, 'width') / 2,
-        lane.centre,
-        `${lane.slug}: a ribbon body is off-centre from the head it grows into`,
-      );
-    }
-
-    // The dots, their radius, and each date line's own baseline and column.
-    const dots = [...markup.matchAll(/<circle class="dot[^"]*"[^>]*>/g)].map((m) => m[0]);
-    assert.equal(dots.length, lane.dots.length, `${lane.slug}: wrong number of milestone dots`);
-    dots.forEach((dot, i) => {
-      assert.equal(attr(dot, 'cx'), lane.centre);
-      assert.equal(attr(dot, 'cy'), lane.dots[i].y);
-      assert.equal(attr(dot, 'r'), lane.dots[i].r, `${lane.slug}: a dot's radius is not the drawing's`);
-    });
-
-    const textLines = [...markup.matchAll(/<text class="(?:dt-b num|dt)"[^>]*>/g)].map((m) => m[0]);
-    const emittedBaselines = [
-      ...lane.dots.flatMap((d) => d.lines.map((line) => line.y)),
-      ...lane.skips.map((s) => s.reasonY),
-    ];
-    assert.equal(textLines.length, emittedBaselines.length, `${lane.slug}: wrong number of text lines beside the ribbon`);
-    for (const line of textLines) {
-      assert.equal(attr(line, 'x'), lane.textX, `${lane.slug}: a text line is not in the drawing's own column`);
-      assert.ok(emittedBaselines.includes(attr(line, 'y')), `${lane.slug}: a text line sits at a baseline nothing emitted`);
-    }
-
-    // The skip markers.
-    const rings = [...markup.matchAll(/<circle class="skip-ring"[^>]*>/g)].map((m) => m[0]);
-    assert.equal(rings.length, lane.skips.length);
-    rings.forEach((ring, i) => {
-      assert.equal(attr(ring, 'cy'), lane.skips[i].y);
-      assert.equal(attr(ring, 'r'), lane.skips[i].r, `${lane.slug}: a skip marker's radius is not the drawing's`);
-    });
-
-    // And the balloon's pin.
-    if (lane.balloon) {
-      const pin = /<circle class="balloon-pin"[^>]*>/.exec(markup)[0];
-      assert.equal(attr(pin, 'cx'), lane.balloon.dot.x);
-      assert.equal(attr(pin, 'r'), lane.balloon.dot.r);
-    }
-  }
-});
-test('planning: every feature has a ribbon and an arrowhead, drawn as paths rather than glyphs', () => {
-  for (const stream of workstreams) {
-    const lane = laneMarkup(depthHtml, stream.slug);
-    assert.match(lane, /<rect class="ribbon-body tone-/, `${stream.slug} has no ribbon`);
-    assert.match(lane, /<path class="ribbon-head tone-[a-z]+" d="M /, `${stream.slug} has no arrowhead`);
-    // The M1 failure this replaces: a text glyph standing in for the head.
-    assert.ok(!/&#9660;/.test(lane), `${stream.slug} draws its head as a text glyph`);
-  }
+  // And every row carries exactly one, not just the first: a chip silently dropped from one row
+  // would not show up in a single-row check.
+  const triageChips = [...depthHtml.matchAll(/<span\b[^>]*data-triage="[^"]*"/g)];
+  assert.equal(triageChips.length, workstreams.length, 'expected one triage chip per feature row');
 });
 
-test('planning: the faint second arrow is drawn only where records remain beyond the work', () => {
-  const chart = computeChart(ladder, assemble(workstreams));
-  for (const lane of chart.lanes) {
-    const markup = laneMarkup(depthHtml, lane.slug);
-    const heads = [...markup.matchAll(/<path class="ribbon-head tone-/g)].length;
-    assert.equal(
-      heads,
-      lane.faint ? 2 : 1,
-      `${lane.slug}: a feature with ${lane.faint ? 'records ahead' : 'nothing recorded ahead'} drew ${heads} heads`,
-    );
-  }
-  assert.ok(chart.lanes.some((l) => l.faint), 'the fixture no longer exercises the faint reach at all');
-  assert.ok(chart.lanes.some((l) => !l.faint), 'the fixture no longer exercises the single arrow at all');
+test('planning: a row carries a milestone progress strip sized to its own milestone count', () => {
+  const withMilestones = workstreams.find((s) => s.manifest.milestones.length > 0);
+  assert.ok(withMilestones, 'fixture has no workstream with milestones to test against');
+  const rowMatch = new RegExp(`data-slug="${withMilestones.slug}"[\\s\\S]*?</li>`).exec(depthHtml);
+  const segCount = (rowMatch[0].match(/class="strip-seg/g) || []).length;
+  assert.equal(segCount, withMilestones.manifest.milestones.length);
 });
 
-test('planning: the faint arrow is drawn FIRST, so the solid one is painted on top of it', () => {
-  // #780: the two arrows overlay. SVG has no z-index — the painter's order IS the document order —
-  // so an overlay that is emitted the wrong way round draws the faint arrow over the solid one and
-  // the page shows a pale bar where the work is. `src/chart.mjs` cannot express this; only the
-  // order of the elements in the markup can, which is why it is asserted here.
-  const chart = computeChart(ladder, assemble(workstreams));
-  const withFaint = chart.lanes.filter((l) => l.faint);
-  assert.ok(withFaint.length > 0, 'the fixture no longer exercises the overlay at all');
-
-  for (const lane of withFaint) {
-    const markup = laneMarkup(depthHtml, lane.slug);
-    // The faint body carries the faint arrow's own width; the solid body carries the solid one's.
-    const faintBody = markup.indexOf(`<rect class="ribbon-body tone-ahead" x="${lane.faint.x}"`);
-    const solidHead = markup.indexOf(`<path class="ribbon-head tone-${lane.solid.head.tone}" d="${lane.solid.head.d}"`);
-    const faintHead = markup.indexOf(`<path class="ribbon-head tone-ahead" d="${lane.faint.head.d}"`);
-    assert.ok(faintBody >= 0, `${lane.slug}: no faint body in the markup`);
-    assert.ok(solidHead >= 0, `${lane.slug}: no solid head in the markup`);
-    assert.ok(faintHead >= 0, `${lane.slug}: no faint head in the markup`);
-    assert.ok(
-      faintBody < solidHead && faintHead < solidHead,
-      `${lane.slug}: the faint arrow is painted over the solid one, not under it`,
-    );
-  }
+test('planning: no dates or duration render anywhere on this page', () => {
+  // The design doc's core rule for this rebuild. formatDay's output looks like a real date (e.g.
+  // "23 Aug 2026"); a milestone month name is the cheapest reliable signal one leaked.
+  const MONTHS = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\b/;
+  assert.doesNotMatch(depthHtml, MONTHS, 'a date rendered on the feature-planning page');
 });
 
-test('planning: a skipped milestone is marked in its own row, with the reason beside it', () => {
-  const reef = laneMarkup(depthHtml, 'reef');
-  assert.match(reef, /<circle class="skip-ring"/, 'the milestone the work went round was not marked');
-  // "Skipped", not "M3 skipped": the marker already sits on that milestone's own row, and #780
-  // puts the identifiers in the ladder column and nowhere else.
-  assert.match(reef, /<text class="skip-t"[^>]*>Skipped<\/text>/);
-  assert.match(reef, /#703 · parked/, 'the marker does not say why, or where to read the reason');
-  assert.match(reef, /<path class="ribbon-detour"/, 'the ribbon does not visibly go round the marker');
-
-  // A feature with no gap has none of it.
-  assert.ok(!/skip-ring/.test(laneMarkup(depthHtml, 'anchor')), 'a feature with no gap was given a marker');
+test('planning: the per-feature triage modal is gone — no dialog, no data-feature-modal', () => {
+  assert.doesNotMatch(depthHtml, /data-feature-modal/);
+  assert.doesNotMatch(depthHtml, /<dialog/);
 });
 
-test('planning: the stored dates reach the page beside the milestone they belong to', () => {
-  const reef = laneMarkup(depthHtml, 'reef');
-  // The span states its year once, because both ends fall in it — see `formatDayRange`.
-  assert.match(reef, /4 May → 8 May 2026/, "the closed milestone's two stored days are missing");
-  assert.match(reef, /4 days/, 'how long it took is missing');
-
-  const tide = laneMarkup(depthHtml, 'tide');
-  assert.match(tide, /in progress/, 'the milestone in flight does not say so');
-
-  // Every date on the page is one on record. Checked as a set rather than against today's year,
-  // which the fixture's own dates may share — a guard skipped whenever the fixture is current is
-  // a guard that cannot fail in the year anyone runs it.
-  const recorded = new Set(
-    workstreams.flatMap((w) =>
-      w.manifest.milestones.flatMap((m) => [m.started, m.completed].filter(Boolean)),
-    ),
-  );
-  const rendered = [...depthHtml.matchAll(/>(\d{1,2} [A-Z][a-z]{2} \d{4})/g)].map((m) => m[1]);
-  assert.ok(rendered.length > 0, 'no dates reached the page at all');
-  for (const day of rendered) {
-    assert.ok(
-      [...recorded].some((iso) => formatDay(iso) === day),
-      `the page shows "${day}", which is on no record — something was derived rather than read`,
-    );
-  }
-});
-
-test('planning: a balloon points at the step it describes, and none is drawn with nothing to say', () => {
-  const chart = computeChart(ladder, assemble(workstreams));
-  for (const lane of chart.lanes) {
-    const markup = laneMarkup(depthHtml, lane.slug);
-    const drawn = /<g class="balloon tone-/.test(markup);
-    assert.equal(drawn, lane.balloon !== null, `${lane.slug}: the balloon and the drawing disagree`);
-    if (!lane.balloon) continue;
-    assert.ok(
-      markup.includes(`<circle class="balloon-pin" cx="${lane.balloon.dot.x}" cy="${lane.balloon.dot.y}"`),
-      `${lane.slug}: the balloon does not attach to the ribbon at the step it describes`,
-    );
-  }
-  assert.ok(chart.lanes.some((l) => l.balloon === null), 'the fixture no longer exercises "nothing next, no balloon"');
-});
-
-test('planning: the drawing sits inside a horizontally scrolling container, with the ladder pinned to it', () => {
-  const scrollIndex = depthHtml.indexOf('class="chart-scroll"');
-  const ladderIndex = depthHtml.indexOf('class="planning-ladder"');
-  const lanesIndex = depthHtml.indexOf('class="planning-chart"');
-  assert.ok(scrollIndex !== -1, 'the drawing is not wrapped in a .chart-scroll container');
-  assert.ok(scrollIndex < ladderIndex, 'the .chart-scroll wrapper must come before what it wraps');
-  assert.ok(ladderIndex < lanesIndex, 'the ladder must come before the lanes that scroll under it');
-});
-
-test('planning: the header block is the title, and the page opens on the chart', () => {
-  // #780: "cut the header block on Feature planning to just the title. Remove the explanatory
-  // paragraph and the drag/order instruction paragraph, and remove the 'back to the generated
-  // order' button from that block. The page should open on the chart, not on two paragraphs
-  // explaining it."
-  //
-  // Checked as a SHAPE rather than by hunting for the two strings that used to be there: whatever
-  // sits between the heading and the chart's own controls has to be nothing.
-  const heading = depthHtml.indexOf('</h1>');
-  const controls = depthHtml.indexOf('<div class="planning-controls">');
-  const chart = depthHtml.indexOf('<div class="chart-scroll"');
-  assert.ok(heading !== -1, 'the page lost its heading');
-  assert.ok(controls !== -1, 'there is no controls strip for the chart');
-  assert.ok(controls < chart, 'the chart controls sit below the chart they belong to');
-
-  const between = depthHtml.slice(heading + 5, controls).trim();
-  assert.equal(between, '', `the header block still carries prose before the chart: ${between}`);
-  assert.ok(!/class="lede"/.test(depthHtml), 'the explanatory paragraph is still in the header block');
-});
-
-test('planning: the header block\'s per-device caveat and keyboard instruction got honest homes, not deletion', () => {
-  // #780 was explicit that removing that block must not drop what it carried:
-  //
-  //   * the per-device caveat, which "matters more once ordering is something the owner actually
-  //     relies on";
-  //   * the drag/arrow-key instruction — not visible on its own, because it is what
-  //     `aria-describedby` on every feature header points at. Deleting the paragraph would have
-  //     silently taken the only explanation a screen-reader user gets of how the control works —
-  //     a visual instruction to remove, not an accessible name to drop.
-  //
-  // #780 also asked for a reset control here, and the owner later removed it after using the
-  // live site — "you can remove back to the generated order, I don't know that" — so that third
-  // thing is gone by direct instruction rather than carried forward.
-  // Sliced rather than matched with a lazy regex: the strip holds a nested <div>, so
-  // `([\s\S]*?)</div>` would stop at the first inner close and check a third of it.
-  const from = depthHtml.indexOf('<div class="planning-controls">');
-  const to = depthHtml.indexOf('<div class="chart-scroll"');
-  assert.ok(from !== -1 && to > from, 'there is no controls strip');
-  const controlsBlock = [null, depthHtml.slice(from, to)];
-
-  assert.match(controlsBlock[1], /this device only/i, 'the per-device caveat has no home a reader will meet');
-  assert.ok(!/data-order-reset/.test(controlsBlock[1]), 'the reset control the owner asked removed is still here');
-
-  // The instruction survives for assistive technology, and the reference still resolves.
-  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml);
-  assert.ok(described, 'a feature header no longer describes itself at all');
-  const target = new RegExp(`id="${described[1]}"`);
-  assert.match(depthHtml, target, `aria-describedby points at ${described[1]}, which is not on the page`);
-  const instruction = new RegExp(`<[^>]*id="${described[1]}"[^>]*>([^<]*)`).exec(depthHtml);
-  assert.match(instruction[1], /arrow key/i, 'the instruction the header points at no longer explains the keys');
-});
-
-test('planning: a feature’s header opens that feature’s own triage, as a modal', () => {
-  // #780: "drop the dedicated Triage page. Clicking a feature's header on the feature planning
-  // page opens a MODAL carrying that content — what needs you, the position, the gate."
-  //
-  // The modal is a native <dialog>. That is not a stylistic preference: `showModal()` traps focus,
-  // Esc dismisses, and focus returns to what opened it, all from the platform. A hand-rolled div
-  // has to re-implement three things that are easy to get subtly wrong and impossible to check
-  // without a browser, and #780's own requirement is exactly those three.
-  for (const stream of workstreams) {
-    const dialog = new RegExp(
-      `<dialog[^>]*class="feature-modal"[^>]*data-feature-modal="${stream.slug}"[^>]*>([\\s\\S]*?)</dialog>`,
-    ).exec(depthHtml);
-    assert.ok(dialog, `${stream.slug} has no triage modal`);
-
-    // Decoded, because the layout escapes what a record says and a record's own prose is full
-    // of apostrophes. Comparing against the escaped form would be comparing against the escaper.
-    const body = dialog[1].replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&quot;/g, '"');
-    // What the standalone page carried, all three.
-    assert.match(body, /data-triage="[a-z-]+"/, `${stream.slug}: the modal does not say what needs you`);
-    assert.ok(body.includes(stream.manifest.position), `${stream.slug}: the modal drops the position`);
-    assert.ok(body.includes(stream.manifest.gate), `${stream.slug}: the modal drops the gate`);
-    assert.ok(body.includes(stream.manifest.what), `${stream.slug}: the modal drops what the feature is`);
-
-    // A way out that is not the Esc key, for a reader who does not know there is one.
-    assert.match(body, /data-modal-close/, `${stream.slug}: the modal can only be closed by keyboard`);
-    // And the record it is about is still one click away — the link left the SVG header and
-    // landed here, so it must actually be here.
-    assert.ok(
-      body.includes(`href="${workstreamUrl(stream.slug)}"`),
-      `${stream.slug}: the modal does not link the feature's own record`,
-    );
-  }
-
-  // Every header announces that it opens one, and says which. A `role="button"` that opens a
-  // dialog without `aria-haspopup` tells a screen-reader user nothing about what is about to
-  // happen.
-  const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);
-  assert.equal(handles.length, workstreams.length);
-  for (const handle of handles) {
-    assert.match(handle, /aria-haspopup="dialog"/, 'a feature header does not say that it opens a dialog');
-    assert.match(handle, /data-opens-modal="[a-z0-9-]+"/, 'a feature header names no modal to open');
-  }
-
-  // The drawing's own header no longer carries a link. It is a control now, and a link inside a
-  // drag handle inside a button is three interactive things claiming one click.
-  //
-  // Bounded to the header's OWN element: an unbounded `[\s\S]*?<a href` runs from a header to the
-  // next link anywhere on the page, which after this change is the modal's own — so it would fail
-  // on correct markup and could never have told the two apart.
-  for (const stream of workstreams) {
-    const at = laneMarkup(depthHtml, stream.slug).indexOf('<g class="lane-head"');
-    assert.ok(at !== -1, `${stream.slug} has no header at all`);
-    const markup = laneMarkup(depthHtml, stream.slug).slice(at);
-    const header = markup.slice(0, markup.indexOf('</g>'));
-    assert.ok(header.length > 0, `${stream.slug}'s header is unclosed`);
-    assert.ok(!/<a[\s>]/.test(header), `${stream.slug}'s header still holds a link, so a click means two things`);
-    assert.match(header, /col-h/, 'the bound above stopped covering the header, so this checks nothing');
-  }
-});
-
-test('planning: the modal traps focus, dismisses by keyboard, and hands focus back', () => {
-  // #780's three requirements for it, checked where each is actually decided. The first two come
-  // from the platform and are had by using <dialog> with showModal(); the third is NOT — a dialog
-  // restores focus to whatever had it, and an SVG group that was clicked rather than tabbed to may
-  // not have had it — so the module puts focus back on the header explicitly, and that is asserted
-  // against the source.
-  assert.match(ORDER_SOURCE, /showModal\(\)/, 'the modal is opened without the platform’s modal semantics');
-  assert.ok(
-    !/inert|aria-modal="true"/.test(depthHtml) || /<dialog/.test(depthHtml),
-    'the page hand-rolls modal semantics instead of using <dialog>',
-  );
-  assert.match(ORDER_SOURCE, /data-opens-modal/, 'nothing wires a header to its modal');
-  assert.match(ORDER_SOURCE, /\.focus\(\)/, 'focus is never handed back to anything');
-  // Closing has to be reachable without a pointer even if the platform's Esc were unavailable.
-  assert.match(ORDER_SOURCE, /data-modal-close/, 'nothing wires the modal’s own close control');
+test('planning: the drag/hide DOM hooks are present for order.js to wire', () => {
+  assert.match(depthHtml, /data-feature-list/);
+  assert.match(depthHtml, /data-row-handle/);
+  assert.match(depthHtml, /data-order-said/);
+  assert.match(depthHtml, /data-hidden-bar/);
 });
 
 test('planning: nothing on the desk is called Triage any more, and the phone keeps its surface', () => {
@@ -1667,97 +1101,169 @@ test('planning: nothing on the desk is called Triage any more, and the phone kee
   assert.ok(!/<dialog/.test(mobileHtml), 'the phone view grew a desk affordance');
 });
 
-test('planning: a hidden feature can never go missing without the page saying so', () => {
-  // Decision 49, and the whole risk of the capability: "a page that silently omits a workstream is
-  // worse than one that shows too many." The page ships the place where that is said — always in
-  // the reader's line of sight, above the chart rather than below it, because a control for
-  // getting something back is no use under the thing it is missing from.
-  //
-  // What is checked here is that the SHIPPED page carries the affordance and the explanation. The
-  // behaviour that fills it is `theme/order.js`, whose rules are unit-tested in
-  // `tests/order.test.mjs` and which was also driven in a browser for this milestone.
-  const from = depthHtml.indexOf('<div class="planning-controls">');
-  const to = depthHtml.indexOf('<div class="chart-scroll"');
-  const controls = depthHtml.slice(from, to);
+// --- surface one: the milestone spine (2b), nested inside an expanded row (Task 6) --------------
 
-  assert.match(controls, /<div class="hidden-bar"[^>]*data-hidden-bar/, 'nothing on the page can say what is hidden');
-  // Empty and hidden as shipped: the strip appears only once something is actually hidden, so a
-  // page with nothing hidden does not carry a permanent empty affordance.
-  assert.match(controls, /data-hidden-bar hidden><\/div>/, 'the hidden-features strip ships with content or shown');
-
-  // The way IN is on the keyboard too, and the instruction every header points at names the key.
-  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml)[1];
-  const instruction = new RegExp(`<[^>]*id="${described}"[^>]*>([^<]*)`).exec(depthHtml)[1];
-  assert.match(instruction, /\bH\b/, 'nothing tells a keyboard reader how to hide a feature');
-  assert.match(instruction, /hidden features can be brought back/i, 'the instruction does not say there is a way back');
-
-  // And the announcement region the module speaks through is the one the ordering already uses.
-  assert.match(controls, /data-order-said[^>]*aria-live="polite"/, 'hiding has nowhere to be announced');
+test('spine: a done milestone collapses to one line — no task checklist', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.some((m) => m.status === 'done'));
+  assert.ok(stream, 'fixture needs a workstream with a done milestone');
+  const milestone = stream.manifest.milestones.find((m) => m.status === 'done');
+  const nodeMatch = new RegExp(
+    `data-milestone-node="${stream.slug}-${milestone.id}"[\\s\\S]*?</div>\\s*</div>`,
+  ).exec(depthHtml);
+  assert.ok(nodeMatch, `no spine node rendered for ${stream.slug}/${milestone.id}`);
+  assert.doesNotMatch(nodeMatch[0], /data-task-list/, 'a done milestone must not render a task list');
 });
 
-test('planning: a feature can be reordered by keyboard as well as by drag, and the page says where the order lives', () => {
-  // The owner's own request, and he knows what it is. What must not happen is a reader
-  // discovering on their phone that the order they set at their desk did not come with them.
-  assert.match(
-    depthHtml,
-    /remembered on this device only/i,
-    'the page does not say that the order is per-device',
-  );
-  // The reset control itself was removed after the owner used the live site and did not
-  // recognise "back to the generated order" — see the header-block test above.
-  assert.ok(!/data-order-reset/.test(depthHtml), 'the reset control the owner asked removed is still here');
-
-  // Drag alone is not enough: every header is focusable and announces what the arrow keys do.
-  const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);
-  assert.equal(handles.length, workstreams.length, 'expected one draggable header per feature');
-  for (const handle of handles) {
-    assert.match(handle, /tabindex="0"/, 'a feature header cannot be reached by keyboard');
-    assert.match(handle, /aria-label="[^"]*arrow keys[^"]*"/, 'a feature header does not say what the keys do');
-  }
-
-  // A move rewrites a transform on an SVG group, which a screen reader has no reason to announce,
-  // so there is somewhere on the page for the module to say it.
-  assert.match(
-    depthHtml,
-    /<p class="order-said"[^>]*aria-live="polite"[^>]*>/,
-    'a keyboard move has nowhere to be announced',
-  );
-  for (const handle of handles) {
-    assert.match(handle, /data-name="[^"]+"/, 'a header carries no name for the announcement to use');
-  }
-
-  // And the behaviour is one static file on this surface alone.
-  assert.match(depthHtml, /<script type="module" src="\/order\.js"><\/script>/);
-  assert.ok(!mobileHtml.includes('order.js'), 'the phone view loads the ordering script it has no use for');
-});
-
-test('tokens.css: a drag that starts on a header is the drag, not the browser own pan', () => {
-  // Found in review, and it would have killed the feature on the one device decision 4 says this
-  // is read on. `.chart-scroll` scrolls sideways, so without `touch-action: none` on the handle the
-  // browser claims a touch that starts there for its pan gesture and the drag arrives as
-  // `pointercancel` — nothing happens, on a phone, silently.
-  const scroller = DECLARATION_RULES.find((r) => r.selector.split(',').some((x) => x.trim() === '.chart-scroll'));
-  assert.match(scroller.body, /overflow-x\s*:\s*auto/, 'this test is about a sideways scroller; there is not one');
-
-  const handle = DECLARATION_RULES.filter((r) => r.selector.split(',').some((x) => x.trim() === '.lane-head'));
-  assert.ok(handle.length > 0, 'no .lane-head rule');
-  assert.ok(
-    handle.some((r) => /touch-action\s*:\s*none/.test(r.body)),
-    'the drag handle does not claim the touch, so a touch drag is taken by the scroller instead',
-  );
-
-  // Scoped to the handle: the drawing must still pan normally everywhere else.
-  const blanket = DECLARATION_RULES.filter((r) => /touch-action\s*:\s*none/.test(r.body)).flatMap((r) =>
-    r.selector.split(',').map((x) => x.trim()),
-  );
-  assert.deepEqual(blanket, ['.lane-head'], `touch-action: none must apply to the handle alone; saw ${blanket}`);
-});
-
-test('planning: the key states in words what the colours say, so colour is never the only signal', () => {
-  for (const phrase of ['finished', 'in progress', 'on record, not started', 'skipped']) {
-    assert.ok(depthHtml.includes(phrase), `the key does not name "${phrase}"`);
+test('spine: every milestone node shows its own real label, always', () => {
+  const stream = workstreams.find((s) => s.manifest.milestones.length > 0);
+  // Anchored on </ol> rather than the bare </div></li> the brief's draft used: each
+  // milestone-node <li> also closes with its own </div></li> (the milestone-body div, then the
+  // li), so a lazy match on that pair alone stops at the FIRST milestone rather than the whole
+  // spine. </ol> only closes once per stream, right after every milestone <li> in it, so this is
+  // the boundary that actually reaches every milestone this stream has.
+  const spineBlock = new RegExp(`id="spine-${stream.slug}"[\\s\\S]*?</ol>\\s*</div>\\s*</li>`).exec(depthHtml)[0];
+  for (const milestone of stream.manifest.milestones) {
+    assert.ok(spineBlock.includes(milestone.label), `milestone ${milestone.id}'s own label is not on its node`);
   }
 });
+
+// Rewritten against hand-built synthetic entries (final branch review): the fixture has zero
+// milestones with a populated `tasks` array (`taskBodies` only ever gets populated by a real,
+// non-offline `fetchIssueBodies` call — see tests/build.test.mjs — and this file always renders
+// through `assemble()` alone), so every one of these used to hit `if (!stream) return` before a
+// single real assertion ran, and reported green regardless of what the template did.
+
+test('spine: the current milestone renders its full task list, unmuted', () => {
+  const stream = entry('Nomad', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Ship the relay', done: false, owner: 'Ada' },
+          { text: 'Wire the housing', done: true, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the current milestone did not render a task list');
+  assert.doesNotMatch(nodeMatch[0], /class="task-list is-muted"/, 'the current milestone\'s task list must not be muted');
+  assert.ok(nodeMatch[0].includes('Ship the relay'), 'the current milestone is missing one of its own tasks');
+  assert.ok(nodeMatch[0].includes('Wire the housing'), 'the current milestone is missing one of its own tasks');
+});
+
+test('spine: a task line shows its owner, or "Unassigned" when it has none', () => {
+  const stream = entry('Compass', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Owned task', done: false, owner: 'Grace' },
+          { text: 'Unowned task', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the milestone did not render a task list');
+  assert.match(nodeMatch[0], /class="task-owner">Grace</, 'the owned task should show its owner');
+  assert.match(nodeMatch[0], /class="task-owner">Unassigned</, 'the unowned task should show "Unassigned"');
+});
+
+test('spine: a done task is struck through', () => {
+  const stream = entry('Drift', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [
+          { text: 'Finished task', done: true, owner: null },
+          { text: 'Open task', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M1"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the milestone did not render a task list');
+
+  const doneLine = /<li class="task-line is-done"[^>]*>[\s\S]*?<\/li>/.exec(nodeMatch[0]);
+  assert.ok(doneLine, 'no task line carries "is-done"');
+  assert.ok(doneLine[0].includes('Finished task'), 'the done task is not the one struck through');
+
+  const openLine = /<li class="task-line" [^>]*>[\s\S]*?<\/li>/.exec(nodeMatch[0]);
+  assert.ok(openLine, 'the undone task is missing, or wrongly struck through');
+  assert.ok(openLine[0].includes('Open task'), 'the undone task line does not carry the undone task');
+});
+
+// Zero coverage anywhere in the theme layer for either of these two `spineDetail` states before
+// this fix wave — only 'full' and 'none' were ever exercised.
+
+test('spine: the first unplanned milestone after the current one previews muted', () => {
+  const stream = entry('Beacon2', {
+    milestones: [
+      milestone({
+        id: 'M1',
+        label: 'M1',
+        depth: 1,
+        status: 'next',
+        tasks: [{ text: 'Current task', done: false, owner: null }],
+      }),
+      milestone({
+        id: 'M2',
+        label: 'M2',
+        depth: 2,
+        status: 'unplanned',
+        tasks: [{ text: 'Preview task', done: false, owner: 'Ada' }],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M2"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>`).exec(html);
+  assert.ok(nodeMatch, 'the preview milestone did not render a task list');
+  assert.match(nodeMatch[0], /class="task-list is-muted"/, 'the "coming next" preview must render muted');
+  assert.ok(nodeMatch[0].includes('Preview task'), 'the preview milestone is missing its own task');
+});
+
+test('spine: any other milestone with tasks collapses to a count, not a list', () => {
+  const stream = entry('Beacon3', {
+    milestones: [
+      milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next', tasks: [] }),
+      milestone({ id: 'M2', label: 'M2', depth: 2, status: 'unplanned', tasks: [] }),
+      milestone({
+        id: 'M3',
+        label: 'M3',
+        depth: 3,
+        status: 'unplanned',
+        tasks: [
+          { text: 'One', done: false, owner: null },
+          { text: 'Two', done: true, owner: 'Grace' },
+          { text: 'Three', done: false, owner: null },
+        ],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  // M1 is current ('full'), M2 is the preview right after it ('full-muted', empty here), and M3 —
+  // neither current nor the one preview slot — is the 'count' state this test is for.
+  const nodeMatch = new RegExp(
+    `data-milestone-node="${stream.slug}-M3"[\\s\\S]*?<p class="milestone-task-count">([\\s\\S]*?)</p>`,
+  ).exec(html);
+  assert.ok(nodeMatch, 'the count-state milestone did not render its task count');
+  assert.doesNotMatch(nodeMatch[0], /data-task-list/, 'a "count" milestone must not also render a task list');
+  assert.match(nodeMatch[1], /^3 sub-tasks$/, 'the count line does not name how many tasks are on record');
+});
+
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------
 
 test('mobile: workstreams are ordered by what needs the owner, not alphabetically', () => {
@@ -1795,48 +1301,6 @@ test('mobile: a not-started workstream sorts last even when it sorts first alpha
   );
 });
 
-test('the chart and the phone view agree about whether a feature has a next milestone', () => {
-  // #780's second defect on first render, and the point of it is not the label. A feature with
-  // four milestones, all done and nothing recorded beyond, correctly gets NO balloon on the chart
-  // — and the phone view said "Next: M5". The two surfaces were computed from different readings
-  // of one field, which is the drift decision 29 exists to prevent, happening in front of the
-  // reader.
-  //
-  // So they are checked against each other rather than each against a value, and on the FIXTURE,
-  // which carries the case that found it.
-  const chart = computeChart(ladder, assemble(workstreams));
-  const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
-  assert.equal(cards.length, workstreams.length, 'expected one card per workstream');
-
-  let pastItsRecords = 0;
-  for (const [, codename, body] of cards) {
-    const lane = chart.lanes.find((l) => l.codename === codename);
-    assert.ok(lane, `no lane drawn for ${codename}`);
-    const column = ladder.columns.find((c) => c.codename === codename);
-
-    const namesANextStep = /class="card-next"/.test(body);
-    if (column.tipLabel === null) {
-      pastItsRecords += 1;
-      assert.equal(
-        namesANextStep,
-        false,
-        `${codename}: nothing is recorded for this feature to do next, and the phone view named one anyway`,
-      );
-      assert.equal(
-        lane.balloon,
-        null,
-        `${codename}: the phone view says nothing is next while the chart draws a balloon saying one is`,
-      );
-    } else {
-      assert.ok(namesANextStep, `${codename}: the phone view dropped a next step that is on record`);
-      assert.ok(
-        stripTags(/<p class="card-next">([\s\S]*?)<\/p>/.exec(body)[1]).includes(column.tipLabel),
-        `${codename}: the phone view names a next step the ladder did not give it`,
-      );
-    }
-  }
-  assert.ok(pastItsRecords > 0, 'the fixture no longer carries a feature that has run past its records');
-});
 
 test('mobile: the gate is the last line of every card', () => {
   const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
@@ -1852,6 +1316,94 @@ test('mobile: the gate is the last line of every card', () => {
       stripTags(last[2]).includes(manifest.gate),
       `card ${codename}: the gate line must carry the manifest's gate`,
     );
+  }
+});
+
+// --- design doc 1c: the phone view is grouped by blocking state, not a flat list ----------------
+
+test('triage: five section headers, in TRIAGE_ORDER sequence, each with a real count', () => {
+  const LABELS = {
+    'awaiting-decision': 'Waiting on you',
+    moving: 'Moving',
+    blocked: 'Blocked',
+    designing: 'Designing',
+    'not-started': 'Not started',
+  };
+  // Not the raw `workstreams` array: that is `resolveWorkstreams`'s own output and carries no
+  // `.triage` field at all (only `assemble`/`orderByTriage` attach one), so filtering it by
+  // `.triage` was silently comparing `undefined` to every state and always coming up empty — the
+  // exact shape `mobileHtml` was actually rendered from, `orderByTriage(assemble(workstreams))`,
+  // is what has to be read here instead.
+  const triagedWorkstreams = orderByTriage(assemble(workstreams));
+  const present = TRIAGE_ORDER.filter((state) => triagedWorkstreams.some((s) => s.triage === state));
+  assert.ok(present.length > 0, 'fixture setup is broken: no workstream carries a triage state');
+  let lastIndex = -1;
+  for (const state of present) {
+    const count = triagedWorkstreams.filter((s) => s.triage === state).length;
+    const headingRe = new RegExp(`${LABELS[state]}[\\s\\S]{0,40}${count}`);
+    const index = mobileHtml.search(headingRe);
+    assert.ok(index !== -1, `no section header found for "${LABELS[state]}" with count ${count}`);
+    assert.ok(index > lastIndex, `sections are out of TRIAGE_ORDER sequence at "${LABELS[state]}"`);
+    lastIndex = index;
+  }
+});
+
+test('triage: a state with zero workstreams gets no section at all', () => {
+  // The real fixture happens to populate all five states (awaiting-decision:1, moving:2,
+  // blocked:1, designing:1, not-started:1), so checking it alone can never exercise the
+  // zero-count branch this test is named for. Built here instead: three workstreams covering only
+  // three of the five states, so `awaiting-decision` and `blocked` are guaranteed to be the ones
+  // with nothing in them.
+  const LABELS = {
+    'awaiting-decision': 'Waiting on you',
+    moving: 'Moving',
+    blocked: 'Blocked',
+    designing: 'Designing',
+    'not-started': 'Not started',
+  };
+  const partial = [
+    entry('Kilo', { stage: 'designing' }),
+    entry('Lima', { stage: 'not-started' }),
+    entry('Mike', {
+      stage: 'shipping',
+      milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+    }),
+  ];
+  const html = renderMobile(partial);
+
+  const triaged = orderByTriage(assemble(partial));
+  const presentStates = new Set(triaged.map((s) => s.triage));
+  assert.deepEqual(
+    [...presentStates].sort(),
+    ['designing', 'moving', 'not-started'].sort(),
+    'this fixture no longer matches what the test below assumes is missing',
+  );
+
+  for (const state of TRIAGE_ORDER) {
+    // Anchored to the opening of the heading itself: the rendered label is always followed by a
+    // space and the count span (`Moving <span class="triage-count">1</span>`), never immediately
+    // by `<`, so a regex requiring `>LABEL<` would never match ANY heading — present or absent —
+    // and would pass this assertion vacuously no matter what the template did.
+    const headingRe = new RegExp(`<h2 class="triage-heading">${LABELS[state]}\\b`);
+    if (presentStates.has(state)) {
+      assert.match(html, headingRe, `expected a section for "${state}", which this fixture has`);
+    } else {
+      assert.doesNotMatch(html, headingRe, `an empty section rendered for ${state}`);
+    }
+  }
+});
+
+test('triage: 1a is fully gone — no status-board table shape on this page', () => {
+  assert.doesNotMatch(mobileHtml, /<table/);
+});
+
+test('triage: each card still says what, position and gate, same as before this rebuild', () => {
+  for (const stream of workstreams) {
+    // htmlIncludesText, not a raw .includes: Nunjucks autoescape turns an apostrophe into `&#39;`,
+    // and the fixture's own "what" prose ("decision 20 is exercised: no workstream's numbering...")
+    // has one.
+    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.what), `${stream.slug}'s "what" is missing`);
+    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.gate), `${stream.slug}'s gate is missing`);
   }
 });
 
@@ -1932,11 +1484,13 @@ test('chips: every status chip carries a text label, never colour alone', () => 
   // pages carried the count on their own. A page that stopped rendering chips is exactly what this
   // is for.
   const expected = {
-    // #780 took the status chips OUT of the drawing — "the cells should carry fill and nothing
-    // else" — so what is left on this surface is one stage chip per feature's header, drawn inside
-    // the SVG because a drawing cannot hold a <span>.
+    // Task 5 rebuilt this surface as a collapsed accordion: each row's own header carries a
+    // stage chip and a triage chip, rendered with the ordinary HTML chip macro.
     'depth.njk': 'a stage chip per feature header',
-    'mobile.njk': 'a triage chip per card',
+    // Task 9 (1c) replaced the phone view's per-card triage chip with grouped section headings —
+    // the state is now conveyed by which `<h2 class="triage-heading">` a card sits under, not by
+    // a coloured badge on the card itself. So this page renders no `chip`-class element at all.
+    'mobile.njk': null,
     'workstream.njk': 'a stage chip, plus a status chip per milestone row',
     'milestone.njk': 'this milestone\'s own status',
     'document.njk': null, // a record page renders a record; it has no vocabulary to chip
@@ -1970,14 +1524,16 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     }
   }
 
-  // And the counts follow the data, so a page cannot pass by rendering one chip and stopping.
+  // And the counts follow the data, so a page cannot pass by rendering nothing and stopping. The
+  // phone view's own per-item marking is `data-triage` on the `<article>` itself (grouping, not a
+  // chip) — checked here rather than in the loop above because it is not a `chip`-class element.
   const cards = [...mobileHtml.matchAll(/<article class="card"/g)];
-  const triageChips = [...mobileHtml.matchAll(/<span\b[^>]*data-triage="/g)];
-  assert.equal(triageChips.length, cards.length, 'every card on the phone view carries its own chip');
+  const triagedCards = [...mobileHtml.matchAll(/<article class="card"[^>]*\bdata-triage="[^"]*"/g)];
+  assert.equal(triagedCards.length, cards.length, 'every card on the phone view carries its triage state');
   assert.equal(cards.length, workstreams.length, 'a card per workstream');
 
-  const stageChips = [...depthHtml.matchAll(/<g\b[^>]*data-stage="/g)];
-  assert.equal(stageChips.length, workstreams.length, 'every feature on the drawing carries its stage');
+  const stageChips = [...depthHtml.matchAll(/<span\b[^>]*data-stage="/g)];
+  assert.equal(stageChips.length, workstreams.length, 'every feature row carries its stage');
 });
 
 test('chips: every triage state renders its own human label, decision 27\'s headline included', () => {
@@ -2016,13 +1572,15 @@ test('chips: every triage state renders its own human label, decision 27\'s head
 
   const html = renderMobile(Object.values(byState));
 
+  // Task 9 (1c): the label is no longer read off a per-card chip, but off the section heading
+  // each state's one card sits under — `<h2 class="triage-heading">`, one per state here, each
+  // holding exactly one workstream.
   for (const state of TRIAGE_ORDER) {
-    const match = new RegExp(`<span\\b[^>]*data-triage="${state}"[^>]*>([\\s\\S]*?)</span>`).exec(html);
-    assert.ok(match, `no chip rendered for triage state "${state}"`);
-    assert.equal(
-      stripTags(match[1]),
-      triageLabels[state],
-      `the "${state}" chip must read its human label`,
+    const match = new RegExp(`<h2 class="triage-heading">([\\s\\S]*?)</h2>`, 'g');
+    const headings = [...html.matchAll(match)].map(([, inner]) => stripTags(inner));
+    assert.ok(
+      headings.includes(`${triageLabels[state]} 1`),
+      `no section heading found reading "${triageLabels[state]} 1" for state "${state}"; saw: ${headings.join(' | ')}`,
     );
   }
 
@@ -2067,11 +1625,11 @@ test('chips: every value in the closed vocabularies renders its own human label'
     assert.equal(stripTags(match[1]), statusLabels[status], `the "${status}" chip must read its human label`);
   }
 
-  // The stage chips live inside the drawing now, so they are drawn as a <g> — one macro, one
-  // label table, two elements (see `chipLabel` in base.njk). The words must be the same words.
+  // The feature planning row's stage chip is the same macro, one label table (see `chipLabel` in
+  // base.njk). The words must be the same words.
   const stagesHtml = renderDepth(WORKSTREAM_STAGES.map((stage, i) => entry(`Stage${i}`, { stage })));
   for (const stage of WORKSTREAM_STAGES) {
-    const re = new RegExp(`<g\\b[^>]*data-stage="${stage}"[^>]*>([\\s\\S]*?)</g>`);
+    const re = new RegExp(`<span\\b[^>]*data-stage="${stage}"[^>]*>([\\s\\S]*?)</span>`);
     const match = re.exec(stagesHtml);
     assert.ok(match, `no chip rendered for stage "${stage}"`);
     assert.equal(stripTags(match[1]), stageLabels[stage], `the "${stage}" chip must read its human label`);
@@ -2079,9 +1637,9 @@ test('chips: every value in the closed vocabularies renders its own human label'
 
   // And the two spellings agree, because they read the same table rather than two copies of it.
   const workstreamStage = /<span\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/span>/.exec(html);
-  const drawnStage = /<g\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/g>/.exec(stagesHtml);
-  assert.ok(workstreamStage && drawnStage, 'one of the two chip spellings did not render at all');
-  assert.equal(stripTags(workstreamStage[1]), stripTags(drawnStage[1]));
+  const rowStage = /<span\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/span>/.exec(stagesHtml);
+  assert.ok(workstreamStage && rowStage, 'one of the two chip spellings did not render at all');
+  assert.equal(stripTags(workstreamStage[1]), stripTags(rowStage[1]));
 });
 
 // --- the document pages ---------------------------------------------------------------------------
@@ -2185,29 +1743,11 @@ test('base: every page declares a language, a viewport and the stylesheet', () =
 test('base: the digits the layouts line up in columns are marked for tabular numerals', () => {
   // Not "somewhere on the page there is a .num" — that passes however many digits are left
   // unmarked. Each place where digits actually stack into a column is checked on its own.
-  // The ladder gutter, whose milestone identifiers stack straight down the left of the drawing.
-  const ladderCaptions = [...depthHtml.matchAll(/<text class="([^"]*)"[^>]*>(M\d+|[A-Z][a-z ]+)<\/text>/g)];
-  const numbered = ladderCaptions.filter(([, , caption]) => /^M\d+$/.test(caption));
-  assert.equal(
-    numbered.length,
-    ladder.rows.filter((r) => r.kind === 'milestone').length,
-    'expected one numbered ladder caption per milestone row',
-  );
-  for (const [, classes, caption] of numbered) {
-    assert.match(
-      classes,
-      /\bnum\b/,
-      `ladder caption ${caption} stacks into a column, so it must be marked tabular`,
-    );
-  }
-
-  // And the dates, which stack down each feature's own lane. Both lines of a closed milestone's
-  // pair are digits; only the day itself is a column, so only it is required to be tabular.
-  const strongDates = [...depthHtml.matchAll(/<text class="([^"]*)"[^>]*>\d+ [A-Z][a-z]{2} \d{4}/g)];
-  assert.ok(strongDates.length > 0, 'no dates reached the drawing at all');
-  for (const [, classes] of strongDates) {
-    assert.match(classes, /\bnum\b/, 'a date stacks down a lane, so it must be marked tabular');
-  }
+  //
+  // Task 5 rebuilt feature planning as a collapsed accordion with no dates and no ladder gutter
+  // (decision: the milestone is the axis, not a calendar), so the two depth.njk-specific checks
+  // that used to live here — the ladder's numbered captions and the dates beside each lane — no
+  // longer have anything to check. What remains, on the mobile and workstream pages, is unchanged.
 
   // Exactly the cards that have milestones, not "at least three": a floor stays true while a
   // card quietly loses its marking.

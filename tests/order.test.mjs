@@ -10,12 +10,13 @@ import {
   announce,
   announceHidden,
   dropIndex,
-  layout,
   moveSlug,
   orderSlugs,
+  orderTaskIndices,
   partitionHidden,
   readHidden,
   readOrder,
+  taskOrderKey,
   toggleHidden,
   writeHidden,
   writeOrder,
@@ -117,14 +118,6 @@ test('order: moving never mutates the order it was given', () => {
 
 // --- where a lane lands ----------------------------------------------------------------------------
 
-test('order: a lane sits at its own place times the pitch, and nowhere else', () => {
-  assert.deepEqual([...layout(['b', 'a', 'c'], 240)], [
-    ['b', 0],
-    ['a', 240],
-    ['c', 480],
-  ]);
-});
-
 test('order: a drag lands on the nearest column, and cannot leave the row', () => {
   assert.equal(dropIndex(1, 0, 240, 4), 1, 'a drag that went nowhere must change nothing');
   assert.equal(dropIndex(1, 119, 240, 4), 1, 'less than half a column is not a move');
@@ -132,6 +125,14 @@ test('order: a drag lands on the nearest column, and cannot leave the row', () =
   assert.equal(dropIndex(1, -260, 240, 4), 0);
   assert.equal(dropIndex(1, -9000, 240, 4), 0, 'dragged off the left, it stops at the left');
   assert.equal(dropIndex(1, 9000, 240, 4), 3, 'dragged off the right, it stops at the right');
+});
+
+test('dropIndex: a downward drag past half the row height moves to the next row', () => {
+  assert.equal(dropIndex(0, 30, 52, 4), 1); // 30 > 52/2, rounds up to index 1
+});
+
+test('dropIndex: a small drag within half a row height snaps back to the same row', () => {
+  assert.equal(dropIndex(0, 10, 52, 4), 0);
 });
 
 // --- saying it out loud ------------------------------------------------------------------------------
@@ -336,4 +337,32 @@ test('hide: hiding is said out loud, and says how to undo it', () => {
   assert.match(said, /hidden/i);
   assert.match(said, /\b2\b/, 'the announcement does not say how many are now hidden');
   assert.match(said, /bring|back|restore|show/i, 'the announcement does not say there is a way back');
+});
+
+// --- task-row order, namespaced per milestone (Task 8) -----------------------------------------
+
+test('taskOrderKey: namespaced per milestone, so two milestones never collide', () => {
+  assert.equal(taskOrderKey('beacon-M1'), 'atlas-task-order:beacon-M1');
+  assert.notEqual(taskOrderKey('beacon-M1'), taskOrderKey('beacon-M2'));
+});
+
+test('orderTaskIndices: with nothing stored, tasks render in their parsed (original) order', () => {
+  assert.deepEqual(orderTaskIndices(3, null), [0, 1, 2]);
+});
+
+test('orderTaskIndices: a stored permutation is honoured', () => {
+  assert.deepEqual(orderTaskIndices(3, [2, 0, 1]), [2, 0, 1]);
+});
+
+test('orderTaskIndices: a stored order missing an index still shows every task — the missing one goes to the end', () => {
+  assert.deepEqual(orderTaskIndices(3, [1]), [1, 0, 2]);
+});
+
+test('orderTaskIndices: a stored index out of range for the current task count is dropped, not thrown', () => {
+  assert.deepEqual(orderTaskIndices(2, [5, 0, 1]), [0, 1]);
+});
+
+test('orderTaskIndices: a stored value that is not an array of numbers is treated as no stored order', () => {
+  assert.deepEqual(orderTaskIndices(2, 'not an array'), [0, 1]);
+  assert.deepEqual(orderTaskIndices(2, ['a', 'b']), [0, 1]);
 });

@@ -49,6 +49,29 @@ function forbiddenFetch(url) {
   throw new Error(`the build reached out to the network: ${url}`);
 }
 
+// `stubFetch` above is URL-blind: every request, including the single-issue endpoint
+// `fetchIssueBodies` calls (`GET /repos/{repo}/issues/{n}`), gets back the same issues-LIST
+// payload, which has no `.body` shaped like a real single-issue response. Every build in this file
+// that is not `--offline` (`SUMMARY` included) has therefore always parsed an empty task list for
+// every milestone, regardless of what its linked issue's checklist actually said — nothing in the
+// suite proved `fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a rendered checklist`
+// actually works end to end. This stub tells the two endpoints apart, so a build using it can.
+function stubFetchWithIssueBodies(bodiesByNumber) {
+  return function fetchImpl(url) {
+    const match = /\/issues\/(\d+)$/.exec(String(url));
+    if (match) {
+      const number = Number(match[1]);
+      const body = bodiesByNumber.get(number) ?? null;
+      return Promise.resolve({
+        ok: body !== null,
+        status: body !== null ? 200 : 404,
+        json: async () => ({ number, body }),
+      });
+    }
+    return stubFetch();
+  };
+}
+
 function freshDir(name) {
   const dir = path.join(TMP_ROOT, name);
   rmSync(dir, { recursive: true, force: true });
@@ -128,7 +151,7 @@ test('build: a page for the feature planning chart and a page for the phone view
   assert.ok(existsSync(path.join(OUT, 'index.html')), 'no feature planning chart at /');
   assert.ok(existsSync(path.join(OUT, 'mobile', 'index.html')), 'no phone view at /mobile/');
 
-  assert.match(read('index.html'), /<svg class="planning-chart"/);
+  assert.match(read('index.html'), /class="feature-list" data-feature-list/);
   assert.match(read('mobile/index.html'), /class="card-list"/);
 
   // Both surfaces render the project's own name, from atlas.config.json and nowhere else.
@@ -1685,6 +1708,43 @@ test('build: --offline never constructs a request at all', async () => {
   const out = freshDir('offline');
   await build(FIXTURE_ROOT, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
   assert.ok(existsSync(path.join(out, 'index.html')));
+});
+
+test('build: a milestone with a real issue number still builds offline with an empty task list', async () => {
+  // --offline never calls fetchIssueBodies (same convention as the existing issues fetch), so a
+  // milestone whose issue is set still builds — just with no tasks, not a build failure. The
+  // fixture's own milestones (e.g. reef/M1, issue 701) already carry real issue numbers, so this
+  // is exercised by the ordinary fixture, not a hand-built one.
+  const out = freshDir('offline-with-issue');
+  await build(FIXTURE_ROOT, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+  assert.ok(existsSync(path.join(out, 'index.html')), 'offline build with a real issue number must still succeed');
+});
+
+test('build: fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a rendered checklist, end to end', async () => {
+  // The one genuinely new test this fix wave needed (final branch review, 5b): every other build
+  // in this file is either `--offline` (which skips `fetchIssueBodies` entirely, `taskBodies` is
+  // just `new Map()`) or uses the URL-blind `stubFetch` above, which answers every request —
+  // including the single-issue endpoint — with the same issues-LIST payload, so `item.body` is
+  // never a string and every milestone's tasks are always `[]`. Nothing before this proved the
+  // real wiring works. The fixture's own beacon/M4 is already the 'next' milestone with a real
+  // issue number (104); this just answers that issue's URL for real.
+  const out = freshDir('task-pipeline-e2e');
+  const bodies = new Map([
+    [
+      104,
+      ['## Sub-tasks', '', '- [ ] Wire up the relay - Ada', '- [x] Ship the housing — Grace'].join('\n'),
+    ],
+  ]);
+  await build(FIXTURE_ROOT, out, { fetchImpl: stubFetchWithIssueBodies(bodies), quiet: true });
+
+  const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+  const nodeMatch = new RegExp('data-milestone-node="beacon-M4"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>').exec(html);
+  assert.ok(nodeMatch, 'beacon/M4 did not render a task list parsed from its real issue body');
+  assert.ok(nodeMatch[0].includes('Wire up the relay'), 'the first parsed task text is missing from the page');
+  assert.ok(nodeMatch[0].includes('Ada'), 'the first parsed owner tag is missing from the page');
+  assert.ok(nodeMatch[0].includes('Ship the housing'), 'the second parsed task text is missing from the page');
+  assert.ok(nodeMatch[0].includes('Grace'), 'the second parsed owner tag is missing from the page');
+  assert.match(nodeMatch[0], /class="task-line is-done"/, 'the checked task did not render as done');
 });
 
 // --- the promotion path (#780, task 12) ---------------------------------------------------------

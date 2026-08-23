@@ -39,13 +39,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
-import { computeChart } from './chart.mjs';
-import { computeLadder, assertLadderResolves } from './depth.mjs';
-import { emptyBuckets, fetchProjectIssues } from './github.mjs';
+import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
+import { emptyBuckets, fetchIssueBodies, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
-import { orderByTriage, triageCards } from './triage.mjs';
+import { orderByTriage } from './triage.mjs';
+import { parseTasks } from './tasks.mjs';
 import configureAtlasEleventy from '../.eleventy.js';
 
 const GENERATOR_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -281,6 +281,17 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     ? emptyBuckets()
     : await fetchProjectIssues({ repo: config.repo, token, fetchImpl });
 
+  // Every milestone's own linked issue, regardless of open/closed state — `fetchProjectIssues`
+  // above only ever sees OPEN issues, so a `done` milestone's (almost always closed) issue would
+  // never arrive through it. Collected across every workstream so this is one call, not one per
+  // milestone rendered.
+  const milestoneIssueNumbers = resolved.flatMap((stream) =>
+    stream.manifest.milestones.map((m) => m.issue).filter((n) => n !== null),
+  );
+  const taskBodies = offline
+    ? new Map()
+    : await fetchIssueBodies({ repo: config.repo, issueNumbers: milestoneIssueNumbers, token, fetchImpl });
+
   // The records first, so a milestone can link its plan and its acceptance record to the pages
   // this same build renders for them, rather than leaving them as text nobody can follow.
   const documents = collectDocuments(config.projectRoot);
@@ -300,7 +311,12 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();
         return {
-          manifest: milestone,
+          manifest: {
+            ...milestone,
+            // Computed only, never written back (design doc: "Data model summary" — this is not
+            // a schema field, it is attached here the same way `url`/`planUrl` already are).
+            tasks: milestone.issue !== null ? parseTasks(taskBodies.get(milestone.issue) ?? null) : [],
+          },
           url: milestoneUrl(stream.slug, milestone.id),
           permalink: `/workstream/${stream.slug}/${segment}/index.html`,
           planPath,
@@ -317,6 +333,7 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
           hrefBase: relDir,
         };
       }),
+      spineDetail: spineDetail(stream.manifest.milestones),
     };
   });
 
@@ -406,19 +423,11 @@ function planPages(site) {
   pages.push({
     name: 'depth',
     extend: 'depth.njk',
-    // The DRAWING, not the data. `src/chart.mjs` turns the ladder and the features into
-    // coordinates and paths, and `depth.njk` interpolates them and positions nothing of its own —
-    // which is what keeps a rebuilt-as-SVG surface (#780) checkable in an environment with no
-    // browser.
     data: {
       ...shell,
       permalink: '/index.html',
       title: 'Feature planning',
-      chart: computeChart(site.ladder, site.workstreams),
-      // #780 dropped the dedicated Triage page: a feature's header opens a modal carrying what
-      // that page carried. This is that content, and it is deliberately NOT part of the drawing —
-      // `src/chart.mjs` computes coordinates and paths, and a modal is prose.
-      features: triageCards(site.workstreams),
+      workstreams: site.workstreams,
     },
   });
 

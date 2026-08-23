@@ -1,41 +1,15 @@
-{#- Atlas — surface one: feature planning on a desk (decisions 22, 23, 24, 25, and #780).
+{#- Atlas — surface one: feature planning (the accordion, #780's successor).
 
-  NOT A TABLE. M1 built this page as an HTML table — features as columns, ladder rows as `<tr>`,
-  every intersection a `<td>` — and every visual complaint in #780 followed from that. Cells want
-  borders and labels and equal weight, so the arrow became a glyph in a box, finished work became a
-  fill with the word "Passed" in it, and future work needed something in it because a cell looks
-  broken when it is empty. The owner's framing, and it sat above everything else on the list: it is
-  not a chart and they are not grid cells.
+  Not a drawing. Each feature is a collapsed row; opening one reveals its milestone spine
+  (theme/_includes/depth.njk's own expand block, wired by theme/order.js). No dates, no duration —
+  the design doc for this rebuild is explicit that the milestone is the axis here, not a calendar.
 
-  What it is instead: one ribbon per feature descending a shared ladder. The ladder supplies the
-  vertical scale; the ribbons are the drawing. Nothing occupies a cell, because there are no cells.
-
-  THIS LAYOUT POSITIONS NOTHING. Every coordinate, every radius and every path comes from
-  `src/chart.mjs`, which is pure and unit-tested; this file interpolates them and does no
-  arithmetic of its own. That is the same rule M1's version followed for the two ends of a column,
-  applied to the whole picture — a position computed in a template is a position no unit test can
-  reach, and a rendered page is a slow and blunt place to discover it is wrong.
-
-  The claim above was FALSE in the first draft, and nothing caught it: the ribbon body's left edge
-  was written `lane.centre - 18` while its width was read from `CHART.ribbonWidth`, so raising that
-  constant moved the arrowhead and left the body four pixels off-centre behind it with the whole
-  suite green. `tests/theme.test.mjs` now reads every measurement back out of the rendered markup
-  and compares it against the drawing, so a number written here rather than interpolated fails the
-  moment the constant it duplicates is changed. The only literals left below are `0`, an origin,
-  and the percentages a filter region is defined in.
-
-  Two drawings, side by side inside one horizontal scroller:
-
-    * the LADDER gutter, which is `position: sticky; left: 0` so it stays put while
-    * the LANES scroll sideways under it.
-
-  A lane is drawn about its own origin and placed with a single `transform`, so `theme/order.js`
-  can move a whole feature — ribbon, dots, dates, skip marker and balloon together — by rewriting
-  one number, with no geometry on the client at all.
-
-  Data this layout expects:
-    chart — computeChart(ladder, workstreams)'s output: rows, bands, rules and lanes
-    project, repo, title — see base.njk
+  Data this layout expects — `workstreams`, in the order the config declares, each:
+    slug, manifest { codename, stage, gate, milestones: [{ id, label, depth, title, status, tasks }] }
+    column   — computeLadder's own entry: covered[], completedCount, milestoneCount, tipLabel
+    triage   — src/triage.mjs's classifyTriage result
+    milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
+    spineDetail — one 'full'|'full-muted'|'count'|'none' per milestone, same order
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -43,207 +17,84 @@
 {% block bodyClass %}page page-planning{% endblock %}
 
 {% block content %}
-{#- THE HEADER BLOCK IS THE TITLE (#780). It carried an explanatory paragraph and a drag/order
-    instruction, and the owner cut both: "the page should open on the chart, not on two paragraphs
-    explaining it. Both texts exist because the surface was new and unexplained; the drawing carries
-    its own meaning now, and the legend beneath it already names the four states."
-
-    What that block was carrying has homes rather than being dropped — see the strip below. -#}
 <h1>Feature planning</h1>
+<p class="lede">Expand a feature to see what it's doing right now.</p>
+
 <div class="planning-controls">
-{#- The chart's own chrome, beside the feature headers where the ordering and the hiding actually
-    happen (#780's own suggestion for where the reset control should go).
-
-    THE PER-DEVICE CAVEAT LIVES HERE, and it is not decoration. The owner asked for an order
-    remembered on THIS DEVICE and knows what that is; what must not happen is a reader discovering
-    on their phone that the order they set at their desk did not come with them. It sits with the
-    controls it qualifies, and it covers the hiding as well, which is stored the same way. -#}
 <p class="controls-note">Your order and any hidden features are <strong>remembered on this device only</strong> — they do not follow you to another browser, or to your phone.</p>
-{#- Populated by `order.js` when something is hidden, and never otherwise. It names what is hidden
-    rather than merely counting it: a feature can then be brought back without the reader having to
-    remember which ones they put away. -#}
 <div class="hidden-bar" data-hidden-bar hidden></div>
-{#- Moving or hiding a feature changes attributes on an SVG group, which a screen reader has no
-    reason to announce. This is where it is said out loud instead. -#}
 <p class="order-said" data-order-said role="status" aria-live="polite"></p>
-{#- The instruction that used to be the second paragraph of the header block. It leaves the page's
-    OPENING, not the page: every feature header points at it with `aria-describedby`, and it is the
-    only explanation a reader who cannot see the drag affordance gets of how the control works.
-    Removing it outright would have been a visual edit quietly costing an accessible one. -#}
-<p class="visually-hidden" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys to move it. Press H to hide a feature; hidden features can be brought back from the controls above the chart.</p>
 </div>
 
-<div class="chart-scroll" data-planning-scroll>
-<svg class="planning-ladder" width="{{ chart.ladderWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.ladderWidth }} {{ chart.height }}" aria-hidden="true" focusable="false">
-<rect class="ladder-ground" x="0" y="0" width="{{ chart.ladderWidth }}" height="{{ chart.height }}"/>
-{%- for band in chart.bands %}{% if band.id == "execution" %}
-<text class="band-name" x="{{ band.labelX }}" y="{{ band.labelY }}" transform="rotate(-90 {{ band.labelX }} {{ band.labelY }})" text-anchor="middle">{{ band.label }}</text>
-{%- endif %}{% endfor %}
-{%- for row in chart.rows %}
-<text class="{% if row.kind == "stage" %}lad-stage{% else %}lad-num num{% endif %}" x="{{ chart.ladderCaptionX }}" y="{{ row.captionY }}" text-anchor="end">{{ row.caption }}</text>
-{%- endfor %}
-<line class="ladder-edge" x1="{{ chart.ladderWidth }}" y1="0" x2="{{ chart.ladderWidth }}" y2="{{ chart.ladderBottom }}"/>
-</svg>
-
-<svg class="planning-chart" width="{{ chart.lanesWidth }}" height="{{ chart.height }}" viewBox="0 0 {{ chart.lanesWidth }} {{ chart.height }}" data-planning-chart data-column-pitch="{{ chart.columnPitch }}" role="group" aria-label="One ribbon per feature down a shared ladder of stages and milestones. Every feature is also listed in full on the triage view.">
-<defs>
-<filter id="balloon-shadow" x="-30%" y="-40%" width="160%" height="200%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#0f172a" flood-opacity="0.16"/></filter>
-</defs>
-
-{#- The four bands (#780). They belong to the ladder rather than to any feature, so the phase reads
-    horizontally across every feature at once — the horizontal reading is the phase, the vertical
-    is the individual feature's path. -#}
-<g class="bands">
-{%- for band in chart.bands %}
-<rect class="band band-{{ band.id }}" x="0" y="{{ band.y }}" width="{{ chart.lanesWidth }}" height="{{ band.height }}"/>
-{%- endfor %}
-</g>
-
-{#- A light rule at every ladder row, drawn BENEATH the ribbons, so a ribbon crosses a rule rather
-    than being cut by it. Lines, not a grid: the moment these meet verticals they are cells again. -#}
-<g class="rules">
-{%- for y in chart.rules %}
-<line class="rule" x1="0" y1="{{ y }}" x2="{{ chart.lanesWidth }}" y2="{{ y }}"/>
-{%- endfor %}
-</g>
-
-<g class="lanes" data-lanes>
-{%- for lane in chart.lanes %}
-<g class="lane" data-slug="{{ lane.slug }}" transform="translate({{ lane.x }},0)">
-
-{#- The header is three things at once, and that is deliberate rather than an accident:
-
-      * the DRAG HANDLE for reordering,
-      * the KEYBOARD control for the same (arrow keys) and for hiding (H),
-      * and the way into this feature's own triage, which #780 turned from a standalone page into
-        a modal opened from here.
-
-    It no longer holds a link. A link inside a drag handle inside a button is three interactive
-    things claiming one click; the way through to the feature's record moved into the modal, where
-    it sits among the rest of what that feature is. -#}
-<g class="lane-head" data-lane-head data-name="{{ lane.codename }}" data-opens-modal="{{ lane.slug }}" tabindex="0" role="button" aria-haspopup="dialog" aria-describedby="order-note" aria-label="{{ lane.codename }}. Opens what needs you for this feature. Press the left and right arrow keys to move it.">
-<rect class="lane-head-box" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.width }}" height="{{ chart.head.height }}" rx="{{ chart.head.radius }}" ry="{{ chart.head.radius }}"/>
-<rect class="lane-head-accent" x="{{ chart.head.x }}" y="{{ chart.head.y }}" width="{{ chart.head.accentWidth }}" height="{{ chart.head.height }}" rx="{{ chart.head.accentRadius }}" ry="{{ chart.head.accentRadius }}"/>
-<text class="col-h" x="{{ chart.head.textX }}" y="{{ chart.head.titleY }}">{{ lane.codename }}</text>
-{{ ui.svgChip("stage", lane.stage, chart.head.textX, chart.head.chipY) }}
-</g>
-
-{#- The ribbon. ONE OBJECT PER FEATURE, SEEN TWICE. The faint arrow spans the whole recorded length
-    of the feature; the solid arrow is laid OVER it, as far as the work has actually reached. They
-    overlay — M2.1 tiled them, solid stopping where faint began, and #780 corrected that on sight.
-
-    DRAW ORDER IS THE OVERLAY. SVG has no z-index: the painter's order is the document order, so
-    the faint arrow is emitted FIRST and the solid one on top of it. Swapping these two blocks
-    paints a pale bar over the work, and nothing in `src/chart.mjs` can catch it — which is why
-    `tests/theme.test.mjs` asserts the order of the elements themselves.
-
-    Each arrow ends in its own head, growing straight out of its own body — nothing floats, and
-    there is never a gap between body and head. -#}
-<g class="ribbon">
-{%- if lane.faint %}
-{%- for segment in lane.faint.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.faint.x }}" y="{{ segment.y }}" width="{{ lane.faint.width }}" height="{{ segment.height }}" rx="{{ lane.faint.radius }}" ry="{{ lane.faint.radius }}"/>
-{%- endfor %}
-{%- for d in lane.faint.detours %}
-<path class="ribbon-detour tone-ahead" d="{{ d }}" fill="none"/>
-{%- endfor %}
-<path class="ribbon-head tone-{{ lane.faint.head.tone }}" d="{{ lane.faint.head.d }}"/>
+<ul class="feature-list" data-feature-list>
+{%- for stream in workstreams %}
+<li class="feature-row" data-slug="{{ stream.slug }}">
+<div
+  class="feature-row-head"
+  data-row-handle
+  tabindex="0"
+  role="button"
+  aria-expanded="false"
+  aria-controls="spine-{{ stream.slug }}"
+  data-name="{{ stream.manifest.codename }}"
+  aria-describedby="row-note"
+>
+<span class="disclosure" aria-hidden="true">▸</span>
+<span class="feature-name">{{ stream.manifest.codename }}</span>
+{{ ui.chip('stage', stream.manifest.stage) }}
+{%- if stream.column.milestoneCount %}
+<span class="milestone-strip" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
+{%- for filled in stream.column.covered %}<span class="strip-seg{% if filled %} is-filled{% endif %}"></span>{% endfor -%}
+</span>
 {%- endif %}
-{%- for segment in lane.solid.segments %}
-<rect class="ribbon-body tone-{{ segment.tone }}" x="{{ lane.solid.x }}" y="{{ segment.y }}" width="{{ lane.solid.width }}" height="{{ segment.height }}" rx="{{ lane.solid.radius }}" ry="{{ lane.solid.radius }}"/>
-{%- endfor %}
-{%- for d in lane.solid.detours %}
-<path class="ribbon-detour" d="{{ d }}" fill="none"/>
-{%- endfor %}
-<path class="ribbon-head tone-{{ lane.solid.head.tone }}" d="{{ lane.solid.head.d }}"/>
-</g>
-
-{#- A dot per milestone the ribbon covers, with its stored days beside it. Nothing below the final
-    arrowhead, whatever its status — the rule is positional, not status-based (#780). -#}
-{%- for dot in lane.dots %}
-<g class="milestone-dot tone-{{ dot.tone }}">
-<circle class="dot{% if dot.hollow %} dot-hollow{% endif %}" cx="{{ lane.centre }}" cy="{{ dot.y }}" r="{{ dot.r }}"/>
-{%- for line in dot.lines %}
-<text class="{% if line.strong %}dt-b num{% else %}dt{% endif %}" x="{{ lane.textX }}" y="{{ line.y }}">{{ line.text }}</text>
-{%- endfor %}
-</g>
-{%- endfor %}
-
-{#- A skipped milestone is noted, not treated as a wall. The ribbon has already left its lane
-    around this marker; here is the marker, and the reason to read it at. -#}
-{%- for skip in lane.skips %}
-<g class="skip-mark">
-<circle class="skip-ring" cx="{{ lane.centre }}" cy="{{ skip.y }}" r="{{ skip.r }}"/>
-<path class="skip-cross" d="{{ skip.cross }}" fill="none"/>
-<text class="skip-t" x="{{ lane.textX }}" y="{{ skip.labelY }}">{{ skip.label }}</text>
-<text class="dt" x="{{ lane.textX }}" y="{{ skip.reasonY }}">{{ skip.reason }}</text>
-</g>
-{%- endfor %}
-
-{#- The balloon: the one place this page speaks in sentences.
-
-    It attaches to the end of the arrow whose subject it is speaking about — a HAPPENING NOW balloon
-    at the tip of the solid arrow, a NEXT one at the row that head points at — and it says what the
-    drawing cannot: what the step IS, emphasised, and then what is holding it. Both are decided in
-    `src/chart.mjs`; this file renders the lines it is handed and classifies nothing.
-
-    Fixed width tied to the column, growing downward as the text needs; its connector travels
-    vertically inside this column, so it cannot cross a neighbour. No next step, no balloon. -#}
-{%- if lane.balloon %}
-<g class="balloon tone-{{ lane.balloon.tone }}">
-<path class="balloon-line" d="{{ lane.balloon.connector }}" fill="none"/>
-<circle class="balloon-pin" cx="{{ lane.balloon.dot.x }}" cy="{{ lane.balloon.dot.y }}" r="{{ lane.balloon.dot.r }}"/>
-<path class="balloon-body" d="{{ lane.balloon.path }}" filter="url(#balloon-shadow)"/>
-<text class="bl-k" x="{{ lane.balloon.textX }}" y="{{ lane.balloon.kickerY }}">{{ lane.balloon.kicker }}</text>
-{%- for line in lane.balloon.lines %}
-<text class="{% if line.strong %}bl-s{% else %}bl-t{% endif %}" x="{{ lane.balloon.textX }}" y="{{ line.y }}">{{ line.text }}</text>
-{%- endfor %}
-</g>
+{%- if stream.column.tipLabel or stream.manifest.gate %}
+<span class="feature-next">{{ stream.column.tipLabel or stream.manifest.gate }}</span>
 {%- endif %}
-
-</g>
-{%- endfor %}
-</g>
-</svg>
+{{ ui.chip('triage', stream.triage) }}
 </div>
-
-<ul class="chart-key">
-<li><span class="key-swatch tone-done"></span>finished</li>
-<li><span class="key-swatch tone-live"></span>in progress</li>
-<li><span class="key-swatch tone-ahead"></span>on record, not started</li>
-<li><span class="key-swatch key-skip"></span>skipped — the work went round it</li>
+<a class="feature-link" href="{{ stream.url }}">View {{ stream.manifest.codename }}'s own page</a>
+<div class="feature-spine" id="spine-{{ stream.slug }}" data-feature-spine hidden>
+{%- if stream.milestones.length == 0 %}
+<p class="spine-empty">No milestones on record yet.</p>
+{%- else %}
+<ol class="milestone-spine">
+{%- for milestone in stream.milestones %}
+{%- set detail = stream.spineDetail[loop.index0] %}
+<li class="milestone-node tone-{{ milestone.manifest.status }}" data-milestone-node="{{ stream.slug }}-{{ milestone.manifest.id }}">
+<span class="milestone-icon" aria-hidden="true"></span>
+<div class="milestone-body">
+<div class="milestone-head">
+<span class="milestone-label">{{ milestone.manifest.label }}</span>
+<span class="milestone-title">{{ milestone.manifest.title }}</span>
+{{ ui.chip('status', milestone.manifest.status) }}
+</div>
+{%- if detail == 'full' or detail == 'full-muted' %}
+{%- if milestone.manifest.tasks.length %}
+<ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
+{%- for t in milestone.manifest.tasks %}
+<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}" aria-describedby="task-note">
+<span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
+<span class="task-text">{{ t.text }}</span>
+<span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
+</li>
+{%- endfor %}
+</ul>
+{%- endif %}
+{%- elif detail == 'count' and milestone.manifest.tasks.length %}
+<p class="milestone-task-count">{{ milestone.manifest.tasks.length }} sub-task{{ 's' if milestone.manifest.tasks.length != 1 else '' }}</p>
+{%- endif %}
+</div>
+</li>
+{%- endfor %}
+</ol>
+{%- endif %}
+</div>
+</li>
+{%- endfor %}
 </ul>
 
-{#- ONE MODAL PER FEATURE, carrying what the dedicated Triage page carried: what needs you, the
-    position, the gate (#780). The standalone page is gone from the desk; the phone keeps its own
-    surface, which is decision 22 narrowed rather than overturned.
-
-    NATIVE <dialog>, and that is not a stylistic preference. `showModal()` traps focus, Esc
-    dismisses, and the platform restores focus on close — the three things #780 asks of it. A
-    hand-rolled div has to re-implement all three, each easy to get subtly wrong and none of them
-    checkable without a browser.
-
-    Rendered rather than built by script: every word here comes from a record, and a modal assembled
-    in the client from strings the client also holds is a second place for the page's content to
-    live. `order.js` opens and closes; it composes nothing. -#}
-{%- for feature in features %}
-<dialog class="feature-modal" data-feature-modal="{{ feature.slug }}" aria-labelledby="modal-{{ feature.slug }}-title">
-<div class="modal-head">
-<h2 id="modal-{{ feature.slug }}-title">{{ feature.codename }}</h2>
-{{ ui.chip("triage", feature.triage) }}
-</div>
-<p class="modal-what">{{ feature.what }}</p>
-<p class="modal-position">{{ feature.position }}</p>
-<p class="modal-gate"><span class="modal-gate-label">Gate</span>{{ feature.gate }}</p>
-<div class="modal-actions">
-<a class="modal-link" href="{{ feature.url }}">Open the record</a>
-{#- The POINTER route to hiding. The keyboard route is H on the header; putting a second control
-    on the drawing itself would be a mark that says nothing about the work. -#}
-<button type="button" class="modal-hide" data-modal-hide="{{ feature.slug }}">Hide this feature</button>
-<button type="button" class="modal-close" data-modal-close>Close</button>
-</div>
-</dialog>
-{%- endfor %}
+<p class="visually-hidden" id="row-note">Drag a feature's header to put the features in the order you want, or focus one and press the up and down arrow keys to move it. Press Enter or Space to open it. Press H to hide a feature; hidden features can be brought back from the controls above the list.</p>
+<p class="visually-hidden" id="task-note">Drag a task to put this milestone's tasks in the order you want, or focus one and press the up and down arrow keys to move it.</p>
 {% endblock %}
 
 {% block bodyScripts %}

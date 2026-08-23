@@ -216,21 +216,12 @@ test('state: the triage order is the order the phone view put the cards in (deci
 
 // --- the same ladder the chart drew -----------------------------------------------------------------
 
-test('state: the ladder is the one the drawing drew, row for row and column for column', () => {
-  const html = read('index.html');
-
-  // The ladder gutter's own captions, in order. #780 puts the milestone identifiers there and
-  // nowhere else, so this is the one place on the page the rows are named.
-  const gutter = html.slice(html.indexOf('class="planning-ladder"'), html.indexOf('class="planning-chart"'));
-  const captions = [...gutter.matchAll(/<text class="[^"]*lad-(?:stage|num)[^"]*"[^>]*>([^<]+)<\/text>/g)].map(
-    (m) => m[1],
-  );
-  assert.deepEqual(
-    state.ladder.rows.map((row) => (row.kind === 'stage' ? row.label : `M${row.label}`)),
-    captions,
-    'state.json and the drawing disagree about the ladder',
-  );
-
+test('state: every ladder column names a real row', () => {
+  // The gutter-caption scrape this test used to run against no longer has a surface to scrape:
+  // the accordion rebuild (2a/2b) retired the shared depth-chart ladder gutter entirely, so
+  // there is nothing left on any page to compare state.ladder.rows against. What survives is
+  // pure state.json-internal consistency, independent of any surface: every column's headAt and
+  // barTo must each name a row that actually exists on state.ladder.rows.
   assert.equal(state.ladder.columns.length, state.workstreams.length);
   state.ladder.columns.forEach((column, i) => {
     assert.equal(column.codename, state.workstreams[i].codename);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeLadder, assertLadderResolves } from '../src/depth.mjs';
+import { computeLadder, assertLadderResolves, spineDetail } from '../src/depth.mjs';
 import { validateWorkstream } from '../src/schema.mjs';
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import path from 'node:path';
@@ -605,4 +605,65 @@ test('computeLadder: liveAt names the row where work is actually in flight, and 
 
   assert.equal(stalled.headAt, 'depth-2');
   assert.equal(stalled.liveAt, null, 'a blocked milestone is not in flight, whatever row it sits on');
+});
+
+test('spineDetail: the current (next) milestone is full, everything before it is none if done', () => {
+  const milestones = [
+    { status: 'done' },
+    { status: 'done' },
+    { status: 'next' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['none', 'none', 'full']);
+});
+
+test('spineDetail: the milestone immediately after current, if unplanned, is full-muted', () => {
+  const milestones = [
+    { status: 'done' },
+    { status: 'next' },
+    { status: 'unplanned' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['none', 'full', 'full-muted']);
+});
+
+test('spineDetail: anything further out than the muted one is count', () => {
+  const milestones = [
+    { status: 'next' },
+    { status: 'unplanned' },
+    { status: 'unplanned' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['full', 'full-muted', 'count']);
+});
+
+test('spineDetail: a parked milestone is none, even if it would otherwise be the muted preview', () => {
+  const milestones = [
+    { status: 'next' },
+    { status: 'parked' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['full', 'none']);
+});
+
+test('spineDetail: a blocked milestone right after current is count, not full-muted (only unplanned earns the preview)', () => {
+  const milestones = [
+    { status: 'next' },
+    { status: 'blocked' },
+    { status: 'unplanned' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['full', 'count', 'full-muted']);
+});
+
+test('spineDetail: no current milestone at all — every milestone is done, parked or count', () => {
+  const milestones = [
+    { status: 'done' },
+    { status: 'done' },
+  ];
+  assert.deepEqual(spineDetail(milestones), ['none', 'none']);
+});
+
+test('spineDetail: no current milestone and nothing done either — everything not done/parked is count', () => {
+  const milestones = [{ status: 'unplanned' }, { status: 'blocked' }];
+  assert.deepEqual(spineDetail(milestones), ['count', 'count']);
+});
+
+test('spineDetail: an empty milestone list returns an empty array', () => {
+  assert.deepEqual(spineDetail([]), []);
 });

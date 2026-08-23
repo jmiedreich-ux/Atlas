@@ -203,6 +203,34 @@ export function computeLadder(workstreams) {
 }
 
 /**
+ * How much of each milestone's task list the spine (surface 1, expanded — design doc "Surface 1,
+ * expanded: the milestone spine") shows.
+ *
+ *   'none'       — done or parked: a closed milestone's task history is not re-litigated here.
+ *   'full'       — the current milestone (status 'next'; at most one per feature).
+ *   'full-muted' — the first 'unplanned' milestone AFTER the current one, if any: the "what's
+ *                  coming" preview, shown but visually dimmed.
+ *   'count'      — anything else with tasks on record: collapses to a task count, not a list.
+ *
+ * @param {{ status: string }[]} milestones - a manifest's milestones, in depth order.
+ * @returns {('full'|'full-muted'|'count'|'none')[]} one entry per milestone, same order.
+ */
+export function spineDetail(milestones) {
+  const currentIndex = milestones.findIndex((m) => m.status === 'next');
+  const previewIndex =
+    currentIndex === -1
+      ? -1
+      : milestones.findIndex((m, i) => i > currentIndex && m.status === 'unplanned');
+
+  return milestones.map((m, index) => {
+    if (m.status === 'done' || m.status === 'parked') return 'none';
+    if (index === currentIndex) return 'full';
+    if (index === previewIndex) return 'full-muted';
+    return 'count';
+  });
+}
+
+/**
  * Assert that every column's `barTo` and `headAt` names a row that is actually on the ladder,
  * and fail loudly if one does not (decision 32).
  *
