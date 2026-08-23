@@ -459,12 +459,12 @@ function planPages(site) {
   // Generated from the very list the record pages are rendered from (decision 3), so it cannot
   // list a page that was not written or omit one that was.
   pages.push({
-    name: 'records',
-    extend: 'records.njk',
+    name: 'library',
+    extend: 'library.njk',
     data: {
       ...shell,
-      permalink: '/records/index.html',
-      title: 'Records',
+      permalink: '/library/index.html',
+      title: 'Library',
       groups: groupRecordsByDirectory(site.documents, site.assets),
     },
   });

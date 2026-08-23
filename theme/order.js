@@ -24,6 +24,11 @@
 
 export const ORDER_KEY = 'atlas-feature-order';
 
+// Hiding a feature is remembered under its OWN key, never the order's. Two concerns with two
+// lifetimes: "back to the generated order" must not bring a hidden feature back, and bringing one
+// back must not reshuffle the page.
+export const HIDDEN_KEY = 'atlas-hidden-features';
+
 /**
  * The order to render, from the order the generator produced and whatever storage remembered.
  *
@@ -97,6 +102,112 @@ export function announce(order, slug, name) {
   const at = order.indexOf(slug);
   if (at === -1) return '';
   return `${name} moved to position ${at + 1} of ${order.length}.`;
+}
+
+// --- hiding a feature, and bringing it back (#780, decision 49) ------------------------------------
+//
+// THE WHOLE RISK OF THIS CAPABILITY, stated where the code is: a page that silently omits a
+// workstream is worse than one that shows too many. Every rule below is about the guarantee that
+// nothing is ever lost — not about hiding, which is the easy half.
+//
+// So a hidden feature is recoverable WITHOUT THE READER KNOWING IT IS HIDDEN. The strip above the
+// chart is always visible while anything is hidden, and it NAMES what is hidden rather than merely
+// counting it, so bringing a feature back never requires remembering which ones were put away.
+
+/**
+ * Split the features into the ones that render and the ones that are hidden.
+ *
+ * Whatever storage holds, the two lists together are exactly the features the build rendered, each
+ * exactly once — a feature cannot fall between them. Storage is a string a person can edit, a
+ * value another version of the page wrote, or something a different site left behind; a stale slug
+ * is ignored, a duplicate collapses, and anything that is not a list of strings hides nothing.
+ *
+ * Both lists keep the order the build rendered in, so the page never reshuffles itself as a side
+ * effect of something being hidden.
+ *
+ * @param {string[]} generated - the slugs in the order the build rendered them.
+ * @param {unknown} stored - whatever came out of storage. Anything at all.
+ * @returns {{ visible: string[], hidden: string[] }}
+ */
+export function partitionHidden(generated, stored) {
+  const asked = new Set(
+    Array.isArray(stored) ? stored.filter((slug) => typeof slug === 'string') : [],
+  );
+  return {
+    visible: generated.filter((slug) => !asked.has(slug)),
+    hidden: generated.filter((slug) => asked.has(slug)),
+  };
+}
+
+/**
+ * Hide a feature, or bring it back. Never mutates the list it was given.
+ *
+ * Removal takes EVERY copy, because storage can hold a duplicate and half-removing one would leave
+ * a feature hidden with no way to see why.
+ *
+ * @param {string[]} hidden
+ * @param {string} slug
+ * @returns {string[]} a new array.
+ */
+export function toggleHidden(hidden, slug) {
+  const list = Array.isArray(hidden) ? hidden : [];
+  return list.includes(slug) ? list.filter((entry) => entry !== slug) : [...list, slug];
+}
+
+/**
+ * What to say when a feature is hidden.
+ *
+ * Hiding sets a style on an SVG group, which a screen reader has no reason to announce — so a
+ * keyboard user would press a key, get silence, and have a column gone. It carries the way back,
+ * because "recoverable without knowing it is hidden" has to hold for a reader who cannot see the
+ * strip either.
+ *
+ * @param {string} name - the feature's own codename, as the page shows it.
+ * @param {number} count - how many are hidden now.
+ * @returns {string}
+ */
+export function announceHidden(name, count) {
+  const many = count === 1 ? '1 feature is' : `${count} features are`;
+  return `${name} hidden. ${many} now hidden; bring them back from the controls above the chart.`;
+}
+
+/**
+ * Read what is hidden. Never throws, whatever storage does.
+ *
+ * THE FAILURE THAT MATTERS MOST is the one this shares with `readOrder`: a private window, a
+ * browser set to block site data and a quota error all surface as an exception from the accessor
+ * itself. Treating that as "hide everything" would give a reader a blank chart and no way to tell
+ * why, so it returns null and `partitionHidden` hides nothing.
+ *
+ * @param {Storage | null | undefined} storage
+ * @returns {unknown} whatever was stored, parsed, or null.
+ */
+export function readHidden(storage) {
+  try {
+    const raw = storage?.getItem(HIDDEN_KEY);
+    if (typeof raw !== 'string') return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Remember what is hidden, or forget it all when given null. Never throws.
+ *
+ * @param {Storage | null | undefined} storage
+ * @param {string[] | null} hidden
+ * @returns {boolean} whether it was actually written.
+ */
+export function writeHidden(storage, hidden) {
+  try {
+    if (hidden === null || (Array.isArray(hidden) && hidden.length === 0)) storage?.removeItem(HIDDEN_KEY);
+    else storage?.setItem(HIDDEN_KEY, JSON.stringify(hidden));
+    return true;
+  } catch (err) {
+    // Nothing to persist to. The page still hides and restores for as long as it is open.
+    return false;
+  }
 }
 
 /**
@@ -185,12 +296,69 @@ function wire(doc, storage) {
 
   const reset = doc.querySelector('[data-order-reset]');
   const said = doc.querySelector('[data-order-said]');
+  const hiddenBar = doc.querySelector('[data-hidden-bar]');
   let order = orderSlugs(generated, readOrder(storage));
+  let hidden = partitionHidden(order, readHidden(storage)).hidden;
+
+  const nameOf = (slug) => {
+    const handle = lanes.get(slug)?.querySelector('[data-lane-head]');
+    return handle?.getAttribute('data-name') || slug;
+  };
+
+  // The strip that makes hiding recoverable. It NAMES what is hidden rather than counting it, so
+  // bringing a feature back never needs the reader to remember which ones they put away — and it
+  // is rebuilt from the live list every render, so it cannot go stale against the chart.
+  function renderHiddenBar() {
+    if (!hiddenBar) return;
+    hiddenBar.textContent = '';
+    if (hidden.length === 0) {
+      hiddenBar.setAttribute('hidden', '');
+      return;
+    }
+    hiddenBar.removeAttribute('hidden');
+
+    const label = doc.createElement('span');
+    label.className = 'hidden-bar-label';
+    label.textContent = hidden.length === 1 ? '1 feature hidden:' : `${hidden.length} features hidden:`;
+    hiddenBar.appendChild(label);
+
+    for (const slug of hidden) {
+      const button = doc.createElement('button');
+      button.type = 'button';
+      button.className = 'hidden-restore';
+      button.setAttribute('data-restore', slug);
+      button.textContent = `Show ${nameOf(slug)}`;
+      hiddenBar.appendChild(button);
+    }
+
+    if (hidden.length > 1) {
+      const all = doc.createElement('button');
+      all.type = 'button';
+      all.className = 'hidden-restore';
+      all.setAttribute('data-restore-all', '');
+      all.textContent = 'Show all';
+      hiddenBar.appendChild(all);
+    }
+  }
 
   function render() {
-    const places = layout(order, pitch);
+    const { visible } = partitionHidden(order, hidden);
+    // Only what is on the page takes a place, so the remaining features close up rather than
+    // leaving a gap where a hidden one used to be.
+    const places = layout(visible, pitch);
     for (const [slug, node] of lanes) {
-      node.setAttribute('transform', `translate(${places.get(slug)},0)`);
+      const place = places.get(slug);
+      if (place === undefined) {
+        // `display: none` rather than the `hidden` attribute: SVG elements do not honour `hidden`
+        // in every browser, and this also takes the header out of the tab order, which the
+        // attribute alone would not.
+        node.style.display = 'none';
+        node.setAttribute('aria-hidden', 'true');
+      } else {
+        node.style.removeProperty('display');
+        node.removeAttribute('aria-hidden');
+        node.setAttribute('transform', `translate(${place},0)`);
+      }
     }
     // Follow the visual order in the DOM too, so tabbing through the features and reading them
     // with assistive technology both go left to right rather than in the order the build happened
@@ -202,12 +370,28 @@ function wire(doc, storage) {
       if (changed) reset.removeAttribute('hidden');
       else reset.setAttribute('hidden', '');
     }
+
+    renderHiddenBar();
   }
 
   function commit(next) {
     order = next;
     writeOrder(storage, order);
     render();
+  }
+
+  function commitHidden(next, focusSlug) {
+    hidden = partitionHidden(order, next).hidden;
+    writeHidden(storage, hidden.length ? hidden : null);
+    render();
+    // Focus follows the feature. Hiding one moves it to its own restore button, so a keyboard
+    // reader is never left focused on something that is no longer on the page — and lands on the
+    // way back rather than having to go looking for it.
+    const landing = focusSlug
+      ? hiddenBar?.querySelector(`[data-restore="${focusSlug}"]`) ||
+        lanes.get(focusSlug)?.querySelector('[data-lane-head]')
+      : null;
+    if (landing && typeof landing.focus === 'function') landing.focus();
   }
 
   render();
@@ -220,11 +404,35 @@ function wire(doc, storage) {
     });
   }
 
+  if (hiddenBar) {
+    hiddenBar.addEventListener('click', (event) => {
+      const target = event.target?.closest?.('[data-restore], [data-restore-all]');
+      if (!target) return;
+      if (target.hasAttribute('data-restore-all')) {
+        commitHidden([], hidden[0]);
+        return;
+      }
+      const slug = target.getAttribute('data-restore');
+      commitHidden(toggleHidden(hidden, slug), slug);
+      if (said) said.textContent = `${nameOf(slug)} is back on the chart.`;
+    });
+  }
+
   for (const [slug, node] of lanes) {
     const handle = node.querySelector('[data-lane-head]');
     if (!handle) continue;
 
     handle.addEventListener('keydown', (event) => {
+      // Hiding, from the keyboard. Drag and click alone are not enough, and the instruction every
+      // header points at with `aria-describedby` names this key.
+      if (event.key === 'h' || event.key === 'H') {
+        event.preventDefault();
+        const next = toggleHidden(hidden, slug);
+        commitHidden(next, slug);
+        if (said) said.textContent = announceHidden(nameOf(slug), hidden.length);
+        return;
+      }
+
       const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
       if (delta === 0) return;
       event.preventDefault();

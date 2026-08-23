@@ -47,6 +47,22 @@ export function staticWebAppConfig() {
     routes: [
       // First, and anonymous: without this the gate locks the reader out of the gate.
       { route: '/.auth/*', allowedRoles: ['anonymous', 'authenticated'] },
+
+      // #780 renamed the Records surface to the Library. These two rules are what keeps an old
+      // link working, and the alternative — letting it 404 — was considered and rejected: on a
+      // site whose whole premise is that it is always current, a dead link is indistinguishable
+      // from a broken site, and it teaches a reader to distrust the rest. Links to `/records/`
+      // are in the owner's browser history and quite possibly in issues.
+      //
+      // It belongs in the GENERATOR rather than in one project's own config because `/records/`
+      // was ATLAS's route, in every project Atlas has ever built. It is the generator's own
+      // history, not any project's content, so decision 40 is untouched.
+      //
+      // Before the catch-all, because route rules are first-match-wins; and still requiring the
+      // role, because the redirect sits inside the gate like everything else.
+      { route: '/records', allowedRoles: [ACCESS_ROLE], redirect: '/library/', statusCode: 301 },
+      { route: '/records/*', allowedRoles: [ACCESS_ROLE], redirect: '/library/', statusCode: 301 },
+
       // Everything else, including state.json and every copied document.
       { route: '/*', allowedRoles: [ACCESS_ROLE] },
     ],

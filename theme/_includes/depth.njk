@@ -43,17 +43,35 @@
 {% block bodyClass %}page page-planning{% endblock %}
 
 {% block content %}
-<h1>Feature planning</h1>
-<p class="lede">One ribbon per feature, from the top of the ladder through the stages and on into the milestones. A solid arrow covers what has begun; where more is on record than has been started, a second, fainter arrow reaches as far as the records go. Both end in their own head.</p>
+{#- THE HEADER BLOCK IS THE TITLE (#780). It carried an explanatory paragraph and a drag/order
+    instruction, and the owner cut both: "the page should open on the chart, not on two paragraphs
+    explaining it. Both texts exist because the surface was new and unexplained; the drawing carries
+    its own meaning now, and the legend beneath it already names the four states."
 
-{#- The owner's own request, and he knows what it is: an order remembered on THIS DEVICE. The page
-    says so in as many words rather than letting a reader discover it on their phone. -#}
-<div class="planning-order">
-<p class="order-note" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys. <strong>The order is remembered on this device only</strong> — it does not follow you to another browser, or to your phone. An order that travelled with you would have to be written back to the repository, which Atlas does not yet do.</p>
+    What that block was carrying has homes rather than being dropped — see the strip below. -#}
+<h1>Feature planning</h1>
+<div class="planning-controls">
+{#- The chart's own chrome, beside the feature headers where the ordering and the hiding actually
+    happen (#780's own suggestion for where the reset control should go).
+
+    THE PER-DEVICE CAVEAT LIVES HERE, and it is not decoration. The owner asked for an order
+    remembered on THIS DEVICE and knows what that is; what must not happen is a reader discovering
+    on their phone that the order they set at their desk did not come with them. It sits with the
+    controls it qualifies, and it covers the hiding as well, which is stored the same way. -#}
+<p class="controls-note">Your order and any hidden features are <strong>remembered on this device only</strong> — they do not follow you to another browser, or to your phone.</p>
+{#- Populated by `order.js` when something is hidden, and never otherwise. It names what is hidden
+    rather than merely counting it: a feature can then be brought back without the reader having to
+    remember which ones they put away. -#}
+<div class="hidden-bar" data-hidden-bar hidden></div>
 <button type="button" class="order-reset" data-order-reset hidden>Back to the generated order</button>
-{#- Moving a feature with the arrow keys changes a `transform` on an SVG group, which a screen
-    reader has no reason to announce. This is where the move is said out loud instead. -#}
+{#- Moving or hiding a feature changes attributes on an SVG group, which a screen reader has no
+    reason to announce. This is where it is said out loud instead. -#}
 <p class="order-said" data-order-said role="status" aria-live="polite"></p>
+{#- The instruction that used to be the second paragraph of the header block. It leaves the page's
+    OPENING, not the page: every feature header points at it with `aria-describedby`, and it is the
+    only explanation a reader who cannot see the drag affordance gets of how the control works.
+    Removing it outright would have been a visual edit quietly costing an accessible one. -#}
+<p class="visually-hidden" id="order-note">Drag a feature's header to put the features in the order you want, or focus one and press the left and right arrow keys to move it. Press H to hide a feature; hidden features can be brought back from the controls above the chart.</p>
 </div>
 
 <div class="chart-scroll" data-planning-scroll>

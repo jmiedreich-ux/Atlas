@@ -1,4 +1,8 @@
-{#- Atlas — the way into the records (decisions 1, 2, 3, 10, 15).
+{#- Atlas — the LIBRARY: the way into the records (decisions 1, 2, 3, 10, 15).
+
+  Called Records until #780 renamed it. The surface is unchanged; the word is not, and it is not the
+  word in one place — page title, nav label and route all moved together, because a surface with two
+  names is two surfaces to whoever reads about it later. The old route redirects; see src/swa.mjs.
 
   Every record the build put on the site, listed. Without this page the roadmap, the design
   authorities and the standalone documents all live at URLs nothing links to, and a site whose
@@ -23,11 +27,11 @@
 -#}
 {% extends "base.njk" %}
 
-{% block bodyClass %}page page-records{% endblock %}
+{% block bodyClass %}page page-library{% endblock %}
 
 {% block content %}
 <p class="breadcrumb"><a href="/">Feature planning</a></p>
-<h1>Records</h1>
+<h1>Library</h1>
 <p class="lede">Every record on this site, in the shape of the repository that holds it. Atlas is never the record: where a page and its file disagree, the file is right.</p>
 
 {% for group in groups %}

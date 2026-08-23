@@ -1444,6 +1444,84 @@ test('planning: the drawing sits inside a horizontally scrolling container, with
   assert.ok(ladderIndex < lanesIndex, 'the ladder must come before the lanes that scroll under it');
 });
 
+test('planning: the header block is the title, and the page opens on the chart', () => {
+  // #780: "cut the header block on Feature planning to just the title. Remove the explanatory
+  // paragraph and the drag/order instruction paragraph, and remove the 'back to the generated
+  // order' button from that block. The page should open on the chart, not on two paragraphs
+  // explaining it."
+  //
+  // Checked as a SHAPE rather than by hunting for the two strings that used to be there: whatever
+  // sits between the heading and the chart's own controls has to be nothing.
+  const heading = depthHtml.indexOf('</h1>');
+  const controls = depthHtml.indexOf('<div class="planning-controls">');
+  const chart = depthHtml.indexOf('<div class="chart-scroll"');
+  assert.ok(heading !== -1, 'the page lost its heading');
+  assert.ok(controls !== -1, 'there is no controls strip for the chart');
+  assert.ok(controls < chart, 'the chart controls sit below the chart they belong to');
+
+  const between = depthHtml.slice(heading + 5, controls).trim();
+  assert.equal(between, '', `the header block still carries prose before the chart: ${between}`);
+  assert.ok(!/class="lede"/.test(depthHtml), 'the explanatory paragraph is still in the header block');
+});
+
+test('planning: the two things the header block was carrying got honest homes, not deletion', () => {
+  // #780 was explicit that removing that block must not drop what it carried. Two things:
+  //
+  //   * the per-device caveat, which "matters more once ordering is something the owner actually
+  //     relies on";
+  //   * the reset control, whose home is "beside the feature headers where the ordering happens".
+  //
+  // And a third the issue does not mention, because it is not visible: the drag/arrow-key
+  // instruction is what `aria-describedby` on every feature header points at. Deleting the
+  // paragraph would have silently taken the only explanation a screen-reader user gets of how the
+  // control works — a visual instruction to remove, not an accessible name to drop.
+  // Sliced rather than matched with a lazy regex: the strip holds a nested <div>, so
+  // `([\s\S]*?)</div>` would stop at the first inner close and check a third of it.
+  const from = depthHtml.indexOf('<div class="planning-controls">');
+  const to = depthHtml.indexOf('<div class="chart-scroll"');
+  assert.ok(from !== -1 && to > from, 'there is no controls strip');
+  const controlsBlock = [null, depthHtml.slice(from, to)];
+
+  assert.match(controlsBlock[1], /this device only/i, 'the per-device caveat has no home a reader will meet');
+  assert.match(controlsBlock[1], /<button[^>]*data-order-reset/, 'the reset control is not with the chart');
+
+  // The instruction survives for assistive technology, and the reference still resolves.
+  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml);
+  assert.ok(described, 'a feature header no longer describes itself at all');
+  const target = new RegExp(`id="${described[1]}"`);
+  assert.match(depthHtml, target, `aria-describedby points at ${described[1]}, which is not on the page`);
+  const instruction = new RegExp(`<[^>]*id="${described[1]}"[^>]*>([^<]*)`).exec(depthHtml);
+  assert.match(instruction[1], /arrow key/i, 'the instruction the header points at no longer explains the keys');
+});
+
+test('planning: a hidden feature can never go missing without the page saying so', () => {
+  // Decision 49, and the whole risk of the capability: "a page that silently omits a workstream is
+  // worse than one that shows too many." The page ships the place where that is said — always in
+  // the reader's line of sight, above the chart rather than below it, because a control for
+  // getting something back is no use under the thing it is missing from.
+  //
+  // What is checked here is that the SHIPPED page carries the affordance and the explanation. The
+  // behaviour that fills it is `theme/order.js`, whose rules are unit-tested in
+  // `tests/order.test.mjs` and which was also driven in a browser for this milestone.
+  const from = depthHtml.indexOf('<div class="planning-controls">');
+  const to = depthHtml.indexOf('<div class="chart-scroll"');
+  const controls = depthHtml.slice(from, to);
+
+  assert.match(controls, /<div class="hidden-bar"[^>]*data-hidden-bar/, 'nothing on the page can say what is hidden');
+  // Empty and hidden as shipped: the strip appears only once something is actually hidden, so a
+  // page with nothing hidden does not carry a permanent empty affordance.
+  assert.match(controls, /data-hidden-bar hidden><\/div>/, 'the hidden-features strip ships with content or shown');
+
+  // The way IN is on the keyboard too, and the instruction every header points at names the key.
+  const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml)[1];
+  const instruction = new RegExp(`<[^>]*id="${described}"[^>]*>([^<]*)`).exec(depthHtml)[1];
+  assert.match(instruction, /\bH\b/, 'nothing tells a keyboard reader how to hide a feature');
+  assert.match(instruction, /hidden features can be brought back/i, 'the instruction does not say there is a way back');
+
+  // And the announcement region the module speaks through is the one the ordering already uses.
+  assert.match(controls, /data-order-said[^>]*aria-live="polite"/, 'hiding has nowhere to be announced');
+});
+
 test('planning: a feature can be reordered by keyboard as well as by drag, and the page says where the order lives', () => {
   // The owner's own request, and he knows what it is. What must not happen is a reader
   // discovering on their phone that the order they set at their desk did not come with them.

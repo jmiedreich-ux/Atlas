@@ -802,23 +802,61 @@ h3 {
 
 /* --- the ordering control, and the key --------------------------------------------------------- */
 
-.planning-order {
+/* The chart's own strip of chrome, directly above it (#780 cut the header block to the title
+ * alone, and this is where the two things that block was carrying went). It is one quiet line, so
+ * the page still opens on the chart. */
+.planning-controls {
   align-items: baseline;
   display: flex;
   flex-wrap: wrap;
   gap: var(--sky-space-3);
-  margin-bottom: var(--sky-space-4);
+  justify-content: flex-end;
+  margin-bottom: var(--sky-space-3);
 }
 
-.order-note {
-  color: var(--sky-text-secondary);
-  flex: 1 1 24rem;
-  font-size: 0.8rem;
+.controls-note {
+  color: var(--sky-text-muted);
+  font-size: 0.76rem;
   margin: 0;
-  max-width: var(--atlas-measure);
+  margin-right: auto;
 }
 
-.order-reset {
+/* Present for assistive technology, absent from the page. Not `display: none`, which removes it
+ * from the accessibility tree too and would take the instruction every feature header points at
+ * with `aria-describedby`. */
+.visually-hidden {
+  border: 0;
+  clip-path: inset(50%);
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* What is hidden, named rather than counted. Decision 49: per-device state may hide a feature but
+ * never silently — a page that quietly omits a workstream is worse than one that shows too many,
+ * so this strip is always visible while anything is hidden and always says which. */
+.hidden-bar {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+}
+
+.hidden-bar[hidden] {
+  display: none;
+}
+
+.hidden-bar-label {
+  color: var(--sky-text-secondary);
+  font-size: 0.76rem;
+}
+
+.order-reset,
+.hidden-restore {
   background: var(--sky-card-background);
   border: 1px solid var(--sky-color-border-control);
   border-radius: var(--sky-radius-pill);
@@ -829,7 +867,8 @@ h3 {
   padding: var(--sky-space-1) var(--sky-space-3);
 }
 
-.order-reset[hidden] {
+.order-reset[hidden],
+.hidden-restore[hidden] {
   display: none;
 }
 
