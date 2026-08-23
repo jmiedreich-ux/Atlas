@@ -128,7 +128,7 @@ test('build: a page for the feature planning chart and a page for the phone view
   assert.ok(existsSync(path.join(OUT, 'index.html')), 'no feature planning chart at /');
   assert.ok(existsSync(path.join(OUT, 'mobile', 'index.html')), 'no phone view at /mobile/');
 
-  assert.match(read('index.html'), /<svg class="planning-chart"/);
+  assert.match(read('index.html'), /class="feature-list" data-feature-list/);
   assert.match(read('mobile/index.html'), /class="card-list"/);
 
   // Both surfaces render the project's own name, from atlas.config.json and nowhere else.
