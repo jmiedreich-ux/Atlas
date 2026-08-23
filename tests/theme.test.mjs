@@ -1216,10 +1216,17 @@ test('triage: five section headers, in TRIAGE_ORDER sequence, each with a real c
     designing: 'Designing',
     'not-started': 'Not started',
   };
-  const present = TRIAGE_ORDER.filter((state) => workstreams.some((s) => s.triage === state));
+  // Not the raw `workstreams` array: that is `resolveWorkstreams`'s own output and carries no
+  // `.triage` field at all (only `assemble`/`orderByTriage` attach one), so filtering it by
+  // `.triage` was silently comparing `undefined` to every state and always coming up empty — the
+  // exact shape `mobileHtml` was actually rendered from, `orderByTriage(assemble(workstreams))`,
+  // is what has to be read here instead.
+  const triagedWorkstreams = orderByTriage(assemble(workstreams));
+  const present = TRIAGE_ORDER.filter((state) => triagedWorkstreams.some((s) => s.triage === state));
+  assert.ok(present.length > 0, 'fixture setup is broken: no workstream carries a triage state');
   let lastIndex = -1;
   for (const state of present) {
-    const count = workstreams.filter((s) => s.triage === state).length;
+    const count = triagedWorkstreams.filter((s) => s.triage === state).length;
     const headingRe = new RegExp(`${LABELS[state]}[\\s\\S]{0,40}${count}`);
     const index = mobileHtml.search(headingRe);
     assert.ok(index !== -1, `no section header found for "${LABELS[state]}" with count ${count}`);
@@ -1229,7 +1236,11 @@ test('triage: five section headers, in TRIAGE_ORDER sequence, each with a real c
 });
 
 test('triage: a state with zero workstreams gets no section at all', () => {
-  // Every fixture state that has zero matching workstreams must not have a heading in the output.
+  // The real fixture happens to populate all five states (awaiting-decision:1, moving:2,
+  // blocked:1, designing:1, not-started:1), so checking it alone can never exercise the
+  // zero-count branch this test is named for. Built here instead: three workstreams covering only
+  // three of the five states, so `awaiting-decision` and `blocked` are guaranteed to be the ones
+  // with nothing in them.
   const LABELS = {
     'awaiting-decision': 'Waiting on you',
     moving: 'Moving',
@@ -1237,10 +1248,34 @@ test('triage: a state with zero workstreams gets no section at all', () => {
     designing: 'Designing',
     'not-started': 'Not started',
   };
+  const partial = [
+    entry('Kilo', { stage: 'designing' }),
+    entry('Lima', { stage: 'not-started' }),
+    entry('Mike', {
+      stage: 'shipping',
+      milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+    }),
+  ];
+  const html = renderMobile(partial);
+
+  const triaged = orderByTriage(assemble(partial));
+  const presentStates = new Set(triaged.map((s) => s.triage));
+  assert.deepEqual(
+    [...presentStates].sort(),
+    ['designing', 'moving', 'not-started'].sort(),
+    'this fixture no longer matches what the test below assumes is missing',
+  );
+
   for (const state of TRIAGE_ORDER) {
-    const count = workstreams.filter((s) => orderByTriage(assemble(workstreams)).find((w) => w.slug === s.slug)?.triage === state).length;
-    if (count === 0) {
-      assert.doesNotMatch(mobileHtml, new RegExp(`>${LABELS[state]}<`), `an empty section rendered for ${state}`);
+    // Anchored to the opening of the heading itself: the rendered label is always followed by a
+    // space and the count span (`Moving <span class="triage-count">1</span>`), never immediately
+    // by `<`, so a regex requiring `>LABEL<` would never match ANY heading — present or absent —
+    // and would pass this assertion vacuously no matter what the template did.
+    const headingRe = new RegExp(`<h2 class="triage-heading">${LABELS[state]}\\b`);
+    if (presentStates.has(state)) {
+      assert.match(html, headingRe, `expected a section for "${state}", which this fixture has`);
+    } else {
+      assert.doesNotMatch(html, headingRe, `an empty section rendered for ${state}`);
     }
   }
 });
