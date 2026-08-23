@@ -619,6 +619,19 @@ h3 {
   white-space: nowrap;
 }
 
+/* Secondary affordance, not the row's primary action (that's expand/reorder/hide on
+   .feature-row-head) — small and muted, lined up under the row's own text column. */
+.feature-link {
+  color: var(--sky-text-muted);
+  display: block;
+  font-size: 0.8rem;
+  padding: 0 var(--sky-space-4) var(--sky-space-3);
+}
+
+.feature-link:hover {
+  color: var(--sky-text-secondary);
+}
+
 .feature-spine[hidden] {
   display: none;
 }

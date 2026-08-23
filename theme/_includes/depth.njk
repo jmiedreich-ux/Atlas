@@ -52,6 +52,7 @@
 {%- endif %}
 {{ ui.chip('triage', stream.triage) }}
 </div>
+<a class="feature-link" href="{{ stream.url }}">View {{ stream.manifest.codename }}'s own page</a>
 <div class="feature-spine" id="spine-{{ stream.slug }}" data-feature-spine hidden>
 {%- if stream.milestones.length == 0 %}
 <p class="spine-empty">No milestones on record yet.</p>
