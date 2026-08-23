@@ -544,14 +544,21 @@ function buildBalloon(stream, rows, { headIndex, liveIndex, arrowBottom, centre,
 
   // `step` is the emphasised line — what this step IS. Null in the stages, where the ladder already
   // names it. `holding` is the quieter one under it — what has to happen before it moves.
+  // Nothing on record at the head's own row: the feature has run past its records, and there is
+  // genuinely nothing to say. No balloon.
+  //
+  // Read from the LADDER's own `tipLabel` rather than re-derived from the manifest here. That is
+  // the whole of #780's second defect: this module decided "no balloon" from the manifest while
+  // the phone view decided "Next: M5" from the ladder, and the two surfaces disagreed in front of
+  // the reader. One field, read by both.
+  if (stream.column.tipLabel === null) return null;
+
   let step = null;
   let kicker;
   if (headRow.kind === 'stage') {
     kicker = 'Next';
   } else {
     const milestone = stream.manifest.milestones.find((m) => m.depth === headRow.depth);
-    // Nothing recorded at the head's own row: the feature has run past its records, and there is
-    // genuinely nothing to say. No balloon.
     if (!milestone) return null;
     step = milestone.title;
     kicker = live ? 'Happening now' : 'Next';

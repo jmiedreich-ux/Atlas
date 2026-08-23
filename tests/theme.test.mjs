@@ -1542,6 +1542,49 @@ test('mobile: a not-started workstream sorts last even when it sorts first alpha
   );
 });
 
+test('the chart and the phone view agree about whether a feature has a next milestone', () => {
+  // #780's second defect on first render, and the point of it is not the label. A feature with
+  // four milestones, all done and nothing recorded beyond, correctly gets NO balloon on the chart
+  // — and the phone view said "Next: M5". The two surfaces were computed from different readings
+  // of one field, which is the drift decision 29 exists to prevent, happening in front of the
+  // reader.
+  //
+  // So they are checked against each other rather than each against a value, and on the FIXTURE,
+  // which carries the case that found it.
+  const chart = computeChart(ladder, assemble(workstreams));
+  const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
+  assert.equal(cards.length, workstreams.length, 'expected one card per workstream');
+
+  let pastItsRecords = 0;
+  for (const [, codename, body] of cards) {
+    const lane = chart.lanes.find((l) => l.codename === codename);
+    assert.ok(lane, `no lane drawn for ${codename}`);
+    const column = ladder.columns.find((c) => c.codename === codename);
+
+    const namesANextStep = /class="card-next"/.test(body);
+    if (column.tipLabel === null) {
+      pastItsRecords += 1;
+      assert.equal(
+        namesANextStep,
+        false,
+        `${codename}: nothing is recorded for this feature to do next, and the phone view named one anyway`,
+      );
+      assert.equal(
+        lane.balloon,
+        null,
+        `${codename}: the phone view says nothing is next while the chart draws a balloon saying one is`,
+      );
+    } else {
+      assert.ok(namesANextStep, `${codename}: the phone view dropped a next step that is on record`);
+      assert.ok(
+        stripTags(/<p class="card-next">([\s\S]*?)<\/p>/.exec(body)[1]).includes(column.tipLabel),
+        `${codename}: the phone view names a next step the ladder did not give it`,
+      );
+    }
+  }
+  assert.ok(pastItsRecords > 0, 'the fixture no longer carries a feature that has run past its records');
+});
+
 test('mobile: the gate is the last line of every card', () => {
   const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
   assert.equal(cards.length, workstreams.length, 'expected one card per workstream');

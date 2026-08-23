@@ -86,7 +86,7 @@ function depthOfDepthRowId(rowId) {
  * @returns {{
  *   rows: { id: string, kind: 'stage' | 'milestone', label: string, depth: number | null }[],
  *   columns: { codename: string, stage: string, barTo: string | null, headAt: string,
- *     tipLabel: string, note: string, completedCount: number, milestoneCount: number,
+ *     tipLabel: string | null, note: string, completedCount: number, milestoneCount: number,
  *     covered: boolean[], skipped: object[], recordedTo: string | null,
  *     liveAt: string | null }[],
  * }}
@@ -114,12 +114,22 @@ export function computeLadder(workstreams) {
     } else {
       const depth = headPosition - 3;
       const milestone = milestoneAtDepth(milestones, depth);
-      // Decision 20 at the level of a single string: never the ladder row's generic number.
-      // When no milestone is recorded yet at this depth — the workstream is `planned` with
-      // nothing written down yet, or every recorded milestone is already done and the head has
-      // moved past the last one on record — fall back to the `M<n>` convention decision 18
-      // fixes for a milestone not yet on the record, rather than the row's bare depth number.
-      tipLabel = milestone ? milestone.label : `M${depth}`;
+      // Decision 20 at the level of a single string: the column's own milestone id, never the
+      // ladder row's shared number.
+      //
+      // NULL WHEN NOTHING IS RECORDED THERE, which is #780's second defect on first render. M2.1
+      // fell back to `M${depth}` — "the M<n> convention for a milestone not yet on the record" —
+      // and that string is an invention: no plan file, no manifest entry, nothing behind it. It
+      // reached the phone view, which announced "Next: M5" for a feature with four milestones all
+      // done, while the chart correctly drew no balloon for it at all. Two surfaces disagreeing in
+      // front of the reader about a milestone that does not exist.
+      //
+      // The defect was never the label. It was that the two surfaces read this field differently,
+      // so the field now says whether there is anything to name, and both read it — the chart to
+      // decide whether a balloon exists, the phone view to decide whether to speak. That covers
+      // both ways of getting here: a workstream past the last milestone on record, and one
+      // approved with nothing written down yet.
+      tipLabel = milestone ? milestone.label : null;
     }
 
     // Decision 24's completion, counted ONCE, here. The phone view (theme/_includes/mobile.njk)
