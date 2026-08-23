@@ -221,6 +221,39 @@ fixed convention, at its own root:
 `src/schema.mjs` is the authoritative source for this shape — every field above, and every
 validation error message, comes from its `validateConfig` and `validateWorkstream` functions.
 
+## Putting a feature on the sheet
+
+Promoting an idea from a design note onto the feature planning page is **two steps, in this
+order**. Until #780 it was neither written down nor prompted for, which is why this section
+exists: a procedure nobody can find is a procedure that gets half-done.
+
+1. **Write the manifest.** `docs/features/<slug>/workstream.json`, following the shape above, plus
+   a plan file for every milestone it lists — a milestone naming a plan that does not exist fails
+   the build (decision 32), so a feature with no milestones yet is a legitimate and common starting
+   point.
+2. **Name the slug.** Add `"<slug>"` to the `workstreams` list in `atlas.config.json`, in the
+   position you want the feature to appear in. Nothing is re-sorted (decision 20), so the order in
+   that list is the order on the page.
+
+**Atlas tells you when the second step has not happened.** A build that finds a
+`docs/features/<slug>/` directory the config does not name prints:
+
+```
+atlas: warning: docs/features/quasar/ exists but atlas.config.json does not name it, so this
+feature is not on the sheet. Add "quasar" to the "workstreams" list to promote it, or delete the
+directory if the idea was abandoned.
+```
+
+It is a **warning and not a failure**, and the line matters: step 1 legitimately happens before
+step 2, so this is the ordinary intermediate state of doing it correctly. Failing here would mean
+that starting a promotion breaks the site. The reverse case — a config naming a directory that is
+not there — is a broken reference and **does** fail the build.
+
+The warning is not suppressed by `--quiet`, which suppresses build progress; a finding is not
+progress. It is also not put on the site itself, deliberately: the pages render records, and a
+directory with no manifest behind it is not a record. Atlas showing a feature that nothing supports
+is the failure decision 3 exists to prevent, and it is not worth trading for a louder reminder.
+
 ## What a project publishes
 
 Atlas renders every Markdown file under `docs/` (and `ROADMAP.md`) as a page, and copies every

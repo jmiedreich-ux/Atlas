@@ -4,7 +4,7 @@
 // Every path here is resolved against the `projectRoot` a caller passes in — never against this
 // module's own location — so the generator behaves identically from any checkout (decision 41).
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { validateConfig, validateWorkstream } from './schema.mjs';
@@ -90,6 +90,44 @@ export function loadConfig(projectRoot) {
     workstreamsRoot: path.join(root, WORKSTREAMS_DIRNAME),
     configPath,
   };
+}
+
+/**
+ * The feature directories that exist on disk and that `atlas.config.json` does not name.
+ *
+ * THE OTHER HALF OF DECISION 32. A config naming a directory that does not exist already fails the
+ * build: it is a broken reference, and Atlas fails loudly. The reverse — a feature that has been
+ * WRITTEN and never put on the sheet — was silent, and it is the same failure shape as a hidden
+ * feature nobody can find: the work exists, the page does not show it, and nothing says so.
+ *
+ * It is a WARNING and never a failure, and that is a deliberate line rather than timidity.
+ * Promoting an idea onto the sheet is two steps in that order — write the manifest, then name the
+ * slug — so the state this reports is the ordinary intermediate state of doing it correctly.
+ * Failing the build would mean the act of starting a promotion breaks the site.
+ *
+ * It never throws either. It runs on every build, and a diagnostic that can fail a build it was
+ * added to improve is worse than the silence it replaces. A project with no `docs/features` at all
+ * is legitimate — decision 40 asks for that directory only when there are features.
+ *
+ * Dot-directories are skipped: the records walk skips them too, so a manifest inside one would not
+ * render even if it were named.
+ *
+ * @param {ReturnType<typeof loadConfig>} config
+ * @returns {string[]} slugs, sorted, so two builds of one project report identically.
+ */
+export function unnamedFeatureDirs(config) {
+  let entries;
+  try {
+    entries = readdirSync(config.workstreamsRoot, { withFileTypes: true });
+  } catch (err) {
+    return [];
+  }
+
+  const named = new Set(config.workstreams);
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !named.has(entry.name))
+    .map((entry) => entry.name)
+    .sort();
 }
 
 /**

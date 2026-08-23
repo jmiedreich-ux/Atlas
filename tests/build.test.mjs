@@ -1682,3 +1682,34 @@ test('build: --offline never constructs a request at all', async () => {
   await build(FIXTURE_ROOT, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
   assert.ok(existsSync(path.join(out, 'index.html')));
 });
+
+// --- the promotion path (#780, task 12) ---------------------------------------------------------
+
+test('build: a feature written but never put on the sheet is reported, and does not fail the build', () => {
+  // The half of decision 32 that was missing. A config naming a directory that does not exist is a
+  // broken reference and fails the build; a feature that EXISTS and is not named was silent — the
+  // work is written, the page does not show it, and nothing says so. Same failure shape as a
+  // hidden feature nobody can find.
+  //
+  // A WARNING and not a failure, deliberately: promotion is two steps in that order — write the
+  // manifest, then name the slug — so this is the ordinary intermediate state of doing it right.
+  // Failing here would mean the act of starting a promotion breaks the site.
+  const root = fixtureCopy('promotion-warning');
+  cpSync(
+    path.join(root, 'docs', 'features', 'shoal'),
+    path.join(root, 'docs', 'features', 'quasar'),
+    { recursive: true },
+  );
+
+  return build(root, freshDir('promotion-warning-out'), { fetchImpl: stubFetch, quiet: true }).then(
+    (summary) => {
+      assert.deepEqual(summary.unnamedFeatures, ['quasar'], 'the half-promoted feature was not reported');
+      assert.ok(summary.pages > 0, 'the build should still have produced a site');
+    },
+  );
+});
+
+test('build: the fixture builds with nothing to warn about, so the warning stays worth reading', () => {
+  // A build that always warns is a warning nobody reads. This is the control for the test above.
+  assert.deepEqual(SUMMARY.unnamedFeatures, []);
+});

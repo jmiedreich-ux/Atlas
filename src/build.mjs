@@ -37,7 +37,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { loadConfig, repoRelative, resolveWorkstreams } from './config.mjs';
+import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeChart } from './chart.mjs';
 import { computeLadder, assertLadderResolves } from './depth.mjs';
@@ -344,6 +344,11 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     issues,
     documents,
     assets: collectAssets(config.projectRoot),
+    // #780's task 12: the other half of decision 32. A config naming a directory that is not there
+    // already fails the build; a feature that has been WRITTEN and never put on the sheet was
+    // silent, and that is the same failure shape as a hidden feature nobody can find. Reported,
+    // never thrown — `unnamedFeatureDirs` carries the reason that line is where it is.
+    unnamedFeatures: unnamedFeatureDirs(config),
   };
 }
 
@@ -604,7 +609,16 @@ export async function build(projectRoot, outDir, options = {}) {
     rmSync(staging, { recursive: true, force: true });
   }
 
-  return { outDir: out, pages: pages.length, assets: site.assets.length, state };
+  return {
+    outDir: out,
+    pages: pages.length,
+    assets: site.assets.length,
+    state,
+    // Carried out of the build rather than printed from inside it, so a caller that is not the
+    // command line — a test, or another tool — gets the finding rather than a line of somebody
+    // else's stdout.
+    unnamedFeatures: site.unnamedFeatures,
+  };
 }
 
 // --- the command line ----------------------------------------------------------------------------------
@@ -658,6 +672,17 @@ async function main(argv) {
     console.log(
       `atlas: built ${result.pages} pages and copied ${result.assets} files into ${path.relative(process.cwd(), result.outDir) || '.'}`,
     );
+
+    // NOT suppressed by --quiet. That flag suppresses Eleventy's progress, and a finding is not
+    // progress. It names the exact edit that closes it, because a warning a reader has to go and
+    // work out is a warning they will read twice and act on once.
+    for (const slug of result.unnamedFeatures) {
+      console.error(
+        `atlas: warning: docs/features/${slug}/ exists but atlas.config.json does not name it, so ` +
+          `this feature is not on the sheet. Add "${slug}" to the "workstreams" list to promote it, ` +
+          `or delete the directory if the idea was abandoned.`,
+      );
+    }
     return 0;
   } catch (error) {
     // Decision 32: loudly, and non-zero, naming what is broken. A documentation merge that breaks
