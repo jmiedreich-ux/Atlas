@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MILESTONE_STATUSES, validateWorkstream, validateConfig } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, WORKSTREAM_STAGES, DEPLOYMENT_STAGES, validateWorkstream, validateConfig } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file only — the generator holds no
 // project content of its own (decision 40).
+
+test('WORKSTREAM_STAGES replaces shipping with real deployment stages', () => {
+  assert.deepEqual(WORKSTREAM_STAGES, [
+    'not-started', 'designing', 'planned', 'development', 'staging', 'release',
+  ]);
+  assert.deepEqual(DEPLOYMENT_STAGES, ['development', 'staging', 'release']);
+});
 
 function validManifest() {
   return {

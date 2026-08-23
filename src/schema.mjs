@@ -21,6 +21,7 @@ export {
   ACCEPTANCE_RESULTS,
   MILESTONE_STATUSES,
   WORKSTREAM_STAGES,
+  DEPLOYMENT_STAGES,
   whyNotADirectoryName,
 } from '../api/lib/contract.mjs';
 
