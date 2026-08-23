@@ -22,9 +22,11 @@ const PLACEHOLDER = (hint) => `<< M7 scaffold: replace this — ${hint} >>`;
 function promoteInConfig({ projectRoot, slug }) {
   const configPath = path.join(projectRoot, 'atlas.config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  if (config.workstreams.includes(slug)) return;
-  config.workstreams = [...config.workstreams, slug];
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  if (!config.workstreams.includes(slug)) {
+    config.workstreams = [...config.workstreams, slug];
+    writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+  }
+  return configPath;
 }
 
 function titleize(slug) {
@@ -137,9 +139,9 @@ docs/design/approved/${slug}/ — read it before writing anything else in this f
 `;
   writeFileSync(planPath, plan);
 
-  promoteInConfig({ projectRoot, slug });
+  const configPath = promoteInConfig({ projectRoot, slug });
 
-  return { ok: true, written: [manifestPath, planPath] };
+  return { ok: true, written: [manifestPath, planPath, configPath] };
 }
 
 export function parseArgv(argv) {
