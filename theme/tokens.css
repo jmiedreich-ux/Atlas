@@ -375,6 +375,21 @@ th.num {
   z-index: 2;
 }
 
+/* Present for assistive technology, absent from the page. Not `display: none`, which removes it
+ * from the accessibility tree too and would take the instruction every feature header points at
+ * with `aria-describedby`. */
+.visually-hidden {
+  border: 0;
+  clip-path: inset(50%);
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 /* --- shell ------------------------------------------------------------------------------------ */
 
 .site-head {

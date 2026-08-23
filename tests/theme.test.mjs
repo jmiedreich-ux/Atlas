@@ -1017,6 +1017,10 @@ test('planning: one row per workstream, each carrying its own slug', () => {
 
 test('planning: a row shows its codename, stage chip, and triage chip', () => {
   const stream = workstreams[0];
+  // classifyTriage is per-manifest, so assembling this one stream alone still gives the triage
+  // `depthHtml` actually rendered for it — the same value `assemble(workstreams)` computed inside
+  // `renderDepth`.
+  const [assembled] = assemble([stream]);
   const rowMatch = new RegExp(
     `data-slug="${stream.slug}"[\\s\\S]*?</li>`,
   ).exec(depthHtml);
@@ -1024,6 +1028,12 @@ test('planning: a row shows its codename, stage chip, and triage chip', () => {
   const row = rowMatch[0];
   assert.ok(row.includes(stream.manifest.codename), 'row is missing its own codename');
   assert.match(row, new RegExp(`data-stage="${stream.manifest.stage}"`));
+  assert.match(row, new RegExp(`data-triage="${assembled.triage}"`), 'row is missing its own triage chip');
+
+  // And every row carries exactly one, not just the first: a chip silently dropped from one row
+  // would not show up in a single-row check.
+  const triageChips = [...depthHtml.matchAll(/<span\b[^>]*data-triage="[^"]*"/g)];
+  assert.equal(triageChips.length, workstreams.length, 'expected one triage chip per feature row');
 });
 
 test('planning: a row carries a milestone progress strip sized to its own milestone count', () => {
