@@ -38,6 +38,49 @@ export const HIDDEN_KEY = 'atlas-hidden-features';
 export const CLICK_SLOP = 4;
 
 /**
+ * The localStorage key a milestone's task order is remembered under. Namespaced per milestone
+ * (the same `{slug}-{milestoneId}` id Task 6's `data-task-list` carries) so reordering one
+ * milestone's tasks can never collide with, or be mistaken for, another's.
+ *
+ * @param {string} milestoneKey
+ * @returns {string}
+ */
+export function taskOrderKey(milestoneKey) {
+  return `atlas-task-order:${milestoneKey}`;
+}
+
+/**
+ * Which original task indices to render, and in what order — the task-row equivalent of
+ * `orderSlugs`, operating on positions (0..count-1) instead of slugs, since a task has no stable
+ * identity of its own beyond its position in the parsed checklist.
+ *
+ * Same three guarantees as `orderSlugs`: an index the stored order doesn't know about (the
+ * checklist grew) goes to the end in original order; a stored index no longer valid (the
+ * checklist shrank) is dropped; a stored value that isn't a list of numbers is no stored order.
+ *
+ * @param {number} count - how many tasks this milestone has right now.
+ * @param {unknown} stored - whatever came out of storage.
+ * @returns {number[]} every index 0..count-1, exactly once.
+ */
+export function orderTaskIndices(count, stored) {
+  const known = new Set(Array.from({ length: count }, (_, i) => i));
+  const taken = new Set();
+  const result = [];
+
+  if (Array.isArray(stored)) {
+    for (const index of stored) {
+      if (typeof index !== 'number' || !known.has(index) || taken.has(index)) continue;
+      taken.add(index);
+      result.push(index);
+    }
+  }
+  for (const index of known) {
+    if (!taken.has(index)) result.push(index);
+  }
+  return result;
+}
+
+/**
  * The order to render, from the order the generator produced and whatever storage remembered.
  *
  * Three rules, and none of them may throw or lose a feature:
@@ -216,17 +259,6 @@ export function writeHidden(storage, hidden) {
     // Nothing to persist to. The page still hides and restores for as long as it is open.
     return false;
   }
-}
-
-/**
- * Where each row sits, given an order and the row height the list is rendered at.
- *
- * @param {string[]} order
- * @param {number} rowHeight
- * @returns {Map<string, number>} slug to y offset.
- */
-export function layout(order, rowHeight) {
-  return new Map(order.map((slug, index) => [slug, index * rowHeight]));
 }
 
 /**
@@ -470,6 +502,92 @@ function wire(doc, storage) {
   }
 }
 
+function wireTaskLists(doc, storage) {
+  for (const list of doc.querySelectorAll('[data-task-list]')) {
+    const milestoneKey = list.getAttribute('data-milestone');
+    if (!milestoneKey) continue;
+
+    const items = [...list.querySelectorAll('[data-task]')];
+    if (items.length < 2) continue;
+    const rowHeight = items[0].getBoundingClientRect().height || 1;
+
+    function readStored() {
+      try {
+        const raw = storage?.getItem(taskOrderKey(milestoneKey));
+        return typeof raw === 'string' ? JSON.parse(raw) : null;
+      } catch (err) {
+        return null;
+      }
+    }
+    function writeStored(order) {
+      try {
+        if (order === null) storage?.removeItem(taskOrderKey(milestoneKey));
+        else storage?.setItem(taskOrderKey(milestoneKey), JSON.stringify(order));
+      } catch (err) {
+        // Nothing to persist to; the order still holds for this page view.
+      }
+    }
+
+    let order = orderTaskIndices(items.length, readStored());
+
+    function render() {
+      for (const index of order) list.appendChild(items[index]);
+    }
+    function commit(next) {
+      order = next;
+      writeStored(order);
+      render();
+    }
+
+    render();
+
+    items.forEach((item, originalIndex) => {
+      item.setAttribute('tabindex', '0');
+      let startY = null;
+      let startPos = 0;
+
+      item.addEventListener('pointerdown', (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        startY = event.clientY;
+        startPos = order.indexOf(originalIndex);
+        item.classList.add('is-dragging');
+        try {
+          item.setPointerCapture(event.pointerId);
+        } catch (err) {
+          // Not every pointer can be captured.
+        }
+      });
+      item.addEventListener('pointermove', (event) => {
+        if (startY === null) return;
+        item.style.transform = `translateY(${event.clientY - startY}px)`;
+      });
+      function end(event) {
+        if (startY === null) return;
+        const dy = event.clientY - startY;
+        startY = null;
+        item.classList.remove('is-dragging');
+        item.style.removeProperty('transform');
+        if (Math.abs(dy) < CLICK_SLOP) {
+          render(); // snap back — a click on a task row does nothing else
+          return;
+        }
+        const to = dropIndex(startPos, dy, rowHeight, order.length);
+        commit(moveSlug(order.map(String), String(originalIndex), to - order.indexOf(originalIndex)).map(Number));
+      }
+      item.addEventListener('pointerup', end);
+      item.addEventListener('pointercancel', end);
+
+      item.addEventListener('keydown', (event) => {
+        const delta = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+        if (delta === 0) return;
+        event.preventDefault();
+        commit(moveSlug(order.map(String), String(originalIndex), delta).map(Number));
+        item.focus();
+      });
+    });
+  }
+}
+
 if (typeof document !== 'undefined') {
   let storage = null;
   try {
@@ -478,4 +596,5 @@ if (typeof document !== 'undefined') {
     // Blocked site data. Everything below still works; it simply forgets between visits.
   }
   wire(document, storage);
+  wireTaskLists(document, storage);
 }
