@@ -14,11 +14,13 @@
 // with a single `transform`, so reordering is arithmetic on one number per lane. Nothing on this
 // page is measured, and nothing is redrawn.
 //
-// WHAT IS TESTABLE IS EXPORTED. There is no browser in this project's environment — none, by
-// construction — so the rules that can be got wrong are pure functions with their own tests:
+// WHAT IS TESTABLE IS EXPORTED. The rules that can be got wrong are pure functions with their
+// own tests, because a unit test states what is meant to be true where a rendered page only
+// shows what happened:
 // which order to render, what to do with a stored order that has gone stale, and where each lane
-// lands. What is left is event plumbing, and it is the only part no test here covers. That is
-// stated rather than hidden.
+// lands. What is left is event plumbing, which these tests do not cover — but a browser is
+// available (Playwright ships a Linux Chromium in this environment), so "untested" here means
+// not yet written rather than not possible. That is stated rather than hidden.
 
 export const ORDER_KEY = 'atlas-feature-order';
 

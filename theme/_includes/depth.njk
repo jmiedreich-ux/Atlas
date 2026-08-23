@@ -13,8 +13,8 @@
   THIS LAYOUT POSITIONS NOTHING. Every coordinate, every radius and every path comes from
   `src/chart.mjs`, which is pure and unit-tested; this file interpolates them and does no
   arithmetic of its own. That is the same rule M1's version followed for the two ends of a column,
-  applied to the whole picture — a layout that computes a position is a layout no test without a
-  browser can check, and there is no browser here.
+  applied to the whole picture — a position computed in a template is a position no unit test can
+  reach, and a rendered page is a slow and blunt place to discover it is wrong.
 
   The claim above was FALSE in the first draft, and nothing caught it: the ribbon body's left edge
   was written `lane.centre - 18` while its width was read from `CHART.ribbonWidth`, so raising that

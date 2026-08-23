@@ -122,8 +122,8 @@ function rowTop(index) {
 /**
  * Greedy word wrap to a character budget.
  *
- * Characters rather than measured text, because there is no browser here to measure in and a
- * measurement taken from one would not survive the reader's own font settings anyway. The budget
+ * Characters rather than measured text: a measurement taken in one browser would not survive the
+ * reader's own font settings anyway, so the budget is deliberately approximate. The budget
  * is set against the column, and #780 is explicit that a balloon grows DOWNWARD as the text needs
  * rather than sideways — that is what makes the page work at narrow widths at all.
  *
@@ -184,7 +184,7 @@ function headPath(centre, width, y, length) {
   const left = centre - Math.round(width / 2) - flare;
   const right = centre + Math.round(width / 2) + flare;
   // Explicit `L x y` rather than the shorter `H x`: every command here takes a full coordinate
-  // pair, so the path can be read back as points. A test with no browser can then assert that the
+  // pair, so the path can be read back as points. A unit test can then assert that the
   // head's base and the body's end are the same line — which is the whole of #780's "nothing
   // floats" — instead of trusting the arithmetic that produced it.
   return `M ${left} ${y} L ${right} ${y} L ${centre} ${y + length} Z`;

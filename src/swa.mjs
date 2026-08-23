@@ -33,29 +33,6 @@ export const ACCESS_ROLE = 'reader';
 // Decision 7's provider. `aad` is SWA's built-in Microsoft one.
 export const LOGIN_PROVIDER = 'aad';
 
-// The role a WRITE requires (decisions 35 to 37), separate from `ACCESS_ROLE` so that being able to
-// read the records is not being able to commit to them.
-//
-// Re-exported from `api/lib/contract.mjs` rather than written again here. The Function checks this
-// value on every request and this file puts it in the emitted route rule: they are the door and the
-// lock, and two literals with a test asserting they match is a weaker thing than one value.
-export { WRITE_ROLE } from '../api/lib/contract.mjs';
-
-import { WRITE_ROLE } from '../api/lib/contract.mjs';
-
-// The runtime Static Web Apps runs the managed Function on.
-//
-// NOT the runtime the generator builds on. Atlas builds on Node 22 — `package.json`, `action.yml`
-// and CI all say so — in GitHub Actions; the Function runs in Azure on whatever Static Web Apps
-// offers managed Functions, which is a different runtime in a different place. This constant is
-// the one line that says which, and raising it to `node:22` when the platform offers it is the
-// whole change: the Function's code is plain ESM and runs unchanged on any of them.
-//
-// It is declared rather than left out because Static Web Apps does not guess — without it a Node
-// API is deployed against whatever default the platform has that week, which is the difference
-// between endpoints that answer and endpoints that 404 with nothing useful in the log.
-export const API_RUNTIME = 'node:20';
-
 /**
  * The configuration, as an object.
  *
@@ -70,21 +47,9 @@ export function staticWebAppConfig() {
     routes: [
       // First, and anonymous: without this the gate locks the reader out of the gate.
       { route: '/.auth/*', allowedRoles: ['anonymous', 'authenticated'] },
-      // The write endpoints, BEFORE the catch-all, or `/*` would match them first and every
-      // reader would reach them. First-match-wins, same trap as the line above.
-      //
-      // This is a layer in front of the check that actually refuses a caller without `author`,
-      // which lives in `api/lib/principal.mjs` where a test can reach it. It is emitted rather
-      // than written down in the README because the file Atlas emits is REPLACED on every build:
-      // "add this rule to staticwebapp.config.json afterwards" was advice about a file that does
-      // not persist.
-      { route: '/api/*', allowedRoles: [WRITE_ROLE] },
       // Everything else, including state.json and every copied document.
       { route: '/*', allowedRoles: [ACCESS_ROLE] },
     ],
-    // Which runtime the managed Function runs on; see API_RUNTIME. Harmless for a project that
-    // publishes no API — it is a declaration of what to use if there is one.
-    platform: { apiRuntime: API_RUNTIME },
     responseOverrides: {
       // A visitor with no role is sent to sign in rather than shown a bare 401 they cannot act on.
       401: { statusCode: 302, redirect: `/.auth/login/${LOGIN_PROVIDER}` },
