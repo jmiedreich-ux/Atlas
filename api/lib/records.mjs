@@ -279,3 +279,40 @@ export function recordAcceptance(text, { result, note, author }) {
 
   return recompose({ ...file, lines });
 }
+
+/**
+ * Append a deployment transition to a JSON log.
+ *
+ * A deployment log is a flat JSON array of transition objects. This function parses the current
+ * content, appends one new entry with `stage` and optional `note`, and returns the stringified
+ * result with 2-space indentation and a trailing newline.
+ *
+ * Following the repository's convention, absent optional fields (like `note` when
+ * undefined/null/empty) are omitted from the JSON object rather than set to null.
+ *
+ * @param {string} text - the current file content ('' or '[]' for a new log).
+ * @param {object} opts
+ * @param {string} opts.stage - the deployment stage.
+ * @param {string} [opts.note] - optional note; omitted from output if undefined, null, or empty.
+ * @returns {string} the new JSON text with one more entry appended, with trailing newline.
+ */
+export function appendDeploymentTransition(text, { stage, note }) {
+  // Handle empty or missing input as an empty array
+  const input = text.trim() === '' ? '[]' : text;
+  let arr;
+  try {
+    arr = JSON.parse(input);
+  } catch {
+    arr = [];
+  }
+
+  // Build the new entry, omitting `note` if it's absent/empty
+  const entry = { stage };
+  if (note !== undefined && note !== null && String(note).trim() !== '') {
+    entry.note = note;
+  }
+
+  // Append and stringify with 2-space indent and trailing newline
+  arr.push(entry);
+  return JSON.stringify(arr, null, 2) + '\n';
+}
