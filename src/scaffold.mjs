@@ -9,11 +9,23 @@
 // Decision 1: built from source, never maintained. Every free-text field this writes is an
 // unmissable placeholder naming where the real content comes from — never a plausible guess.
 
-import { existsSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const PLACEHOLDER = (hint) => `<< M7 scaffold: replace this — ${hint} >>`;
+
+// Writing the two starter files is not enough to make the feature TRACKED — decision 1's whole
+// point — until `atlas.config.json` names it. A directory `resolveWorkstreams` never iterates is
+// exactly `unnamedFeatureDirs`' warning case (src/build.mjs), so scaffolding stops one step short
+// of the milestone's own goal ("a design becomes a tracked feature") if it leaves this undone.
+function promoteInConfig({ projectRoot, slug }) {
+  const configPath = path.join(projectRoot, 'atlas.config.json');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  if (config.workstreams.includes(slug)) return;
+  config.workstreams = [...config.workstreams, slug];
+  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+}
 
 function titleize(slug) {
   return slug
@@ -124,6 +136,8 @@ ${PLACEHOLDER('which repository, which files')}
 docs/design/approved/${slug}/ — read it before writing anything else in this file.
 `;
   writeFileSync(planPath, plan);
+
+  promoteInConfig({ projectRoot, slug });
 
   return { ok: true, written: [manifestPath, planPath] };
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,10 +11,20 @@ import { validateWorkstream } from '../src/schema.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 const FIXTURE_ROOT = path.join(__dirname, 'fixtures', 'scaffold');
+const CONFIG_PATH = path.join(FIXTURE_ROOT, 'atlas.config.json');
+
+function readConfig() {
+  return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+}
 
 function cleanReadySlug() {
   const dir = path.join(FIXTURE_ROOT, 'docs', 'features', 'ready-slug');
   if (existsSync(dir)) rmSync(dir, { recursive: true });
+  const config = readConfig();
+  if (config.workstreams.includes('ready-slug')) {
+    config.workstreams = config.workstreams.filter((s) => s !== 'ready-slug');
+    writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
+  }
 }
 
 test('checkPreconditions: refuses a slug still under proposed/, not approved/', () => {
@@ -73,6 +83,27 @@ test("scaffoldWorkstream: writes a plan file at the path the manifest names", ()
   assert.match(plan, /## Goal/);
   assert.match(plan, /## Spec/);
   assert.match(plan, /docs\/design\/approved\/ready-slug/);
+  cleanReadySlug();
+});
+
+test('scaffoldWorkstream: promotes the slug into atlas.config.json — otherwise it never renders', () => {
+  cleanReadySlug();
+  assert.ok(!readConfig().workstreams.includes('ready-slug'));
+  const result = scaffoldWorkstream({ projectRoot: FIXTURE_ROOT, slug: 'ready-slug' });
+  assert.equal(result.ok, true);
+  assert.ok(readConfig().workstreams.includes('ready-slug'));
+  cleanReadySlug();
+});
+
+test('scaffoldWorkstream: promoting the slug is idempotent — no duplicate entry on a second run', () => {
+  cleanReadySlug();
+  scaffoldWorkstream({ projectRoot: FIXTURE_ROOT, slug: 'ready-slug' });
+  // A second attempt refuses (workstream.json now exists) but must not have duplicated the
+  // config entry on the first call, and calling checkPreconditions/scaffoldWorkstream again must
+  // not touch the config at all since it refuses before ever reaching that step.
+  scaffoldWorkstream({ projectRoot: FIXTURE_ROOT, slug: 'ready-slug' });
+  const occurrences = readConfig().workstreams.filter((s) => s === 'ready-slug').length;
+  assert.equal(occurrences, 1);
   cleanReadySlug();
 });
 

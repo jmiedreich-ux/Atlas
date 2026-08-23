@@ -1,0 +1,7 @@
+{
+  "project": "Scaffold Test Fixture",
+  "repo": "atlas-fixtures/scaffold-test",
+  "workstreams": [
+    "already-scaffolded-slug"
+  ]
+}
