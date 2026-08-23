@@ -2272,6 +2272,9 @@ function generatorFiles() {
     }
   };
   walk(path.join(REPO_ROOT, 'src'), 'src/');
+  // The write-back Function ships in the same deployable as the site (decision 5), so a project
+  // name reaching it is the same leak by the shortest route of all.
+  walk(path.join(REPO_ROOT, 'api'), 'api/');
   walk(THEME_DIR, 'theme/');
   walk(path.join(REPO_ROOT, '.github'), '.github/');
   // The fixture too. It is the project the generator ships as its own demo, so a real project's
@@ -2290,6 +2293,7 @@ test('decision 40: nothing the generator ships hard-codes a project name', () =>
   assert.ok(scanned.length > 15, `expected to scan the generator, saw ${scanned.length} files`);
   assert.ok(scanned.some((f) => f.name === 'action.yml'));
   assert.ok(scanned.some((f) => f.name.startsWith('src/')));
+  assert.ok(scanned.some((f) => f.name.startsWith('api/')));
   assert.ok(scanned.some((f) => f.name.startsWith('.github/')));
   assert.ok(scanned.some((f) => f.name.startsWith('fixture/')));
 
