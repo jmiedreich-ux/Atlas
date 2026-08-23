@@ -7,7 +7,7 @@
 // which come from somewhere the caller cannot reach. Refusing it by name says so; ignoring it
 // silently lets whoever sent it believe it worked.
 
-import { ACCEPTANCE_RESULTS, whyNotADirectoryName } from './contract.mjs';
+import { ACCEPTANCE_RESULTS, DEPLOYMENT_STAGES, whyNotADirectoryName } from './contract.mjs';
 import { whyNotWritableText } from './records.mjs';
 
 /** A question's id: letters then digits, the shape a register heading carries. */
@@ -18,6 +18,7 @@ const MILESTONE_ID = /^[A-Za-z][A-Za-z0-9.-]{0,31}$/;
 
 const ANSWER_FIELDS = Object.freeze(['workstream', 'question', 'answer', 'sha']);
 const ACCEPTANCE_FIELDS = Object.freeze(['workstream', 'milestone', 'result', 'note', 'sha']);
+const DEPLOYMENT_TRANSITION_FIELDS = Object.freeze(['workstream', 'stage', 'note', 'sha']);
 
 function fail(message) {
   return { ok: false, status: 400, error: 'invalid-payload', message };
@@ -178,6 +179,57 @@ export function validateAcceptancePayload(body) {
       workstream: value.workstream,
       milestone: value.milestone.trim(),
       result: value.result,
+      note: value.note ?? null,
+      sha: value.sha ?? null,
+    },
+  };
+}
+
+/**
+ * Validate `POST /api/deployment-transition`'s body.
+ *
+ * A deployment transition is feature-level — a workstream moving to a new stage — not
+ * milestone-level, which is the whole reason this has no `milestone` field and no `MILESTONE_ID`
+ * check, unlike `validateAcceptancePayload` above.
+ *
+ * @param {unknown} body
+ * @returns {{ ok: true, value: { workstream: string, stage: string, note: string | null, sha?: string } }
+ *   | { ok: false, status: 400, error: 'invalid-payload', message: string }}
+ */
+export function validateDeploymentTransitionPayload(body) {
+  const shape = checkShape(body, DEPLOYMENT_TRANSITION_FIELDS);
+  if (!shape.ok) return shape;
+  const value = shape.value;
+
+  const workstream = checkWorkstream(value.workstream);
+  if (!workstream.ok) return workstream;
+
+  // Decision 32's vocabulary rule again, now for a transition: its stage is one of the three real
+  // deployment stages, not any of WORKSTREAM_STAGES's six. A workstream can sit at `designing` or
+  // `not-started` — those are positions it holds before there is anything to deploy — but a
+  // transition RECORDS an event, and there is no event named "designing". Rejected by name, so the
+  // caller learns their value is a real stage, just not one a transition can record.
+  if (typeof value.stage !== 'string' || !DEPLOYMENT_STAGES.includes(value.stage)) {
+    return fail(
+      `"stage" must be one of: ${DEPLOYMENT_STAGES.join(', ')} (got ${JSON.stringify(value.stage)}). ` +
+        `A transition's stage is one of: development, staging, release. ${JSON.stringify(value.stage)} ` +
+        `is a real workstream stage but not something a transition can record.`,
+    );
+  }
+
+  if (value.note !== undefined && value.note !== null && String(value.note).trim() !== '') {
+    const why = whyNotWritableText(value.note);
+    if (why) return fail(`"note" cannot be written into the record because ${why}.`);
+  }
+
+  const sha = checkSha(value.sha);
+  if (!sha.ok) return sha;
+
+  return {
+    ok: true,
+    value: {
+      workstream: value.workstream,
+      stage: value.stage,
       note: value.note ?? null,
       sha: value.sha ?? null,
     },
