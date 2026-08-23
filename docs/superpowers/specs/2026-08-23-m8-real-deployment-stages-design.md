@@ -151,6 +151,21 @@ tasks). New elements: `.stage-history` (the row), `.stage-node` (one dot + label
 transition, plus one more for the workstream's own current pre-log `stage` value when no log
 exists yet, so the row is never empty for a feature that simply hasn't started deploying).
 
+## This amends decision 35, on the record rather than by omission
+
+`api/lib/handlers.mjs`'s own header states the boundary this milestone crosses: *"Creating an
+issue, approving a milestone, editing a manifest and triggering work belong to the project's own
+operations console... A status dropdown on every milestone is the obvious next thing to build here
+and it is deliberately absent; **a test asserts that this module exports exactly two handlers.**"*
+That test exists specifically to hold decision 35's "exactly two writable things" boundary
+structurally, not just by convention. A third handler is a deliberate amendment to that decision,
+not a workaround of its guard — the plan's first task must update that test's assertion (two → three)
+in the same commit that adds the handler, and the plan's Global Constraints must record the
+amendment explicitly: decision 35 now names three writable things — a register answer, an
+acceptance result, and a deployment-log entry — with the same constraint that made the original two
+safe (every write is a commit to a record the manifest already points at; nothing is ever kept
+outside the repository, per decision 37) unchanged and still binding on the third.
+
 ## Data model summary
 
 * `WORKSTREAM_STAGES`: six values, `shipping` removed, `development`/`staging`/`release` added.
