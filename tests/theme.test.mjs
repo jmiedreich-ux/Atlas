@@ -1007,7 +1007,10 @@ const OCCURRING_PAIRS = [
   ['.lad-stage', '.ladder-ground'],
   ['.lad-num', '.ladder-ground'],
   ['.band-name', '.ladder-ground'],
-  ['.col-h', '.lane-head-box'],
+  // The plate paints only on hover, focus and drag now (the owner: a bordered plate behind every
+  // name read as a row of uneven cards, not a row of names); at rest the name sits directly on
+  // the chart's own card background.
+  ['.col-h', '.chart-scroll'],
   ['.chip-text', '.chip-box'],
   // The dates, the skip note and the balloon all sit over the execution band, which is the tint
   // that covers the whole bottom of the drawing.
@@ -1534,17 +1537,19 @@ test('planning: the header block is the title, and the page opens on the chart',
   assert.ok(!/class="lede"/.test(depthHtml), 'the explanatory paragraph is still in the header block');
 });
 
-test('planning: the two things the header block was carrying got honest homes, not deletion', () => {
-  // #780 was explicit that removing that block must not drop what it carried. Two things:
+test('planning: the header block\'s per-device caveat and keyboard instruction got honest homes, not deletion', () => {
+  // #780 was explicit that removing that block must not drop what it carried:
   //
   //   * the per-device caveat, which "matters more once ordering is something the owner actually
   //     relies on";
-  //   * the reset control, whose home is "beside the feature headers where the ordering happens".
+  //   * the drag/arrow-key instruction — not visible on its own, because it is what
+  //     `aria-describedby` on every feature header points at. Deleting the paragraph would have
+  //     silently taken the only explanation a screen-reader user gets of how the control works —
+  //     a visual instruction to remove, not an accessible name to drop.
   //
-  // And a third the issue does not mention, because it is not visible: the drag/arrow-key
-  // instruction is what `aria-describedby` on every feature header points at. Deleting the
-  // paragraph would have silently taken the only explanation a screen-reader user gets of how the
-  // control works — a visual instruction to remove, not an accessible name to drop.
+  // #780 also asked for a reset control here, and the owner later removed it after using the
+  // live site — "you can remove back to the generated order, I don't know that" — so that third
+  // thing is gone by direct instruction rather than carried forward.
   // Sliced rather than matched with a lazy regex: the strip holds a nested <div>, so
   // `([\s\S]*?)</div>` would stop at the first inner close and check a third of it.
   const from = depthHtml.indexOf('<div class="planning-controls">');
@@ -1553,7 +1558,7 @@ test('planning: the two things the header block was carrying got honest homes, n
   const controlsBlock = [null, depthHtml.slice(from, to)];
 
   assert.match(controlsBlock[1], /this device only/i, 'the per-device caveat has no home a reader will meet');
-  assert.match(controlsBlock[1], /<button[^>]*data-order-reset/, 'the reset control is not with the chart');
+  assert.ok(!/data-order-reset/.test(controlsBlock[1]), 'the reset control the owner asked removed is still here');
 
   // The instruction survives for assistive technology, and the reference still resolves.
   const described = /<g class="lane-head"[^>]*aria-describedby="([^"]+)"/.exec(depthHtml);
@@ -1698,7 +1703,9 @@ test('planning: a feature can be reordered by keyboard as well as by drag, and t
     /remembered on this device only/i,
     'the page does not say that the order is per-device',
   );
-  assert.match(depthHtml, /<button[^>]*data-order-reset/, 'there is no visible way back to the generated order');
+  // The reset control itself was removed after the owner used the live site and did not
+  // recognise "back to the generated order" — see the header-block test above.
+  assert.ok(!/data-order-reset/.test(depthHtml), 'the reset control the owner asked removed is still here');
 
   // Drag alone is not enough: every header is focusable and announces what the arrow keys do.
   const handles = [...depthHtml.matchAll(/<g class="lane-head"[^>]*>/g)].map((m) => m[0]);

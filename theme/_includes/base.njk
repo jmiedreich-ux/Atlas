@@ -89,7 +89,14 @@
 <a href="/mobile/">What needs you</a>
 <a href="/library/">Library</a>
 </nav>
-<button type="button" class="theme-toggle" data-theme-toggle>Theme: <span data-theme-label>System</span></button>
+{#- A plain list rather than a single cycling button: the owner tried the cycling control and did
+    not know what it meant without reading the label after clicking. Three named choices, one
+    marked current, is legible without having to act on it first. -#}
+<ul class="theme-list" aria-label="Theme" data-theme-list>
+<li><button type="button" data-theme-option="system">System</button></li>
+<li><button type="button" data-theme-option="light">Light</button></li>
+<li><button type="button" data-theme-option="dark">Dark</button></li>
+</ul>
 </header>
 <main class="site-main" id="main">
 {% block content %}{% endblock %}
@@ -98,14 +105,14 @@
 <p>Built from the repository and its issues, never hand-maintained. Where this page and a record disagree, the record is right. <a href="https://github.com/{{ repo }}">{{ repo }}</a></p>
 </footer>
 <script>
-/* Cycles system → light → dark. "System" removes the attribute rather than guessing a value, so
- * the page falls back to prefers-color-scheme instead of freezing whichever it happened to show. */
+/* Three named choices rather than one cycling button (the owner tried the cycling control and
+ * could not tell what it meant without reading the label after clicking). "System" removes the
+ * attribute rather than guessing a value, so the page falls back to prefers-color-scheme instead
+ * of freezing whichever it happened to show. */
 (function () {
-  var button = document.querySelector('[data-theme-toggle]');
-  if (!button) { return; }
-  var label = button.querySelector('[data-theme-label]');
-  var order = ['system', 'light', 'dark'];
-  var names = { system: 'System', light: 'Light', dark: 'Dark' };
+  var list = document.querySelector('[data-theme-list]');
+  if (!list) { return; }
+  var buttons = list.querySelectorAll('[data-theme-option]');
 
   function read() {
     try {
@@ -120,17 +127,22 @@
     } else {
       document.documentElement.setAttribute('data-theme', choice);
     }
-    label.textContent = names[choice];
+    buttons.forEach(function (button) {
+      var current = button.getAttribute('data-theme-option') === choice;
+      button.setAttribute('aria-pressed', current ? 'true' : 'false');
+    });
     try {
       if (choice === 'system') { window.localStorage.removeItem('atlas-theme'); }
       else { window.localStorage.setItem('atlas-theme', choice); }
     } catch (err) { /* nothing to persist to; the choice still holds for this page */ }
   }
 
-  apply(read());
-  button.addEventListener('click', function () {
-    apply(order[(order.indexOf(read()) + 1) % order.length]);
+  buttons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      apply(button.getAttribute('data-theme-option'));
+    });
   });
+  apply(read());
 })();
 </script>
 {#- A surface that needs behaviour of its own loads it here, after the markup it acts on. Only the
