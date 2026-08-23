@@ -15,7 +15,7 @@ import nunjucks from 'nunjucks';
 
 import { loadConfig, resolveWorkstreams } from '../src/config.mjs';
 import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
-import { computeChart } from '../src/chart.mjs';
+import { CHART, computeChart } from '../src/chart.mjs';
 import { formatDay } from '../src/dates.mjs';
 import { computeLadder } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
@@ -533,6 +533,12 @@ const DERIVED_IN_DARK = {
   '--sky-action-link-text': '#7dd3fc',
   '--sky-shadow-card': '0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45)',
   '--atlas-tone-exploring-bg': '#2a2247',
+  // The feature planning drawing's two carrying states (#780). Derived rather than quoted because
+  // the contract names neither: the drawing's states are not the contract's. `--atlas-tone-ahead`
+  // and `--atlas-tone-stopped` are absent here on purpose — both are aliases of contract tokens
+  // and move with the palette, so restating them in dark would be a second place to get wrong.
+  '--atlas-tone-done': '#5fa8d8',
+  '--atlas-tone-live': '#3fe08f',
 };
 
 function darkBlockDeclarations() {
@@ -633,6 +639,116 @@ test('tokens.css: every derived dark value says what it was derived from', () =>
       `${name} is marked DERIVED, but the contract's midnight set defines it — it should be quoted, not invented`,
     );
   }
+});
+
+// --- #780: a colour for done, and stopped told apart from in progress -------------------------
+
+// The four states the feature planning drawing has to say apart WITHOUT the reader consulting the
+// key beneath it. Named here as the drawing's own tokens rather than read out of the stylesheet,
+// because a list read from the file it is checking agrees with any drift in it.
+const CHART_TONES = ['--atlas-tone-done', '--atlas-tone-live', '--atlas-tone-ahead', '--atlas-tone-stopped'];
+
+test('tokens.css: the chart’s four states are four different colours, in light and in dark', () => {
+  // #780: "a colour for done — finished work needs its own arrow colour, distinct from in
+  // progress", and "stopped and in progress were clearer in the earlier mock than they are now."
+  //
+  // M2.1 drew finished work in `--sky-action-link-text`, so a finished ribbon was the same ink as
+  // every link on the page and had no colour of its own at all. The drawing now has four tokens,
+  // and this checks the only property that makes them worth having: that they differ.
+  const resolve = (declared, name, fallback) => {
+    let value = declared.get(name) ?? fallback.get(name);
+    // A token defined as an alias moves with the palette; follow it to the colour it lands on.
+    for (let hops = 0; hops < 5 && /^var\(/.test(value ?? ''); hops += 1) {
+      const alias = /^var\(\s*(--[\w-]+)/.exec(value)[1];
+      value = declared.get(alias) ?? fallback.get(alias);
+    }
+    return value;
+  };
+
+  const light = bareRootDeclarations();
+  const states = { light: [light, light], ...darkBlockDeclarations() };
+
+  for (const [selector, declared] of Object.entries(states)) {
+    const block = Array.isArray(declared) ? declared[0] : declared;
+    const values = CHART_TONES.map((name) => {
+      const value = resolve(block, name, light);
+      assert.ok(value, `${selector}: ${name} resolves to nothing`);
+      return value.toLowerCase();
+    });
+    assert.equal(
+      new Set(values).size,
+      CHART_TONES.length,
+      `${selector}: two of the chart's four states are drawn in the same colour — ${values.join(', ')}`,
+    );
+  }
+});
+
+test('tokens.css: finished work has an arrow colour of its own, not the page’s link colour', () => {
+  // The specific thing #780 asked for. Aliasing the link token would satisfy "there is a token
+  // called done" while changing not one pixel, so what is checked is the VALUE.
+  const light = bareRootDeclarations();
+  // Asserted present FIRST. `notEqual(undefined, '#1d6fb8')` passes, so without this the guard
+  // below could never fail — which is the shape of defect this milestone was warned about twice.
+  assert.ok(light.get('--atlas-tone-done'), 'the drawing has no token for finished work at all');
+  assert.ok(light.get('--sky-action-link-text'), 'the contract has no link colour to compare against');
+  assert.notEqual(
+    light.get('--atlas-tone-done'),
+    light.get('--sky-action-link-text'),
+    'finished work is still drawn in the link colour, which is what #780 called having no colour of its own',
+  );
+  assert.notEqual(
+    light.get('--atlas-tone-done'),
+    'var(--sky-action-link-text)',
+    'finished work still resolves to the link colour through an alias',
+  );
+});
+
+test('tokens.css: the key beneath the chart is drawn from the same tokens as the chart', () => {
+  // A key that disagrees with the drawing is worse than no key. It disagreed: the swatches were
+  // coloured from the link blue and the positive green while the ribbons moved to their own
+  // tokens, and — worse — the drawing's own rules listed `.key-swatch` alongside the ribbons and
+  // set `fill` on it, which does nothing at all to a `<span>`. So the key had TWO rules, one inert
+  // and one stale, and looked plausible in the stylesheet either way.
+  const declarationFor = (selector, property) => {
+    const rules = DECLARATION_RULES.filter((r) => r.selector.trim() === selector);
+    assert.ok(rules.length > 0, `no ${selector} rule`);
+    const found = rules
+      .map((r) => new Map(declarationsIn(r.body)).get(property))
+      .filter(Boolean);
+    assert.equal(found.length, 1, `${selector} sets ${property} in ${found.length} places, not one`);
+    return found[0];
+  };
+
+  for (const tone of ['done', 'live', 'ahead']) {
+    assert.equal(
+      declarationFor(`.key-swatch.tone-${tone}`, 'background'),
+      `var(--atlas-tone-${tone})`,
+      `the key's "${tone}" swatch is not the colour the drawing uses for it`,
+    );
+  }
+  assert.match(
+    declarationFor('.key-skip', 'border'),
+    /var\(--atlas-tone-stopped\)/,
+    "the key's skipped swatch is not the colour the drawing marks a stopped milestone in",
+  );
+});
+
+test('tokens.css: the ribbon going round a stopped milestone is a ribbon, not a hairline', () => {
+  // #780's approved mock: "the ribbon leaves its lane, curves around a crossed circular marker
+  // sitting in the milestone's row, and rejoins below it." M2.1 drew that at a 10px stroke against
+  // a 36px ribbon and left a comment claiming it was "the same weight as the body it bridges",
+  // which was false — so a stopped milestone read as the ribbon ENDING and a hairline appearing,
+  // and that is the separation between stopped and in progress that the build lost.
+  const rule = DECLARATION_RULES.find((r) => r.selector.trim() === '.ribbon-detour');
+  assert.ok(rule, 'no .ribbon-detour rule at all');
+  const width = Number(new Map(declarationsIn(rule.body)).get('stroke-width'));
+  assert.ok(Number.isFinite(width), 'the detour has no stroke-width');
+  assert.ok(
+    width >= CHART.ribbonWidth / 2,
+    `the detour is drawn at ${width} against a ${CHART.ribbonWidth} ribbon, which reads as a break rather than a way round`,
+  );
+  // And it must still be narrower than the ribbon: it is the work going ROUND, not more of it.
+  assert.ok(width < CHART.ribbonWidth, 'the detour is as wide as the ribbon, so nothing says the work went round');
 });
 
 test('tokens.css: every --sky- token carries the locked contract\'s own light value', () => {
