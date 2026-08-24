@@ -279,7 +279,7 @@ test('fetchProjectIssues: the page it asks for is large enough to be worth havin
 
 // --- fetchIssueBodies ------------------------------------------------------
 
-function fetchImplForIssues(bodiesByNumber) {
+function fetchImplForIssues(bodiesByNumber, assigneesByNumber = {}) {
   const calls = [];
   const impl = async (url) => {
     calls.push(url);
@@ -288,18 +288,51 @@ function fetchImplForIssues(bodiesByNumber) {
     if (number === null || !(number in bodiesByNumber)) {
       return { ok: false, status: 404, json: async () => ({ message: 'Not Found' }) };
     }
-    return { ok: true, status: 200, json: async () => ({ number, body: bodiesByNumber[number] }) };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ number, body: bodiesByNumber[number], assignees: assigneesByNumber[number] ?? [] }),
+    };
   };
   impl.calls = calls;
   return impl;
 }
 
-test('fetchIssueBodies: fetches one issue per distinct number and maps number to body', async () => {
+test('fetchIssueBodies: fetches one issue per distinct number and maps number to its body', async () => {
   const fetchImpl = fetchImplForIssues({ 101: 'body one', 102: 'body two' });
   const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 102], fetchImpl });
 
-  assert.equal(result.get(101), 'body one');
-  assert.equal(result.get(102), 'body two');
+  assert.equal(result.get(101).body, 'body one');
+  assert.equal(result.get(102).body, 'body two');
+});
+
+test('fetchIssueBodies: also maps each issue to its real GitHub assignees', async () => {
+  const fetchImpl = fetchImplForIssues(
+    { 101: 'body one' },
+    { 101: [{ login: 'jeremy', avatar_url: 'https://example.test/jeremy.png', html_url: 'https://github.com/jeremy' }] },
+  );
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
+
+  assert.deepEqual(result.get(101).assignees, [
+    { login: 'jeremy', avatarUrl: 'https://example.test/jeremy.png', htmlUrl: 'https://github.com/jeremy' },
+  ]);
+});
+
+test('fetchIssueBodies: an issue with no assignees maps to an empty array, not null or undefined', async () => {
+  const fetchImpl = fetchImplForIssues({ 101: 'body one' });
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
+
+  assert.deepEqual(result.get(101).assignees, []);
+});
+
+test('fetchIssueBodies: an assignee entry with no login is dropped rather than crashing on it', async () => {
+  const fetchImpl = fetchImplForIssues({ 101: 'body one' }, { 101: [{ avatar_url: 'x' }, { login: 'real' }] });
+  const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
+
+  assert.deepEqual(
+    result.get(101).assignees.map((a) => a.login),
+    ['real'],
+  );
 });
 
 test('fetchIssueBodies: duplicate issue numbers are fetched once', async () => {
@@ -328,7 +361,7 @@ test('fetchIssueBodies: sends an Authorization header when a token is given, omi
   const calls = [];
   const withToken = async (url, options) => {
     calls.push(options);
-    return { ok: true, status: 200, json: async () => ({ number: 101, body: 'x' }) };
+    return { ok: true, status: 200, json: async () => ({ number: 101, body: 'x', assignees: [] }) };
   };
   await fetchIssueBodies({ repo: REPO, issueNumbers: [101], token: 'secret-token', fetchImpl: withToken });
   assert.ok(
@@ -343,7 +376,7 @@ test('fetchIssueBodies: a non-OK response for one issue yields null for that iss
     const fetchImpl = fetchImplForIssues({ 101: 'body one' }); // 102 will 404
     const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 102], fetchImpl });
 
-    assert.equal(result.get(101), 'body one');
+    assert.equal(result.get(101).body, 'body one');
     assert.equal(result.get(102), null);
     assert.ok(warnCalls.length >= 1, 'expected a warning for the failed issue');
     const message = warnCalls[warnCalls.length - 1].join(' ');
@@ -355,21 +388,29 @@ test('fetchIssueBodies: a non-OK response for one issue yields null for that iss
 test('fetchIssueBodies: a network failure for one issue yields null for that issue only, and warns', async () => {
   await withSilencedWarn(async (warnCalls) => {
     const fetchImpl = async (url) => {
-      if (String(url).endsWith('/101')) return { ok: true, status: 200, json: async () => ({ number: 101, body: 'ok' }) };
+      if (String(url).endsWith('/101')) return { ok: true, status: 200, json: async () => ({ number: 101, body: 'ok', assignees: [] }) };
       throw new Error('network unreachable');
     };
     const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101, 999], fetchImpl });
 
-    assert.equal(result.get(101), 'ok');
+    assert.equal(result.get(101).body, 'ok');
     assert.equal(result.get(999), null);
     assert.ok(warnCalls.some((call) => call.join(' ').includes('999')));
   });
 });
 
-test('fetchIssueBodies: an issue whose body is not a string maps to null', async () => {
-  const fetchImpl = async () => ({ ok: true, status: 200, json: async () => ({ number: 101, body: null }) });
+test('fetchIssueBodies: an issue whose body is not a string maps body to null, but assignees still resolve', async () => {
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ number: 101, body: null, assignees: [{ login: 'jeremy' }] }),
+  });
   const result = await fetchIssueBodies({ repo: REPO, issueNumbers: [101], fetchImpl });
-  assert.equal(result.get(101), null);
+  assert.equal(result.get(101).body, null);
+  assert.deepEqual(
+    result.get(101).assignees.map((a) => a.login),
+    ['jeremy'],
+  );
 });
 
 test('fetchIssueBodies: never rejects, whatever the fetch does', async () => {

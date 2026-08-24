@@ -557,12 +557,19 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();
+        // `fetchIssueBodies` maps a milestone's own issue to `{ body, assignees }`, or `null` when
+        // the fetch itself failed (offline, network error, 404) — never split into two lookups,
+        // since both come from the one issue fetch M6 reused rather than doubling the request.
+        const issueData = milestone.issue !== null ? taskBodies.get(milestone.issue) ?? null : null;
         return {
           manifest: {
             ...milestone,
             // Computed only, never written back (design doc: "Data model summary" — this is not
             // a schema field, it is attached here the same way `url`/`planUrl` already are).
-            tasks: milestone.issue !== null ? parseTasks(taskBodies.get(milestone.issue) ?? null) : [],
+            tasks: parseTasks(issueData?.body ?? null),
+            // Real GitHub assignees on the milestone's own issue (M6: "people are assignees" —
+            // the human half; the model-owner tag inside each task line is unrelated and unchanged).
+            assignees: issueData?.assignees ?? [],
           },
           url: milestoneUrl(stream.slug, milestone.id),
           permalink: `/workstream/${stream.slug}/${segment}/index.html`,

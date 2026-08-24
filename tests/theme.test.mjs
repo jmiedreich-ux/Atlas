@@ -152,7 +152,7 @@ function assemble(entries) {
       deploymentHistory,
       deploymentLogSha: stream.deploymentLogSha ?? null,
       milestones: stream.manifest.milestones.map((entry) => ({
-        manifest: { ...entry, tasks: entry.tasks ?? [] },
+        manifest: { ...entry, tasks: entry.tasks ?? [], assignees: entry.assignees ?? [] },
         url: milestoneUrl(stream.slug, entry.id),
         planUrl: null,
         recordUrl: null,

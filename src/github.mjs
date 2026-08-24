@@ -135,26 +135,40 @@ function warnIssueFetch(repo, number, detail) {
   console.warn(`atlas: could not fetch issue #${number} for ${repo}: ${detail} — its tasks will be empty`);
 }
 
+function assigneesOf(item) {
+  return (item.assignees ?? [])
+    .filter((a) => typeof a?.login === 'string')
+    .map((a) => ({
+      login: a.login,
+      avatarUrl: typeof a.avatar_url === 'string' ? a.avatar_url : null,
+      htmlUrl: typeof a.html_url === 'string' ? a.html_url : null,
+    }));
+}
+
 /**
- * Fetch the body of every distinct issue number given, regardless of open/closed state — unlike
- * `fetchProjectIssues`, which only ever sees OPEN issues. A milestone marked `done` almost always
- * has a *closed* issue, and its checklist has to come from somewhere.
+ * Fetch the body and real GitHub assignees of every distinct issue number given, regardless of
+ * open/closed state — unlike `fetchProjectIssues`, which only ever sees OPEN issues. A milestone
+ * marked `done` almost always has a *closed* issue, and its checklist has to come from somewhere.
  *
- * One request per distinct issue number, run concurrently. Bounded by how many milestones this
- * project has (a few dozen at most), not by the open backlog — this is a different shape of
- * request from `fetchProjectIssues`'s single list call on purpose.
+ * One request per distinct issue number, run concurrently — the single-issue endpoint already
+ * returns `assignees` alongside `body`, so this is the one fetch both need, not two. Bounded by
+ * how many milestones this project has (a few dozen at most), not by the open backlog — this is a
+ * different shape of request from `fetchProjectIssues`'s single list call on purpose.
  *
  * Decision 32's stated tolerated-failure module extends to this call the same way it already
  * covers the list fetch: a network error or non-OK response for one issue logs a warning and maps
- * that issue to `null`, never rejects, never fails the build.
+ * that issue to `null` (the whole value — a fetch that never happened has no assignees to report
+ * either), never rejects, never fails the build. A successful fetch always maps to an object, even
+ * when `body` itself is malformed, because the issue's assignees are still real information.
  *
  * @param {object} opts
  * @param {string} opts.repo - `owner/name`.
  * @param {number[]} opts.issueNumbers - may contain duplicates; each distinct number is fetched once.
  * @param {string} [opts.token]
  * @param {typeof fetch} [opts.fetchImpl]
- * @returns {Promise<Map<number, string | null>>} every distinct number given, mapped to its
- *   issue's `body`, or `null` on any failure for that issue.
+ * @returns {Promise<Map<number, { body: string | null, assignees: { login: string, avatarUrl: string | null, htmlUrl: string | null }[] } | null>>}
+ *   every distinct number given, mapped to its issue's body/assignees, or `null` on any failure
+ *   for that issue.
  */
 export async function fetchIssueBodies({ repo, issueNumbers, token, fetchImpl = fetch }) {
   const unique = [...new Set(issueNumbers)];
@@ -173,7 +187,10 @@ export async function fetchIssueBodies({ repo, issueNumbers, token, fetchImpl = 
           return [number, null];
         }
         const item = await response.json();
-        return [number, typeof item.body === 'string' ? item.body : null];
+        return [
+          number,
+          { body: typeof item.body === 'string' ? item.body : null, assignees: assigneesOf(item) },
+        ];
       } catch (err) {
         warnIssueFetch(repo, number, err.message);
         return [number, null];

@@ -56,7 +56,7 @@ function forbiddenFetch(url) {
 // every milestone, regardless of what its linked issue's checklist actually said — nothing in the
 // suite proved `fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a rendered checklist`
 // actually works end to end. This stub tells the two endpoints apart, so a build using it can.
-function stubFetchWithIssueBodies(bodiesByNumber) {
+function stubFetchWithIssueBodies(bodiesByNumber, assigneesByNumber = new Map()) {
   return function fetchImpl(url) {
     const match = /\/issues\/(\d+)$/.exec(String(url));
     if (match) {
@@ -65,7 +65,7 @@ function stubFetchWithIssueBodies(bodiesByNumber) {
       return Promise.resolve({
         ok: body !== null,
         status: body !== null ? 200 : 404,
-        json: async () => ({ number, body }),
+        json: async () => ({ number, body, assignees: assigneesByNumber.get(number) ?? [] }),
       });
     }
     return stubFetch();
@@ -1878,6 +1878,30 @@ test('build: fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a ren
   assert.ok(nodeMatch[0].includes('Ship the housing'), 'the second parsed task text is missing from the page');
   assert.ok(nodeMatch[0].includes('Grace'), 'the second parsed owner tag is missing from the page');
   assert.match(nodeMatch[0], /class="task-line is-done"/, 'the checked task did not render as done');
+});
+
+test('build: real GitHub assignees on a milestone\'s own issue render on the page, end to end', async () => {
+  const out = freshDir('assignees-e2e');
+  const bodies = new Map([[104, '- [ ] Wire up the relay']]);
+  const assignees = new Map([
+    [104, [{ login: 'jeremy', avatar_url: 'https://example.test/j.png', html_url: 'https://github.com/jeremy' }]],
+  ]);
+  await build(FIXTURE_ROOT, out, { fetchImpl: stubFetchWithIssueBodies(bodies, assignees), quiet: true });
+
+  const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+  const nodeMatch = new RegExp('data-milestone-node="beacon-M4"[\\s\\S]*?</li>').exec(html);
+  assert.ok(nodeMatch, 'beacon/M4 did not render');
+  assert.match(nodeMatch[0], /class="milestone-assignees/, 'no assignees list rendered');
+  assert.match(nodeMatch[0], /href="https:\/\/github\.com\/jeremy"/, 'the real assignee profile link is missing');
+  assert.ok(nodeMatch[0].includes('jeremy'), 'the assignee login is missing from the page');
+});
+
+test('build: a milestone with no real assignees renders no assignees list at all', () => {
+  const html = readFileSync(path.join(OUT, 'index.html'), 'utf8');
+  assert.ok(
+    !html.includes('class="milestone-assignees'),
+    'a build with no real GitHub assignees should render no assignees list anywhere',
+  );
 });
 
 // --- the promotion path (#780, task 12) ---------------------------------------------------------
