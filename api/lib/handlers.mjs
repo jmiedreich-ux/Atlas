@@ -70,7 +70,7 @@ const RECORD_ERROR_STATUS = {
 
 const APPROVE_ERROR_STATUS = {
   'no-such-proposal': 404,
-  'already-approved': 409,
+  'name-collision': 409,
   'already-scaffolded': 409,
   'no-config': 502,
   'invalid-config': 502,
@@ -494,18 +494,19 @@ export async function handleDeploymentTransition(request, deps) {
 }
 
 /**
- * `POST /api/approve` — move a proposed design to approved and scaffold its first milestone, in
- * one commit (M9, decision 59).
+ * `POST /api/approve` — move a proposed design straight into its feature's own directory and
+ * scaffold its first milestone, in one commit (M9, decision 59).
  *
  * Unlike the three handlers above, this does not edit one record at a known SHA: it moves every
- * file under `docs/design/proposed/<slug>/` to `docs/design/approved/<slug>/`, writes a starter
- * `workstream.json` and `m1-plan.md`, and adds `<slug>` to `atlas.config.json`'s `workstreams` —
- * four-plus file changes that either all land or none do. `createTreeClient` (api/lib/github.mjs)
- * builds this as one git tree and one commit; `planApproval` (api/lib/approve.mjs) decides which
- * moves and which config change from a fresh read of the branch, taken inside this call rather than
- * from anything the caller sent — so the preconditions it checks (proposal exists, nothing already
- * approved or scaffolded under this slug) are checked against the repository as it actually is at
- * write time, not as a page happened to render it.
+ * file under `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, writes a starter
+ * `workstream.json` and `m1-plan.md` there too, and adds `<slug>` to `atlas.config.json`'s
+ * `workstreams` — four-plus file changes that either all land or none do. `createTreeClient`
+ * (api/lib/github.mjs) builds this as one git tree and one commit; `planApproval`
+ * (api/lib/approve.mjs) decides which moves and which config change from a fresh read of the
+ * branch, taken inside this call rather than from anything the caller sent — so the preconditions
+ * it checks (proposal exists, nothing already scaffolded or name-colliding under this slug) are
+ * checked against the repository as it actually is at write time, not as a page happened to render
+ * it.
  *
  * @param {{ method?: string, headers: object, body: unknown }} request
  * @param {{ env: object, fetchImpl?: typeof fetch, nowSeconds: number }} deps
@@ -552,8 +553,8 @@ export async function handleApprove(request, deps) {
       parentSha: commitSha,
       message:
         `atlas: approve ${slug}\n\n` +
-        `Moved docs/design/proposed/${slug}/ to docs/design/approved/${slug}/, scaffolded its ` +
-        `first milestone, and registered it in atlas.config.json.\n\n` +
+        `Moved docs/design/proposed/${slug}/ to docs/features/${slug}/, scaffolded its first ` +
+        `milestone, and registered it in atlas.config.json.\n\n` +
         `Approved by ${principal.author} through Atlas.`,
     });
 
@@ -562,7 +563,7 @@ export async function handleApprove(request, deps) {
     return respond(200, {
       ok: true,
       slug,
-      approvedPath: `docs/design/approved/${slug}/`,
+      featurePath: `docs/features/${slug}/`,
       manifestPath: `docs/features/${slug}/workstream.json`,
       commit: commit.commitUrl,
     });

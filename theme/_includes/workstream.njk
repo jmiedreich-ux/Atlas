@@ -4,15 +4,21 @@
   is read straight out of it. The milestone table is a table of contents for the plans, not a
   second copy of them: each row links to the milestone's own page.
 
-  Decision 21: design entries are named, never linked and never rendered. CI cannot reach the
-  design project, and anything only in the design project is by definition not approved — a link
-  would imply otherwise.
+  Decision 21, narrowed by M9's design/tracking merge: a design reference is linked only when it
+  resolves to something this build actually rendered (`src/build.mjs`'s `designReferenceUrl`) —
+  never a guess, and never a link implying "approved" for content nothing here can see. Most design
+  now lives in `docs/features/<slug>/`, reachable and rendered like everything else there, so most
+  references link; a workstream still in an external design tool (`theme-studio`'s
+  `"design-project"`, not a repository path) resolves to nothing and stays named-but-unlinked,
+  exactly decision 21's original case.
 
   Data this layout expects:
     workstream — one { slug, dir, manifestPath, manifest } from resolveWorkstreams, plus
                  `displayedStage` (M8 task 6): the manifest's own `stage`, overridden by a
                  deployment log's latest entry when the workstream has one. The heading chip
-                 renders THIS, never `workstream.manifest.stage` directly.
+                 renders THIS, never `workstream.manifest.stage` directly. `design` is the
+                 enriched `manifest.design` (each entry plus `.url`, `null` if unresolved) — use
+                 THIS, never `workstream.manifest.design` directly.
     issues     — this workstream's open issues, i.e. fetchProjectIssues(...).byLabel for its label
                  (an empty list is fine, and is what a build with no GitHub reach produces)
     project, repo, title — see base.njk
@@ -62,10 +68,10 @@
 {% endif %}
 
 <h2>Design</h2>
-{% if workstream.manifest.design | length %}
+{% if workstream.design | length %}
 <ul class="named-refs">
-{% for reference in workstream.manifest.design %}
-<li>{{ reference.name }} <span class="where">{{ reference.where }} — named, not rendered: CI cannot reach it, and nothing held only there is approved</span></li>
+{% for reference in workstream.design %}
+<li>{% if reference.url %}<a href="{{ reference.url }}">{{ reference.name }}</a>{% else %}{{ reference.name }}{% endif %} <span class="where">{{ reference.where }}{% if not reference.url %} — named, not rendered: not a repository path this build can reach{% endif %}</span></li>
 {% endfor %}
 </ul>
 {% else %}

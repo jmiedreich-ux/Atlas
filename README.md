@@ -193,10 +193,12 @@ fixed convention, at its own root:
   filename resolved relative to the workstream's own directory (`docs/features/beacon/m1-plan.md`
   above); it must exist. `issue` and `pr` are GitHub numbers or `null`. `acceptance.record` is
   either `null` or a path relative to the project root, naming a Markdown file elsewhere under
-  `docs/` — when it does, the milestone's page links to it. `design` **names** authorities that
-  live outside the repository (decision 21: the Claude Design project, Google Drive) — as text,
-  never as links. CI cannot reach either of them, so a link would be one nobody could follow;
-  Atlas neither fetches nor renders them, and `state.json` carries the same names, unlinked.
+  `docs/` — when it does, the milestone's page links to it. `design` **names** design authorities
+  (decision 21, narrowed by M9's design/tracking merge): a `where` naming a repository path this
+  build actually rendered links to it, the same as `acceptance.record` above; a `where` naming
+  something outside the repository (the Claude Design project, Google Drive) resolves to nothing
+  and stays text, never a link nobody could follow. `state.json` carries the same names, always
+  unlinked — the resolved url is a build-time-only convenience for the workstream page itself.
 
   `deploymentLog` is optional — absent, or `null`, for a workstream that has never been deployed.
   When present it is a path relative to the project root naming the JSON file `POST
@@ -313,7 +315,7 @@ chose Static Web Apps for, and what the Free tier includes.
 | `POST /api/answer`               | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
 | `POST /api/acceptance`           | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
 | `POST /api/deployment-transition` | A deployment stage transition, appended to the JSON log the workstream's manifest names in `deploymentLog` (M8, decision 35 amended: a third writable thing, not a second one). |
-| `POST /api/approve`              | Moves `docs/design/proposed/<slug>/` to `docs/design/approved/<slug>/`, scaffolds its first milestone, and registers it in `atlas.config.json` — all as one commit (M9, decision 59). |
+| `POST /api/approve`              | Moves `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, scaffolds its first milestone there, and registers it in `atlas.config.json` — all as one commit (M9, decision 59; there is no longer an intermediate `docs/design/approved/<slug>/` stop — see decisions 58/59 above). |
 
 The first three each edit one record at a known SHA — read, edit the text, write with that SHA,
 which both commits and gives optimistic concurrency for free. `approve` moves several files at

@@ -555,6 +555,17 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       // `.stage-trigger`'s `data-sha` in `depth.njk`; `theme/deploy.js` reads it from there instead
       // of fetching it from GitHub client-side (M8 task 7 fix round — see `gitBlobSha`'s header).
       deploymentLogSha,
+      // Decision 21, narrowed rather than reversed by M9's design/tracking merge: a design
+      // reference is linked only when it resolves to something this build actually rendered —
+      // an exact document/asset path, or (a trailing slash) the first rendered file under that
+      // directory. A `where` naming an external design tool, not a repository path, resolves to
+      // nothing and stays named-but-unlinked, same as decision 21 always intended; what changed
+      // is that a design folded directly into `docs/features/<slug>/` is now something CI can
+      // actually reach, so it gets a real link instead of always being text.
+      design: stream.manifest.design.map((reference) => ({
+        ...reference,
+        url: designReferenceUrl(reference.where, documents, assets, documentUrlByPath),
+      })),
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();
@@ -644,6 +655,23 @@ function proposedDesignUrl(slug, documents, assets) {
   const doc = documents.find((entry) => entry.path.startsWith(prefix));
   if (doc) return doc.url;
   const asset = assets.find((entry) => entry.isDocument && entry.path.startsWith(prefix));
+  return asset ? asset.url : null;
+}
+
+// The page a workstream's `manifest.design[i].where` links to, or `null` — decision 21's "named,
+// never linked" narrowed by M9's design/tracking merge (see the call site's own comment): `where`
+// either names one file exactly (a document's or a copied document's own path, checked first
+// against `documentUrlByPath` for the common single-record case) or a directory (a trailing
+// slash — the same "first rendered file under this prefix" rule `proposedDesignUrl` uses above),
+// or — `theme-studio`'s `"design-project"`, an external tool, not a repository path — resolves to
+// nothing at all and is left as plain text, same as every `where` was before this milestone.
+function designReferenceUrl(where, documents, assets, documentUrlByPath) {
+  const exact = documentUrlByPath.get(where);
+  if (exact) return exact;
+  if (!where.endsWith('/')) return null;
+  const doc = documents.find((entry) => entry.path.startsWith(where));
+  if (doc) return doc.url;
+  const asset = assets.find((entry) => entry.isDocument && entry.path.startsWith(where));
   return asset ? asset.url : null;
 }
 

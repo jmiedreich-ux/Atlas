@@ -1,9 +1,10 @@
 // The starter `workstream.json` and first milestone plan a newly-approved design gets — one
 // definition, two callers: `src/scaffold.mjs` (the local CLI, M7) writes these to disk, and
 // `handleApprove` (`api/lib/handlers.mjs`, M9) writes them as git blobs in the same commit that
-// moves the design from `proposed/` to `approved/`. Decision 1 applied to Atlas's own output: a
-// template written twice is a template that drifts the first time one caller is fixed and the other
-// is not.
+// moves the design from `docs/design/proposed/<slug>/` into `docs/features/<slug>/`, where it now
+// lands directly (no intermediate `docs/design/approved/<slug>/` — retired 2026-08-24, a consuming
+// project's own policy call, not Atlas's). Decision 1 applied to Atlas's own output: a template
+// written twice is a template that drifts the first time one caller is fixed and the other is not.
 //
 // Lives under `api/` rather than `src/` so the Function can import it too — `api/lib/contract.mjs`'s
 // header explains why the direction only goes this way: Static Web Apps packages `api/` alone, so a
@@ -29,18 +30,18 @@ export function buildManifest(slug) {
   const codename = titleize(slug);
   return {
     codename,
-    what: PLACEHOLDER(`what is ${codename}, in one sentence — see docs/design/approved/${slug}/`),
+    what: PLACEHOLDER(`what is ${codename}, in one sentence — see docs/features/${slug}/`),
     stage: 'designing',
     position: PLACEHOLDER('where this stands right now'),
     next: PLACEHOLDER('what is actually blocking work from starting, in one sentence'),
     label: `workstream:${slug}`,
-    design: [{ name: `${slug}/approved design`, where: `docs/design/approved/${slug}/` }],
+    design: [{ name: `${slug}/approved design`, where: `docs/features/${slug}/` }],
     milestones: [
       {
         id: 'M1',
         label: 'M1',
         depth: 1,
-        title: PLACEHOLDER(`M1's real title — see docs/design/approved/${slug}/`),
+        title: PLACEHOLDER(`M1's real title — see docs/features/${slug}/`),
         status: 'unplanned',
         plan: 'm1-plan.md',
         issue: null,
@@ -78,6 +79,6 @@ ${PLACEHOLDER('which repository, which files')}
 
 ## Spec
 
-docs/design/approved/${slug}/ — read it before writing anything else in this file.
+docs/features/${slug}/ — read it before writing anything else in this file.
 `;
 }

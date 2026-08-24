@@ -1,4 +1,4 @@
-// Atlas — the Approve buttons in the Feature Planning page's Proposed section, wired to
+// Atlas — the Approve buttons in the Feature Planning page's Upcoming Features section, wired to
 // `POST /api/approve` (M9 task, decision 59). Loaded only on that page (`depth.njk`'s own
 // `bodyScripts` block), the same way `theme/order.js` and `theme/deploy.js` are.
 //
@@ -33,7 +33,7 @@ export function approveBody({ slug }) {
  */
 export function outcomeMessage({ status, body }) {
   if (status >= 200 && status < 300 && body?.ok) {
-    return `Approved — moved to ${body.approvedPath}. The page will reflect this on the next rebuild.`;
+    return `Approved — moved to ${body.featurePath}. The page will reflect this on the next rebuild.`;
   }
   if (body?.message) {
     return `Not approved: ${body.message}`;

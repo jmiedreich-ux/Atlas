@@ -152,6 +152,12 @@ function assemble(entries) {
       displayedStage: latest ? latest.stage : stream.manifest.stage,
       deploymentHistory,
       deploymentLogSha: stream.deploymentLogSha ?? null,
+      // No document/asset collection here — this helper renders templates directly, outside the
+      // full assembleSite pipeline (src/build.mjs), so a design reference's url can never resolve
+      // in this test file. That resolution is exercised for real in tests/build.test.mjs, against
+      // an actual built site; the fixture's own design entries (all "design-project") are
+      // unresolvable regardless, so `null` here matches what a real build would give them too.
+      design: stream.manifest.design.map((reference) => ({ ...reference, url: null })),
       milestones: stream.manifest.milestones.map((entry) => ({
         manifest: { ...entry, tasks: entry.tasks ?? [], assignees: entry.assignees ?? [] },
         url: milestoneUrl(stream.slug, entry.id),
@@ -2083,8 +2089,8 @@ test('approve.js: approveBody sends exactly the field the endpoint accepts — n
 
 test('approve.js: outcomeMessage names the destination on success and never claims more', () => {
   assert.equal(
-    approveOutcomeMessage({ status: 200, body: { ok: true, approvedPath: 'docs/design/approved/keystone/' } }),
-    'Approved — moved to docs/design/approved/keystone/. The page will reflect this on the next rebuild.',
+    approveOutcomeMessage({ status: 200, body: { ok: true, featurePath: 'docs/features/keystone/' } }),
+    'Approved — moved to docs/features/keystone/. The page will reflect this on the next rebuild.',
   );
   assert.equal(
     approveOutcomeMessage({ status: 404, body: { message: 'docs/design/proposed/keystone/ has no files' } }),
@@ -2129,7 +2135,7 @@ test('approve.js: wire() posts the slug and reports success without a page reloa
   const posted = [];
   const fetchImpl = async (url, init) => {
     posted.push({ url, body: JSON.parse(init.body) });
-    return { status: 200, json: async () => ({ ok: true, slug: 'keystone', approvedPath: 'docs/design/approved/keystone/' }) };
+    return { status: 200, json: async () => ({ ok: true, slug: 'keystone', featurePath: 'docs/features/keystone/' }) };
   };
 
   wireApprove(fakeApproveDoc([trigger]), fetchImpl);
@@ -2143,7 +2149,7 @@ test('approve.js: wire() posts the slug and reports success without a page reloa
 
 test('approve.js: wire() leaves the button disabled after success, so a stale row cannot be clicked twice', async () => {
   const trigger = fakeApproveTrigger({ slug: 'keystone' });
-  const fetchImpl = async () => ({ status: 200, json: async () => ({ ok: true, approvedPath: 'x' }) });
+  const fetchImpl = async () => ({ status: 200, json: async () => ({ ok: true, featurePath: 'x' }) });
 
   wireApprove(fakeApproveDoc([trigger]), fetchImpl);
   await trigger.button.click();
@@ -2164,8 +2170,13 @@ test('approve.js: wire() re-enables the button after a refusal, so a real failur
 
 // --- the document pages ---------------------------------------------------------------------------
 
-test('workstream: a design entry is a named reference, never a link and never rendered', () => {
-  // Decision 21: CI cannot reach the design project, so its entries are named, not fetched.
+test('workstream: a design entry naming an external design tool is a named reference, not a link', () => {
+  // Decision 21, narrowed by the design/tracking merge: beacon's fixture design still says
+  // "design-project" — an external tool, not a repository path — so it still resolves to no url
+  // (src/build.mjs's designReferenceUrl) and stays named-but-unlinked, decision 21's original case.
+  // The positive case (a design reference this build CAN reach gets a real link) is
+  // tests/build.test.mjs's `design reference naming an exact document path gets a url` and its
+  // directory-reference sibling.
   for (const design of beacon.manifest.design) {
     assert.ok(workstreamHtml.includes(design.name), `the design entry "${design.name}" is not named on the page`);
   }
@@ -2173,7 +2184,7 @@ test('workstream: a design entry is a named reference, never a link and never re
   for (const design of beacon.manifest.design) {
     assert.ok(
       !linked.includes(design.name),
-      `the design entry "${design.name}" was rendered as a link to something CI cannot reach`,
+      `the design entry "${design.name}" was rendered as a link even though it names no repository path`,
     );
   }
 });
