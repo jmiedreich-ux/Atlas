@@ -93,7 +93,10 @@ export function buildState(site) {
       url: stream.url,
       dir: stream.relDir,
       manifestPath: stream.relManifestPath,
-      // Decision 21: named, never linked. The name is all there is to give.
+      // The raw manifest field, name and where only — never the resolved url the workstream page
+      // computes for itself (src/build.mjs's designReferenceUrl). state.json is decision 4's
+      // agent-facing contract: an agent reads the repository directly, so a build-time
+      // convenience for one HTML page has no business in it.
       design: stream.manifest.design.map((reference) => ({
         name: reference.name,
         where: reference.where,

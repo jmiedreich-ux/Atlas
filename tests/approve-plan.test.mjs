@@ -1,6 +1,10 @@
 // `planApproval` and `addWorkstreamToConfig` (api/lib/approve.mjs), in isolation — no GitHub, no
 // filesystem. This is the tree-shaped counterpart of `src/scaffold.mjs`'s `checkPreconditions`:
-// same three refusals, read from a flat tree listing instead of `existsSync`.
+// same refusals, read from a flat tree listing instead of `existsSync`.
+//
+// A proposed design moves straight into `docs/features/<slug>/` now — there is no intermediate
+// `docs/design/approved/<slug>/` stop (that split was retired, Vennusign `AGENTS.md`, amended
+// 2026-08-24).
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,7 +20,7 @@ const BASE_ENTRIES = [
   blob('docs/design/proposed/keystone/decisions.md'),
   blob('docs/design/proposed/keystone/decisions.html'),
   blob('docs/design/proposed/some-loose-file.md'), // not inside a slug directory
-  blob('docs/design/approved/other-stream/decisions.md'),
+  blob('docs/features/other-stream/m1-plan.md'), // a real, already-scaffolded, unrelated feature
   { path: 'docs/design/proposed/keystone', mode: '040000', type: 'tree', sha: 'tree-sha' }, // the directory entry itself
 ];
 
@@ -38,7 +42,7 @@ test('planApproval: each move keeps the blob\'s own SHA and mode — a move reus
   const md = result.moves.find((m) => m.from.endsWith('decisions.md'));
   assert.equal(md.sha, 'sha-docs/design/proposed/keystone/decisions.md');
   assert.equal(md.mode, '100644');
-  assert.equal(md.to, 'docs/design/approved/keystone/decisions.md');
+  assert.equal(md.to, 'docs/features/keystone/decisions.md');
 });
 
 test('planApproval: refuses a slug with nothing under proposed/', () => {
@@ -55,10 +59,19 @@ test('planApproval: a loose file with no slug directory is never approvable', ()
   );
 });
 
-test('planApproval: refuses a slug already under approved/, rather than merging into it', () => {
+test('planApproval: an unrelated already-scaffolded feature does not block a different slug', () => {
+  // docs/features/other-stream/ existing is fine — it is a different slug entirely. Only a
+  // collision on THIS slug's own destination paths should refuse (see the name-collision test
+  // below).
+  const result = planApproval({ entries: BASE_ENTRIES, slug: 'keystone' });
+  assert.equal(result.moves.length, 2);
+});
+
+test('planApproval: refuses when a move would overwrite a file already in docs/features/<slug>/', () => {
+  const entries = [...BASE_ENTRIES, blob('docs/features/keystone/decisions.md')];
   assert.throws(
-    () => planApproval({ entries: BASE_ENTRIES, slug: 'other-stream' }),
-    (error) => error instanceof ApproveError && error.code === 'already-approved',
+    () => planApproval({ entries, slug: 'keystone' }),
+    (error) => error instanceof ApproveError && error.code === 'name-collision',
   );
 });
 

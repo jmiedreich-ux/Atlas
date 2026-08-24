@@ -5,9 +5,15 @@
 // `api/lib/handlers.mjs` (M9, decision 59) — which is why the manifest/plan text below moved to
 // `api/lib/manifest-template.mjs`: one template, two callers, so a future edit to the starter
 // content cannot fix one and silently miss the other. This file still owns everything specific to
-// running locally against a real checkout: reading `docs/design/` off disk, writing files, and
+// running locally against a real checkout: reading `docs/features/` off disk, writing files, and
 // `atlas.config.json`'s update, none of which the API path does the same way (it reads from and
 // writes to GitHub directly, in one commit — see `api/lib/approve.mjs`).
+//
+// An approved design used to land in an intermediate `docs/design/approved/<slug>/` before this
+// tool folded it into `docs/features/<slug>/`. That split was retired (2026-08-24: a consuming
+// project's own design-before-implementation policy now says approved design and milestone
+// tracking share one directory) — the design is expected to already be sitting directly in
+// `docs/features/<slug>/`, moved there by hand.
 //
 // Decision 1: built from source, never maintained. Every free-text field this writes is an
 // unmissable placeholder naming where the real content comes from — never a plausible guess.
@@ -40,9 +46,9 @@ function promoteInConfig({ projectRoot, slug }) {
  * @returns {{ ok: true } | { ok: false, reason: string }}
  */
 export function checkPreconditions({ projectRoot, slug }) {
-  const approvedDir = path.join(projectRoot, 'docs', 'design', 'approved', slug);
+  const featureDir = path.join(projectRoot, 'docs', 'features', slug);
   const proposedDir = path.join(projectRoot, 'docs', 'design', 'proposed', slug);
-  const manifestPath = path.join(projectRoot, 'docs', 'features', slug, 'workstream.json');
+  const manifestPath = path.join(featureDir, 'workstream.json');
 
   if (existsSync(manifestPath)) {
     return {
@@ -53,22 +59,22 @@ export function checkPreconditions({ projectRoot, slug }) {
     };
   }
 
-  const approvedExists = existsSync(approvedDir) && readdirSync(approvedDir).length > 0;
-  if (!approvedExists) {
+  const designLanded = existsSync(featureDir) && readdirSync(featureDir).length > 0;
+  if (!designLanded) {
     if (existsSync(proposedDir)) {
       return {
         ok: false,
         reason:
-          `docs/design/proposed/${slug}/ exists but docs/design/approved/${slug}/ does not — ` +
-          `the design is still in proposed/. See docs/MILESTONE_EXECUTION.md step 3: ` +
-          `implementation is not authorized until it lands in approved/.`,
+          `docs/design/proposed/${slug}/ exists but docs/features/${slug}/ has no design content ` +
+          `yet — the design is still in proposed/. See docs/MILESTONE_EXECUTION.md step 3: ` +
+          `implementation is not authorized until it lands in docs/features/${slug}/.`,
       };
     }
     return {
       ok: false,
       reason:
-        `docs/design/approved/${slug}/ does not exist or is empty — nothing to scaffold from. ` +
-        `A design authority has to be approved and landed there first.`,
+        `docs/features/${slug}/ does not exist or has no design content — nothing to scaffold ` +
+        `from. A design authority has to be approved and landed there first.`,
     };
   }
 

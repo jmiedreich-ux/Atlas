@@ -202,12 +202,12 @@ test('approve: an authorised request moves the proposal, scaffolds it, and regis
   assert.equal(response.status, 200);
   assert.equal(response.body.ok, true);
   assert.equal(response.body.slug, SLUG);
-  assert.equal(response.body.approvedPath, `docs/design/approved/${SLUG}/`);
+  assert.equal(response.body.featurePath, `docs/features/${SLUG}/`);
 
   const files = github.currentFiles();
   assert.ok(!files.has(`docs/design/proposed/${SLUG}/decisions.md`), 'the proposed file was not moved out');
-  assert.ok(files.has(`docs/design/approved/${SLUG}/decisions.md`), 'the approved file never landed');
-  assert.ok(files.has(`docs/design/approved/${SLUG}/decisions.html`), 'a sibling proposed file was left behind');
+  assert.ok(files.has(`docs/features/${SLUG}/decisions.md`), 'the moved design file never landed');
+  assert.ok(files.has(`docs/features/${SLUG}/decisions.html`), 'a sibling proposed file was left behind');
   assert.ok(files.has(`docs/features/${SLUG}/workstream.json`), 'no manifest was written');
   assert.ok(files.has(`docs/features/${SLUG}/m1-plan.md`), 'no plan was written');
 });
@@ -216,7 +216,7 @@ test('approve: the moved file keeps its exact content — a move is a tree chang
   const github = repoWithProposal();
   const before = github.currentFiles().get(`docs/design/proposed/${SLUG}/decisions.md`).sha;
   await handleApprove(post(AUTHOR, { slug: SLUG }), deps(github));
-  const after = github.currentFiles().get(`docs/design/approved/${SLUG}/decisions.md`).sha;
+  const after = github.currentFiles().get(`docs/features/${SLUG}/decisions.md`).sha;
   // A git blob is content-addressed: the SAME sha at the new path proves the content moved without
   // being re-read and re-uploaded — the handler never called `createBlob` for it.
   assert.equal(after, before);
@@ -288,11 +288,11 @@ test('approve: a slug with nothing under proposed/ is refused by name', async ()
   assert.equal(response.body.error, 'no-such-proposal');
 });
 
-test('approve: a slug already under approved/ is refused rather than merged into', async () => {
-  const github = repoWithProposal({ [`docs/design/approved/${SLUG}/already-here.md`]: 'x' });
+test('approve: a slug whose destination already has a colliding file is refused rather than overwritten', async () => {
+  const github = repoWithProposal({ [`docs/features/${SLUG}/decisions.md`]: 'already here' });
   const response = await handleApprove(post(AUTHOR, { slug: SLUG }), deps(github));
   assert.equal(response.status, 409);
-  assert.equal(response.body.error, 'already-approved');
+  assert.equal(response.body.error, 'name-collision');
 });
 
 test('approve: a slug already scaffolded is refused — this writes a first milestone only', async () => {

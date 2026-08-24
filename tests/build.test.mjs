@@ -707,20 +707,25 @@ test('README: it documents how to run the suite and the generator at all', () =>
   );
 });
 
-test('README: what it says about a design entry is what the code does (decision 21)', () => {
-  // Decision 21: named, never linked — CI cannot reach the design project, so a link would be one
-  // nobody can follow. The README used to say "as plain links".
+test('README: what it says about a design entry is what the code does (decision 21, narrowed)', () => {
+  // Decision 21, narrowed by the design/tracking merge: a where naming something outside the
+  // repository resolves to no url and stays text, never a link nobody could follow. The README
+  // used to say ALL design entries are unlinked, unconditionally — that stopped being true once
+  // design content moved into docs/features/<slug>/, so this now checks the narrower claim.
   assert.ok(
     !/as plain links/.test(README),
-    'the README still describes design entries as links, which decision 21 forbids',
+    'the README still describes every design entry as a link, which decision 21 forbids',
   );
   assert.match(
     README,
-    /never as links|named, never linked|as text,\s*\n?\s*never as links/,
-    'the README must say design entries are named rather than linked',
+    /stays text, never a link/,
+    'the README must say an unresolvable design entry stays text rather than becoming a link',
   );
 
-  // And the code still behaves that way, read from this build's own output rather than trusted.
+  // And the fixture's own design entries — every one still "design-project", an external tool —
+  // still behave that way, read from this build's own output rather than trusted. The positive
+  // case (a resolvable where DOES link) is covered directly in this file's own
+  // "design reference naming an exact document path gets a url" test.
   const beacon = JSON.parse(readFileSync(path.join(OUT, 'state.json'), 'utf8')).workstreams.find(
     (w) => w.design.length > 0,
   );
@@ -730,7 +735,7 @@ test('README: what it says about a design entry is what the code does (decision 
     assert.ok(page.includes(reference.name), `${reference.name} is not named on the page`);
     assert.ok(
       !new RegExp(`<a\\b[^>]*>[^<]*${reference.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`).test(page),
-      `${reference.name} was rendered as a link`,
+      `${reference.name} was rendered as a link even though its where names no repository path`,
     );
   }
 });
@@ -2231,5 +2236,53 @@ test('build: a proposed design with only a copied HTML document still gets an Up
     site.proposedDesigns.find((entry) => entry.slug === 'wireframes-only'),
     { slug: 'wireframes-only', url: '/docs/design/proposed/wireframes-only/screens.html' },
     'a slug with no rendered Markdown should fall back to its copied HTML document',
+  );
+});
+
+// --- a workstream's design references, linked when resolvable (decision 21, narrowed by the
+// design/tracking merge) ------------------------------------------------------------------------
+
+test('build: a design reference naming an exact document path gets a url', async () => {
+  const projectRoot = fixtureCopy('design-reference-exact-file');
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.design = [{ name: 'Beacon M1 demo script', where: 'docs/features/beacon/m1-demo.md' }];
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const beacon = site.workstreams.find((w) => w.slug === 'beacon');
+
+  assert.deepEqual(
+    beacon.design,
+    [{ name: 'Beacon M1 demo script', where: 'docs/features/beacon/m1-demo.md', url: '/docs/features/beacon/m1-demo/' }],
+    'a design reference naming a file this build rendered should link to it',
+  );
+});
+
+test('build: a design reference naming a directory gets a url from the first document it holds', async () => {
+  const projectRoot = fixtureCopy('design-reference-directory');
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.design = [{ name: 'Beacon design bundle', where: 'docs/features/beacon/' }];
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const beacon = site.workstreams.find((w) => w.slug === 'beacon');
+
+  assert.equal(beacon.design.length, 1);
+  assert.equal(beacon.design[0].where, 'docs/features/beacon/');
+  assert.ok(beacon.design[0].url, 'a directory reference holding rendered documents should still resolve to one of them');
+});
+
+test('build: a design reference naming an external design tool, not a repository path, stays unresolved', async () => {
+  const projectRoot = fixtureCopy('design-reference-external');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const beacon = site.workstreams.find((w) => w.slug === 'beacon');
+
+  // Unmodified fixture data: beacon's own design already says "design-project" (decision 21's
+  // original case — an external tool, never a repository path).
+  assert.deepEqual(
+    beacon.design,
+    [{ name: 'lighthouse/Beacon Overview v1', where: 'design-project', url: null }],
+    'a where that names no repository path should resolve to no url, not throw or guess one',
   );
 });

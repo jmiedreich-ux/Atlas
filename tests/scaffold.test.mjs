@@ -17,9 +17,17 @@ function readConfig() {
   return JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
 }
 
+// `docs/features/ready-slug/README.md` is the fixture's permanent, already-landed design content
+// (the new precondition: design lands directly in docs/features/<slug>/, no more separate
+// docs/design/approved/<slug>/) — only `scaffoldWorkstream`'s own output gets cleaned between
+// tests, never the whole directory, or the next test would find no design content to scaffold
+// from at all.
 function cleanReadySlug() {
   const dir = path.join(FIXTURE_ROOT, 'docs', 'features', 'ready-slug');
-  if (existsSync(dir)) rmSync(dir, { recursive: true });
+  for (const file of ['workstream.json', 'm1-plan.md']) {
+    const filePath = path.join(dir, file);
+    if (existsSync(filePath)) rmSync(filePath);
+  }
   const config = readConfig();
   if (config.workstreams.includes('ready-slug')) {
     config.workstreams = config.workstreams.filter((s) => s !== 'ready-slug');
@@ -27,16 +35,16 @@ function cleanReadySlug() {
   }
 }
 
-test('checkPreconditions: refuses a slug still under proposed/, not approved/', () => {
+test('checkPreconditions: refuses a slug still under proposed/, with no design content landed yet', () => {
   const result = checkPreconditions({ projectRoot: FIXTURE_ROOT, slug: 'still-proposed-slug' });
   assert.equal(result.ok, false);
-  assert.match(result.reason, /proposed\/.*does not|still in proposed/i);
+  assert.match(result.reason, /still in proposed/i);
 });
 
-test('checkPreconditions: refuses a slug with no approved design at all', () => {
+test('checkPreconditions: refuses a slug with no design content at all', () => {
   const result = checkPreconditions({ projectRoot: FIXTURE_ROOT, slug: 'no-such-slug' });
   assert.equal(result.ok, false);
-  assert.match(result.reason, /approved/i);
+  assert.match(result.reason, /no design content/i);
 });
 
 test('checkPreconditions: refuses a slug that already has a workstream.json', () => {
@@ -45,7 +53,7 @@ test('checkPreconditions: refuses a slug that already has a workstream.json', ()
   assert.match(result.reason, /already exists/i);
 });
 
-test('checkPreconditions: passes for an approved, unscaffolded slug', () => {
+test('checkPreconditions: passes for a slug with design content landed and no workstream.json yet', () => {
   const result = checkPreconditions({ projectRoot: FIXTURE_ROOT, slug: 'ready-slug' });
   assert.equal(result.ok, true);
 });
@@ -82,7 +90,7 @@ test("scaffoldWorkstream: writes a plan file at the path the manifest names", ()
   assert.match(plan, /^# .+ Milestone 1/m);
   assert.match(plan, /## Goal/);
   assert.match(plan, /## Spec/);
-  assert.match(plan, /docs\/design\/approved\/ready-slug/);
+  assert.match(plan, /docs\/features\/ready-slug/);
   cleanReadySlug();
 });
 
