@@ -146,6 +146,19 @@ test('state: a workstream\'s stage is the displayed stage, not the manifest\'s r
     'staging',
     "state.json's stage must be the deployment log's latest entry, not the manifest's raw 'development'",
   );
+
+  // Fix round 2: `ladder.columns[].stage` is a SEPARATE field from `workstreams[].stage` above —
+  // `computeLadder` (src/depth.mjs) builds its columns straight from the raw manifest, since that
+  // same `stage` value also drives its bar/head-position math. `buildState` must still override the
+  // *projected* `column.stage` with the matching workstream's `displayedStage`, keyed by codename,
+  // so the two fields in the same state.json never disagree about beacon's stage.
+  const beaconColumn = overriddenState.ladder.columns.find((c) => c.codename === 'Beacon');
+  assert.ok(beaconColumn, 'state.json has no ladder column for Beacon');
+  assert.equal(
+    beaconColumn.stage,
+    'staging',
+    "state.json's ladder.columns[].stage must also be the deployment log's latest entry, not the manifest's raw 'development'",
+  );
 });
 
 test('state: every milestone matches the row the workstream page rendered for it', () => {
