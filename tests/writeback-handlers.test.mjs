@@ -1,10 +1,11 @@
-// The three endpoints, end to end, with no network anywhere.
-//
-// Decision 35 is the scope and it is narrower than "write-back" sounds: register answers,
-// acceptance results, and (M8, decision 35 amended) deployment stage transitions. Creating an
-// issue, approving a milestone, editing a manifest and triggering work belong to the project's own
-// operations console — two consoles that both act is how they diverge. A status dropdown on every
-// milestone is the obvious thing to build here, and it is deliberately not built.
+// The four endpoints, end to end, with no network anywhere: register answers, acceptance results,
+// deployment stage transitions (M8), and — M9, decision 59 — approving a proposed design. Decision
+// 35 used to hold this narrower on the strength of a separate operations console owning approvals
+// and manifest edits; decision 57 found that console does not do those things, and decision 58
+// retired 35 on that basis. `approve`'s own test group below (search "decision 59") uses its own
+// tree-shaped stub, `githubTree()` — it moves several files in one commit rather than editing one,
+// so the contents-API stub the first three groups share does not fit it; the tree CLIENT's own unit
+// tests (blob/tree/commit/ref calls in isolation) live in `writeback-github.test.mjs` instead.
 //
 // Every request below goes through a stub standing in for GitHub, holding a tiny repository in
 // memory: an installation-token endpoint, and the contents API with real SHAs that really change
@@ -752,11 +753,17 @@ test('deployment-transition: a malformed deployment log is a clean refusal, not 
 
 // --- decision 35's boundary -----------------------------------------------------------------------
 
-test('decision 35: the Function exports exactly three write handlers', async () => {
+test('the Function exports exactly the named write handlers, and no stray one', async () => {
+  // Not a fixed count (decision 58 retired that posture) — still a closed, named list: a stray
+  // export starting with `handle` would be a write path nobody decided on and no route wires to.
   const module = await import('../api/lib/handlers.mjs');
   const handlers = Object.keys(module).filter((name) => name.startsWith('handle'));
-  // Amended for M8: a third write handler, deployment transitions — decision 35 now names three writable things, not two.
-  assert.deepEqual(handlers.sort(), ['handleAcceptance', 'handleAnswer', 'handleDeploymentTransition']);
+  assert.deepEqual(handlers.sort(), [
+    'handleAcceptance',
+    'handleAnswer',
+    'handleApprove',
+    'handleDeploymentTransition',
+  ]);
 });
 
 test('every request names the configured repository, and there is no way to make it name another', async () => {

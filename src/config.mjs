@@ -131,6 +131,47 @@ export function unnamedFeatureDirs(config) {
 }
 
 /**
+ * Every slug directory under `docs/design/proposed/` that could be approved — the same shape
+ * `scaffold.mjs`'s `checkPreconditions` (and `api/lib/approve.mjs`'s `planApproval`, its git-tree
+ * counterpart for the website) requires: a directory holding at least one file, not yet scaffolded
+ * (no `docs/features/<slug>/workstream.json`), and not already sitting under `docs/design/approved/`.
+ *
+ * A loose file directly in `docs/design/proposed/` (no slug directory of its own) is never
+ * approvable through this path — the same restriction the CLI has always had — so it is not listed
+ * here either. This is a read used only to render the Feature Planning page's Proposed section
+ * (M9, decision 59); it never fails the build, the same posture `unnamedFeatureDirs` takes, because
+ * a design still under review is the ordinary state of a project using this generator, not a defect
+ * in it.
+ *
+ * @param {ReturnType<typeof loadConfig>} config
+ * @returns {string[]} slugs, sorted, so two builds of one project report identically.
+ */
+export function proposedDesignDirs(config) {
+  const proposedRoot = path.join(config.projectRoot, 'docs', 'design', 'proposed');
+  const approvedRoot = path.join(config.projectRoot, 'docs', 'design', 'approved');
+  const workstreamsRoot = config.workstreamsRoot;
+
+  let entries;
+  try {
+    entries = readdirSync(proposedRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .map((entry) => entry.name)
+    .filter((slug) => {
+      const dir = path.join(proposedRoot, slug);
+      const hasFiles = readdirSync(dir).length > 0;
+      const alreadyApproved = existsSync(path.join(approvedRoot, slug)) && readdirSync(path.join(approvedRoot, slug)).length > 0;
+      const alreadyScaffolded = existsSync(path.join(workstreamsRoot, slug, MANIFEST_FILENAME));
+      return hasFiles && !alreadyApproved && !alreadyScaffolded;
+    })
+    .sort();
+}
+
+/**
  * Resolve a loaded config's workstream directories into validated manifests, in the order the
  * config declared them (decision 20: no workstream's numbering, or position, is imposed on
  * another, so declaration order is preserved rather than re-sorted).

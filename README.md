@@ -304,22 +304,32 @@ See `src/swa.mjs`, which is the authoritative source for the emitted file.
 
 ## Write-back — answering, not only reading
 
-Decisions 34 to 37. Three endpoints ship beside the site as Azure Static Web Apps **managed
-Functions**, in the same deployable and behind the same auth — which is what decision 5 chose
-Static Web Apps for, and what the Free tier includes.
+Decisions 34 to 37, 58 and 59. Four endpoints ship beside the site as Azure Static Web Apps
+**managed Functions**, in the same deployable and behind the same auth — which is what decision 5
+chose Static Web Apps for, and what the Free tier includes.
 
 | Endpoint                        | What it writes                                                                               |
 | -------------------------------- | -------------------------------------------------------------------------------------------- |
 | `POST /api/answer`               | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
 | `POST /api/acceptance`           | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
 | `POST /api/deployment-transition` | A deployment stage transition, appended to the JSON log the workstream's manifest names in `deploymentLog` (M8, decision 35 amended: a third writable thing, not a second one). |
+| `POST /api/approve`              | Moves `docs/design/proposed/<slug>/` to `docs/design/approved/<slug>/`, scaffolds its first milestone, and registers it in `atlas.config.json` — all as one commit (M9, decision 59). |
 
-**And nothing else.** Decision 35 gives creating issues, approving milestones, editing manifests
-and triggering work to the project's own operations console: *two consoles that both act is how
-they diverge*. There is no endpoint that sets a milestone's `status`, and adding one is a decision
-rather than a feature — a deployment stage transition is not that: it is a workstream telling the
-site where its own build actually landed, the same kind of fact `acceptance` already records, not
-a new kind of authority over the plan.
+The first three each edit one record at a known SHA — read, edit the text, write with that SHA,
+which both commits and gives optimistic concurrency for free. `approve` moves several files at
+once, so it is built differently: one git tree built from blobs and moves, one commit, and the
+branch ref only accepts the update as a fast-forward — the same "somebody else changed this, reload
+and try again" guarantee, given by the branch itself rather than by a caller-supplied SHA. See
+`api/lib/github.mjs`'s `createTreeClient` and `api/lib/approve.mjs`.
+
+**Decision 35** used to stop here and justify it: *creating issues, approving milestones, editing
+manifests and triggering work belong to the project's own operations console — two consoles that
+both act is how they diverge.* **Decision 57** found that console does not do those things — it
+deals with the release process and nothing before it — so the justification was withdrawn without
+itself widening the scope. **Decision 58** retired decision 35 on that basis. `approve` (decision
+59) is the first thing actually re-decided under it, on its own stated grounds, not an inference
+from the old sentence going away. There is still no endpoint that sets a milestone's `status`, and
+adding one remains its own decision rather than a feature — that boundary did not move.
 
 Atlas keeps no state of its own (decision 37). A write is a commit; the page is rebuilt from that
 commit by the ordinary build workflow. There is no database, no cache, no queue and no pending

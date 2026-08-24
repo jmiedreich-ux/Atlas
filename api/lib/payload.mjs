@@ -19,6 +19,7 @@ const MILESTONE_ID = /^[A-Za-z][A-Za-z0-9.-]{0,31}$/;
 const ANSWER_FIELDS = Object.freeze(['workstream', 'question', 'answer', 'sha', 'chosenWasOffered']);
 const ACCEPTANCE_FIELDS = Object.freeze(['workstream', 'milestone', 'result', 'note', 'sha']);
 const DEPLOYMENT_TRANSITION_FIELDS = Object.freeze(['workstream', 'stage', 'note', 'sha']);
+const APPROVE_FIELDS = Object.freeze(['slug']);
 
 function fail(message) {
   return { ok: false, status: 400, error: 'invalid-payload', message };
@@ -244,4 +245,32 @@ export function validateDeploymentTransitionPayload(body) {
       sha: value.sha ?? null,
     },
   };
+}
+
+/**
+ * Validate `POST /api/approve`'s body (M9, decision 59).
+ *
+ * No `sha` field: unlike the other three writes, which edit one record the page read at a known
+ * SHA, `approve` moves a whole directory and its concurrency guarantee is the branch ref itself
+ * (`createTreeClient.updateRef`, `api/lib/github.mjs`) — there is no single record SHA for a page
+ * to have rendered in the first place.
+ *
+ * @param {unknown} body
+ * @returns {{ ok: true, value: { slug: string } }
+ *   | { ok: false, status: 400, error: 'invalid-payload', message: string }}
+ */
+export function validateApprovePayload(body) {
+  const shape = checkShape(body, APPROVE_FIELDS);
+  if (!shape.ok) return shape;
+  const value = shape.value;
+
+  if (typeof value.slug !== 'string' || value.slug.trim() === '') {
+    return fail(`"slug" is required and must name one directory under docs/design/proposed/ (got ${JSON.stringify(value.slug)}).`);
+  }
+  const wrong = whyNotADirectoryName(value.slug);
+  if (wrong) {
+    return fail(`"slug" names ONE directory, not a path — ${JSON.stringify(value.slug)} ${wrong}.`);
+  }
+
+  return { ok: true, value: { slug: value.slug } };
 }

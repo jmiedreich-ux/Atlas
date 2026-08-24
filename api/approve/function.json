@@ -1,0 +1,18 @@
+{
+  "scriptFile": "index.mjs",
+  "bindings": [
+    {
+      "name": "req",
+      "type": "httpTrigger",
+      "direction": "in",
+      "methods": ["post"],
+      "route": "approve",
+      "authLevel": "anonymous"
+    },
+    {
+      "name": "res",
+      "type": "http",
+      "direction": "out"
+    }
+  ]
+}

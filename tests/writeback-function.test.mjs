@@ -3,8 +3,8 @@
 // Decision 5 chose Static Web Apps over an App Service for exactly this — managed Functions ship
 // in the same deployable, behind the same auth as the site, on the Free tier. So the shape of the
 // `api/` directory is part of the contract, not an implementation detail, and the tests below hold
-// it: three functions and no fourth (M8, decision 35 amended), POST only, no dependencies, and
-// adapters thin enough that nothing is decided in them.
+// it: named functions and no stray ones, POST only, no dependencies, and adapters thin enough that
+// nothing is decided in them.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -35,11 +35,11 @@ function functionDirs() {
     .sort();
 }
 
-test('decision 35: the deployable holds exactly three functions', () => {
-  // Amended for M8: a third Function, `deployment-transition`, joins `acceptance` and `answer`.
-  // `functionDirs()` sorts alphabetically, and `'answer' < 'deployment-transition'` there, so the
-  // new entry lands last, not in creation order.
-  assert.deepEqual(functionDirs(), ['acceptance', 'answer', 'deployment-transition']);
+test('the deployable holds exactly the named functions, and no stray ones', () => {
+  // Not a fixed count any more (decision 58 retired the closed-count posture decision 35 held) —
+  // still a closed, named list, because a stray directory holding a `function.json` would be a
+  // fifth endpoint nobody decided on, and this is the test that would catch it.
+  assert.deepEqual(functionDirs(), ['acceptance', 'answer', 'approve', 'deployment-transition']);
 });
 
 test('the Function app declares no dependencies at all, so there are none to justify', () => {
@@ -64,8 +64,7 @@ test('host.json is a v2 Functions host, which is what Static Web Apps runs', () 
   assert.equal(host.version, '2.0');
 });
 
-// Amended for M8: 'deployment-transition' joins the two functions this loop already covered.
-for (const name of ['answer', 'acceptance', 'deployment-transition']) {
+for (const name of ['answer', 'acceptance', 'deployment-transition', 'approve']) {
   test(`${name}: the binding accepts POST and nothing else`, () => {
     const binding = json(name, 'function.json');
     const trigger = binding.bindings.find((b) => b.type === 'httpTrigger');
@@ -108,6 +107,13 @@ test('acceptance: the adapter maps a handler response onto the Functions context
 
 test('deployment-transition: the adapter maps a handler response onto the Functions context', async () => {
   const { default: handler } = await import('../api/deployment-transition/index.mjs');
+  const context = {};
+  await handler(context, { method: 'POST', headers: {}, body: {} });
+  assert.equal(context.res.status, 401);
+});
+
+test('approve: the adapter maps a handler response onto the Functions context', async () => {
+  const { default: handler } = await import('../api/approve/index.mjs');
   const context = {};
   await handler(context, { method: 'POST', headers: {}, body: {} });
   assert.equal(context.res.status, 401);
