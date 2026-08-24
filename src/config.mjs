@@ -131,14 +131,15 @@ export function unnamedFeatureDirs(config) {
 }
 
 /**
- * Every slug directory under `docs/design/proposed/` that could be approved — the same shape
- * `scaffold.mjs`'s `checkPreconditions` (and `api/lib/approve.mjs`'s `planApproval`, its git-tree
- * counterpart for the website) requires: a directory holding at least one file, not yet scaffolded
- * (no `docs/features/<slug>/workstream.json`). There is no separate "already approved" state to
- * check any more — a design goes straight from `proposed/` to `docs/features/<slug>/`, scaffolded,
- * in one step (decision 59; the intermediate `docs/design/approved/` this used to also check was
- * retired — a consuming project's own design-before-implementation policy decides this now, not
- * Atlas).
+ * Every slug directory under `docs/design/proposed/` that could be approved — a directory holding
+ * at least one file, full stop. Whether `docs/features/<slug>/` already has a manifest does NOT
+ * exclude a slug here any more: a real consuming project can have a feature with real,
+ * already-tracked content whose design is still sitting in `proposed/` — excluding those because a
+ * manifest exists elsewhere hid the exact case `approve` (`api/lib/approve.mjs`'s `planApproval`)
+ * exists to handle. This list is advisory, not authoritative: it can go stale between builds (a
+ * slug approved a minute ago still shows here until the next rebuild),
+ * which is fine, because `planApproval` re-checks the live preconditions itself at write time and
+ * refuses cleanly if there is truly nothing left to move.
  *
  * A loose file directly in `docs/design/proposed/` (no slug directory of its own) is never
  * approvable through this path — the same restriction the CLI has always had — so it is not listed
@@ -152,7 +153,6 @@ export function unnamedFeatureDirs(config) {
  */
 export function proposedDesignDirs(config) {
   const proposedRoot = path.join(config.projectRoot, 'docs', 'design', 'proposed');
-  const workstreamsRoot = config.workstreamsRoot;
 
   let entries;
   try {
@@ -164,12 +164,7 @@ export function proposedDesignDirs(config) {
   return entries
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
     .map((entry) => entry.name)
-    .filter((slug) => {
-      const dir = path.join(proposedRoot, slug);
-      const hasFiles = readdirSync(dir).length > 0;
-      const alreadyScaffolded = existsSync(path.join(workstreamsRoot, slug, MANIFEST_FILENAME));
-      return hasFiles && !alreadyScaffolded;
-    })
+    .filter((slug) => readdirSync(path.join(proposedRoot, slug)).length > 0)
     .sort();
 }
 

@@ -4,8 +4,9 @@
 //   * `POST /api/acceptance` records an acceptance result.
 //   * `POST /api/deployment-transition` records a deployment stage transition (M8, decision 35
 //     amended: a third writable thing, not a second one).
-//   * `POST /api/approve` moves a proposed design to approved and scaffolds its first milestone,
-//     in one commit (M9, decision 59 — a fourth, and the first that is not "edit one record").
+//   * `POST /api/approve` moves a proposed design into its feature's own directory, scaffolding
+//     its first milestone if one doesn't already exist, in one commit (M9, decision 59 — a
+//     fourth, and the first that is not "edit one record").
 //
 // Decision 35 scoped write-back to the first two of these and justified the rest going to a
 // separate "operations console" that would own approving milestones and editing manifests.
@@ -71,7 +72,6 @@ const RECORD_ERROR_STATUS = {
 const APPROVE_ERROR_STATUS = {
   'no-such-proposal': 404,
   'name-collision': 409,
-  'already-scaffolded': 409,
   'no-config': 502,
   'invalid-config': 502,
 };
@@ -494,19 +494,21 @@ export async function handleDeploymentTransition(request, deps) {
 }
 
 /**
- * `POST /api/approve` — move a proposed design straight into its feature's own directory and
- * scaffold its first milestone, in one commit (M9, decision 59).
+ * `POST /api/approve` — move a proposed design straight into its feature's own directory, and
+ * scaffold its first milestone if one doesn't already exist, in one commit (M9, decision 59).
  *
  * Unlike the three handlers above, this does not edit one record at a known SHA: it moves every
- * file under `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, writes a starter
- * `workstream.json` and `m1-plan.md` there too, and adds `<slug>` to `atlas.config.json`'s
- * `workstreams` — four-plus file changes that either all land or none do. `createTreeClient`
- * (api/lib/github.mjs) builds this as one git tree and one commit; `planApproval`
- * (api/lib/approve.mjs) decides which moves and which config change from a fresh read of the
- * branch, taken inside this call rather than from anything the caller sent — so the preconditions
- * it checks (proposal exists, nothing already scaffolded or name-colliding under this slug) are
- * checked against the repository as it actually is at write time, not as a page happened to render
- * it.
+ * file under `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, and adds `<slug>` to
+ * `atlas.config.json`'s `workstreams` — several file changes that either all land or none do.
+ * Whether it also writes a starter `workstream.json` and `m1-plan.md` there depends on whether one
+ * already exists: an already-tracked feature (`planApproval`'s own header names real examples) is
+ * moved in without disturbing its existing manifest, never scaffolded a second time.
+ * `createTreeClient` (api/lib/github.mjs) builds this as one git tree and one commit;
+ * `planApproval` (api/lib/approve.mjs) decides which moves, which config change, and whether to
+ * scaffold, from a fresh read of the branch, taken inside this call rather than from anything the
+ * caller sent — so the preconditions it checks (proposal exists, nothing name-colliding under this
+ * slug) are checked against the repository as it actually is at write time, not as a page happened
+ * to render it.
  *
  * @param {{ method?: string, headers: object, body: unknown }} request
  * @param {{ env: object, fetchImpl?: typeof fetch, nowSeconds: number }} deps
@@ -523,14 +525,16 @@ export async function handleApprove(request, deps) {
     const { commitSha, treeSha } = await client.readBranch(credential.branch);
     const entries = await client.readTree(treeSha);
 
-    const { moves, configEntry } = planApproval({ entries, slug });
+    const { moves, configEntry, manifestExists } = planApproval({ entries, slug });
 
     const configText = await client.readBlob(configEntry.sha);
     const newConfigText = addWorkstreamToConfig(configText, slug);
 
+    // A manifest already on record is never written over — see `planApproval`'s own header for why
+    // that is a real case, not a hypothetical one.
     const [manifestSha, planSha, configSha] = await Promise.all([
-      client.createBlob(buildManifestText(slug)),
-      client.createBlob(buildPlanText(slug)),
+      manifestExists ? null : client.createBlob(buildManifestText(slug)),
+      manifestExists ? null : client.createBlob(buildPlanText(slug)),
       client.createBlob(newConfigText),
     ]);
 
@@ -542,8 +546,12 @@ export async function handleApprove(request, deps) {
         { path: move.to, mode: move.mode, type: 'blob', sha: move.sha },
         { path: move.from, mode: move.mode, type: 'blob', sha: null },
       ]),
-      { path: `docs/features/${slug}/workstream.json`, mode: '100644', type: 'blob', sha: manifestSha },
-      { path: `docs/features/${slug}/m1-plan.md`, mode: '100644', type: 'blob', sha: planSha },
+      ...(manifestExists
+        ? []
+        : [
+            { path: `docs/features/${slug}/workstream.json`, mode: '100644', type: 'blob', sha: manifestSha },
+            { path: `docs/features/${slug}/m1-plan.md`, mode: '100644', type: 'blob', sha: planSha },
+          ]),
       { path: 'atlas.config.json', mode: '100644', type: 'blob', sha: configSha },
     ];
 
@@ -553,8 +561,11 @@ export async function handleApprove(request, deps) {
       parentSha: commitSha,
       message:
         `atlas: approve ${slug}\n\n` +
-        `Moved docs/design/proposed/${slug}/ to docs/features/${slug}/, scaffolded its first ` +
-        `milestone, and registered it in atlas.config.json.\n\n` +
+        `Moved docs/design/proposed/${slug}/ to docs/features/${slug}/` +
+        (manifestExists
+          ? ', which already had a workstream on record — left untouched'
+          : ', scaffolded its first milestone') +
+        `, and registered it in atlas.config.json.\n\n` +
         `Approved by ${principal.author} through Atlas.`,
     });
 
