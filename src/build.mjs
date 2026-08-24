@@ -763,7 +763,12 @@ function groupRecordsByDirectory(documents, assets) {
 // Every page as { input, content, data }. `input` is a virtual path inside the generator's theme
 // directory that no file occupies; `data.permalink` alone decides where the page is written.
 function planPages(site) {
-  const shell = { project: site.project, repo: site.repo };
+  // `hasBacklog` rides in `shell` — every page's data, not just the backlog page's own — because
+  // `base.njk`'s nav (rendered on every page) is the one thing that needs to know whether a link
+  // to it belongs there at all. The backlog page itself re-derives the same condition below rather
+  // than trust this flag, the same "generated from the very list, cannot disagree with it"
+  // discipline `groupRecordsByDirectory` already applies to the Library page.
+  const shell = { project: site.project, repo: site.repo, hasBacklog: site.proposedDesigns.length > 0 };
   const pages = [];
 
   pages.push({
@@ -774,9 +779,6 @@ function planPages(site) {
       permalink: '/index.html',
       title: 'Feature planning',
       workstreams: site.workstreams,
-      // M9, decision 59: rendered as an "Upcoming Features" section, one row and Approve button
-      // per slug.
-      proposedDesigns: site.proposedDesigns,
     },
   });
 
@@ -847,6 +849,22 @@ function planPages(site) {
         permalink: '/registers/index.html',
         title: 'Registers',
         registers: site.registerIndex,
+      },
+    });
+  }
+
+  // M9 follow-up: the proposed-design list, moved off the Feature Planning page onto its own,
+  // renamed "Feature Backlog" at the owner's request. Same "absent entirely when empty" posture as
+  // Registers just above — a link to nothing is worse than no link.
+  if (site.proposedDesigns.length > 0) {
+    pages.push({
+      name: 'backlog',
+      extend: 'backlog.njk',
+      data: {
+        ...shell,
+        permalink: '/backlog/index.html',
+        title: 'Feature Backlog',
+        proposedDesigns: site.proposedDesigns,
       },
     });
   }

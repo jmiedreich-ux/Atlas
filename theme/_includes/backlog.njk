@@ -1,0 +1,55 @@
+{#- Atlas — the Feature Backlog (M9 follow-up: moved off the Feature Planning page onto its own,
+  renamed from "Upcoming Features" at the owner's request).
+
+  Absent entirely when there is nothing proposed (`site.proposedDesigns.length === 0`,
+  `src/build.mjs`'s `planPages`) — the same "an empty page nobody would reach is not better than no
+  page" posture `registers-index.njk` already has for an empty register index.
+
+  Data this layout expects:
+    proposedDesigns — `{ slug, url }` pairs, `src/config.mjs`'s `proposedDesignDirs` names the
+                      slugs, `src/build.mjs`'s `proposedDesignUrl` resolves each one's content page
+                      (`null` if it has neither a rendered `.md` nor a copied `.html`)
+    project, repo, title — see base.njk
+
+  Every slug is a proposal that has cleared `src/scaffold.mjs`'s `checkPreconditions` — either a
+  `docs/design/proposed/<slug>/` directory, or the ordinary shape a real proposal takes: a loose
+  `.md` file (maybe with sibling images or a wireframe) directly under `docs/design/proposed/`,
+  grouped by filename stem (`api/lib/contract.mjs`'s `proposedFileStem`). Unlike a workstream row
+  on the Feature Planning page, a proposal has no manifest yet — nothing to expand, no spine, no
+  stage — so this stays a plain list, not another kind of `.feature-row`.
+
+  A row with no `url` (its directory/group holds neither a rendered `.md` nor a copied `.html` —
+  shouldn't happen given the precondition above, but not assumed) renders its slug as plain text
+  rather than a broken link. `theme/approve.js` wires `[data-approve-button]` inside
+  `[data-approve-trigger]`; no SHA is sent (see that file's own header for why the concurrency
+  guarantee here does not need one).
+-#}
+{% extends "base.njk" %}
+
+{% block bodyClass %}page page-backlog{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Feature planning</a></p>
+<h1>Feature Backlog</h1>
+<p class="lede">A design under review in <code>docs/design/proposed/</code>. Approving moves it into its own tracked feature and scaffolds its first milestone.</p>
+
+<ul class="upcoming-list">
+{%- for design in proposedDesigns %}
+<li class="upcoming-row" data-slug="{{ design.slug }}">
+{%- if design.url %}
+<a class="upcoming-name" href="{{ design.url }}">{{ design.slug }}</a>
+{%- else %}
+<span class="upcoming-name">{{ design.slug }}</span>
+{%- endif %}
+<div class="approve-trigger" data-approve-trigger>
+<button type="button" class="approve-trigger-button" data-approve-button data-slug="{{ design.slug }}">Approve</button>
+<p class="approve-trigger-status" data-approve-trigger-status role="status" aria-live="polite"></p>
+</div>
+</li>
+{%- endfor %}
+</ul>
+{% endblock %}
+
+{% block bodyScripts %}
+<script type="module" src="/approve.js"></script>
+{% endblock %}

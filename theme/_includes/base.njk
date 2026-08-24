@@ -77,6 +77,13 @@
 <a href="/">Feature planning</a>
 <a href="/mobile/">What needs you</a>
 <a href="/library/">Library</a>
+{#- M9 follow-up: `hasBacklog` rides in every page's own data (src/build.mjs's `shell`), not just
+    the backlog page's own — this link has to render on every page including ones that never touch
+    `proposedDesigns` directly. Absent when the page itself would be (nothing proposed to list),
+    the same "no link to an empty page" rule Library/Registers already follow. -#}
+{%- if hasBacklog %}
+<a href="/backlog/">Feature Backlog</a>
+{%- endif %}
 {#- Static Web Apps' own `/.auth/logout` route (decision 7) already works with no code of Atlas's
     own — it was just never linked. `post_logout_redirect_uri` sends a signed-out visitor back to
     the site root rather than SWA's bare default logout page. -#}

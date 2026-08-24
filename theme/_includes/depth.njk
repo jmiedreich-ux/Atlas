@@ -20,9 +20,6 @@
     milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
     spineDetail — one 'full'|'full-muted'|'count'|'none' per milestone, same order
 
-  `proposedDesigns` — a separate top-level array (not per-workstream): `{ slug, url }`, M9's
-  "Upcoming Features" section below the feature list. See that section's own comment.
-
   M8 task 7's trigger buttons (Development/Staging/Release, `theme/deploy.js`) render only when
   `stream.manifest.deploymentLog` is set — the one build-time signal already on every workstream
   that says `POST /api/deployment-transition` has somewhere to write for it; without one, the
@@ -46,17 +43,9 @@
   future write-back UI) may want them without re-deriving from the manifest. Remove them if that
   stops being worth the two attributes.
 
-  M9's "Upcoming Features" section (decision 59) — `proposedDesigns`, `{ slug, url }` pairs
-  (`src/config.mjs`'s `proposedDesignDirs` names the slugs; `src/build.mjs`'s `proposedDesignUrl`
-  finds each one's content page or copied document, `null` if it somehow has neither), each slug a
-  `docs/design/proposed/<slug>/` directory that has cleared the same three checks
-  `src/scaffold.mjs`'s `checkPreconditions` runs locally. Unlike every workstream row above, a
-  proposed design has no manifest yet — there is nothing to expand, no spine, no stage — so this is
-  a short, separate list below the feature list rather than another kind of `.feature-row`. A row
-  with no `url` (its directory holds neither a rendered `.md` nor a copied `.html` — shouldn't
-  happen given the precondition above, but not assumed) renders its slug as plain text rather than
-  a broken link. `theme/approve.js` wires `[data-approve-button]`; no SHA is sent (see that file's
-  own header for why the concurrency guarantee here does not need one).
+  M9's proposed-design list (decision 59) moved to its own page, `backlog.njk` — "Feature Backlog"
+  — at the owner's request; see that template's own header for the data shape and everything else
+  that used to live in this comment.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -185,28 +174,6 @@
 {%- endfor %}
 </ul>
 
-{%- if proposedDesigns.length %}
-<section class="upcoming-section" aria-labelledby="upcoming-heading">
-<h2 id="upcoming-heading">Upcoming Features</h2>
-<p class="lede">A design under review in <code>docs/design/proposed/</code>. Approving moves it to <code>approved/</code> and scaffolds its first milestone.</p>
-<ul class="upcoming-list">
-{%- for design in proposedDesigns %}
-<li class="upcoming-row" data-slug="{{ design.slug }}">
-{%- if design.url %}
-<a class="upcoming-name" href="{{ design.url }}">{{ design.slug }}</a>
-{%- else %}
-<span class="upcoming-name">{{ design.slug }}</span>
-{%- endif %}
-<div class="approve-trigger" data-approve-trigger>
-<button type="button" class="approve-trigger-button" data-approve-button data-slug="{{ design.slug }}">Approve</button>
-<p class="approve-trigger-status" data-approve-trigger-status role="status" aria-live="polite"></p>
-</div>
-</li>
-{%- endfor %}
-</ul>
-</section>
-{%- endif %}
-
 <p class="visually-hidden" id="row-note">Drag a feature's header to put the features in the order you want, or focus one and press the up and down arrow keys to move it. Press Enter or Space to open it. Press H to hide a feature; hidden features can be brought back from the controls above the list.</p>
 <p class="visually-hidden" id="task-note">Drag a task to put this milestone's tasks in the order you want, or focus one and press the up and down arrow keys to move it.</p>
 {% endblock %}
@@ -214,5 +181,4 @@
 {% block bodyScripts %}
 <script type="module" src="/order.js"></script>
 <script type="module" src="/deploy.js"></script>
-<script type="module" src="/approve.js"></script>
 {% endblock %}
