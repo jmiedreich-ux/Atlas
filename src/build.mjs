@@ -412,7 +412,24 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
     const { displayedStage, deploymentHistory, deploymentLogSha } = readDeploymentLog(config.projectRoot, stream);
-    // FIX2-MARKER
+
+    // `computeLadder` (src/depth.mjs) already ran, above, against the raw `manifest.stage` — and
+    // `classifyTriage` (src/triage.mjs), below, is about to. Threading `displayedStage` through
+    // both is a bigger structural change than this fix deserves; the cheap version is to make the
+    // raw value impossible to be stale in the one window that matters. A deployment log with real
+    // entries IS evidence the workstream has left the pre-development stages, so a manifest that
+    // still claims `not-started` or `designing` at that point is a stale record, not a fact any
+    // surface should render — the ladder, the triage order, the chip and state.json would
+    // otherwise disagree about the same workstream, the #780 "two surfaces disagree" failure class.
+    if (deploymentHistory.length > 0 && (stream.manifest.stage === 'not-started' || stream.manifest.stage === 'designing')) {
+      throw new Error(
+        `${relPath(config.projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" has a ` +
+          `deployment log with ${deploymentHistory.length} entr${deploymentHistory.length === 1 ? 'y' : 'ies'}, ` +
+          `but its manifest "stage" is still "${stream.manifest.stage}" — a deployment log with entries is ` +
+          `evidence the workstream has left the pre-development stages, so the manifest is a stale record and ` +
+          `must be corrected by hand before the build can trust it.`,
+      );
+    }
 
     return {
       ...stream,

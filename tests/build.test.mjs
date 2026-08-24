@@ -1996,4 +1996,59 @@ test('build: a deployment log whose final entry has no "stage" fails the build l
   assert.match(error.message, /deployment-log\.json/, 'the failure never named the log file');
 });
 
-// FIX2-TESTS-MARKER
+// --- final whole-branch review fix: a non-empty log is evidence a pre-development manifest.stage
+// is stale --------------------------------------------------------------------------------------
+//
+// `computeLadder`/`preMilestoneCoveredCount` (src/depth.mjs) and `classifyTriage` (src/triage.mjs)
+// both still read the raw `manifest.stage`, not `displayedStage` — threading the override through
+// both is a bigger structural change than this fix wave should attempt. The cheap, correct fix:
+// a deployment log with real entries IS proof the workstream has left the pre-development stages
+// (`not-started`/`designing`), so a manifest that still claims one of those is now a stale record,
+// and decision 32 says a broken reference fails the build by name rather than rendering two
+// surfaces that disagree (the #780 failure class).
+test('build: a non-empty deployment log against a manifest still in a pre-development stage fails the build, naming the workstream, its stale manifest stage, and the log (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-pre-development');
+
+  // shoal's manifest stage is 'not-started' in the fixture (untouched by fixtureCopyWithValidStages,
+  // which only fixes beacon/tide/anchor/reef) — exactly the stale-record shape this guards against.
+  const logPath = 'docs/features/shoal/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(
+    error,
+    'a deployment log with entries against a pre-development manifest.stage should fail the build',
+  );
+  assert.match(error.message, /[Ss]hoal/, 'the failure never named the workstream');
+  assert.match(error.message, /not-started/, 'the failure never named the stale manifest stage');
+});
+
+// The other pre-development value: 'designing' must be caught the same way as 'not-started'.
+test('build: a non-empty deployment log against a "designing" manifest stage fails the build the same way as "not-started"', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-pre-development-designing');
+
+  // harbor's manifest stage is 'designing' in the fixture.
+  const logPath = 'docs/features/harbor/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'harbor', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log with entries against a "designing" manifest.stage should fail the build');
+  assert.match(error.message, /[Hh]arbor/, 'the failure never named the workstream');
+  assert.match(error.message, /designing/, 'the failure never named the stale manifest stage');
+});
