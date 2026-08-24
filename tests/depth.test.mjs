@@ -77,14 +77,14 @@ function rowById(rows, id) {
 test('computeLadder: the ladder is the union of every workstream depth, not the deepest one\'s numbering', () => {
   const deep = entry('deep', {
     codename: 'Deep',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [1, 2, 3, 4, 5, 6].map((n) =>
       milestone({ id: `M${n}`, label: `M${n}`, depth: n, title: `Deep step ${n}`, status: 'unplanned' }),
     ),
   });
   const shallow = entry('shallow', {
     codename: 'Shallow',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [1, 2, 3].map((n) =>
       milestone({ id: `M${n}`, label: `M${n}`, depth: n, title: `Shallow step ${n}`, status: 'unplanned' }),
     ),
@@ -139,7 +139,7 @@ test('computeLadder: three pre-milestone stages sit above the first milestone, i
 test('computeLadder: a workstream whose last milestone is done puts the head beyond it, not on it', () => {
   const w = entry('finisher', {
     codename: 'Finisher',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [
       milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
       milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
@@ -176,7 +176,7 @@ test('computeLadder: a workstream whose last milestone is done puts the head bey
 test('computeLadder: a workstream whose final milestone is NOT done keeps the head on the very next milestone (control)', () => {
   const w = entry('inflight', {
     codename: 'Inflight',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [
       milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
       milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next' }),
@@ -228,7 +228,7 @@ test('computeLadder: every column carries the manifest\'s gate as its note', () 
 test('computeLadder: tipLabel is the column\'s own milestone id, never the ladder row\'s shared label', () => {
   const beaconLike = entry('beacon', {
     codename: 'Beacon',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [1, 2, 3, 4].map((n) =>
       milestone({
         id: `M${n}`,
@@ -241,7 +241,7 @@ test('computeLadder: tipLabel is the column\'s own milestone id, never the ladde
   });
   const tideLike = entry('tide', {
     codename: 'Tide',
-    stage: 'shipping',
+    stage: 'development',
     milestones: [1, 2].map((n) =>
       milestone({
         id: `M${n}`,
@@ -375,13 +375,13 @@ test('computeLadder: the tip is null exactly when no milestone is on record for 
 
   const { columns } = computeLadder([
     // Every milestone done: the head is past the last record, and nothing is next.
-    stream('Anchor', 'shipping', ['done', 'done']),
+    stream('Anchor', 'development', ['done', 'done']),
     // Approved but nothing written down yet: the head points at a first milestone that has no
     // record either. Same case, and it used to invent "M1".
     stream('Fresh', 'planned', []),
     // A milestone IS recorded where the head lands, so it is named — from the milestone's own id,
     // never the ladder row's shared number.
-    stream('Tide', 'shipping', ['done', 'next']),
+    stream('Tide', 'development', ['done', 'next']),
     // Still in the stages: the tip is the stage the feature is entering, which is a real state
     // rather than an invented milestone.
     stream('Harbor', 'designing', []),
@@ -466,7 +466,7 @@ test('computeLadder: a skipped milestone is noted, and the bar carries on past i
   const [column] = computeLadder([
     entry('gapped', {
       codename: 'Gapped',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [
         milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
         milestone({ id: 'M2', label: 'M2', depth: 2, status: 'parked', issue: 709 }),
@@ -494,7 +494,7 @@ test('computeLadder: nothing behind the bar is skipped unless the work really di
   const [column] = computeLadder([
     entry('solid', {
       codename: 'Solid',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [
         milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
         milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
@@ -511,7 +511,7 @@ test('computeLadder: completion is every finished milestone, in the order the ma
   const [column] = computeLadder([
     entry('run', {
       codename: 'Run',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [
         // Deliberately out of depth order, because the manifest is allowed to be and the
         // segments are drawn in the order the manifest lists.
@@ -563,7 +563,7 @@ test('computeLadder: recordedTo is null when nothing is recorded past the bar', 
   const [column] = computeLadder([
     entry('anchor', {
       codename: 'Anchor',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [1, 2].map((depth) =>
         milestone({ id: `M${depth}`, label: `M${depth}`, depth, status: 'done', plan: `m${depth}-plan.md` }),
       ),
@@ -578,7 +578,7 @@ test('computeLadder: liveAt names the row where work is actually in flight, and 
   const inFlight = computeLadder([
     entry('tide', {
       codename: 'Tide',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [
         milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
         milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next', plan: 'm2-plan.md' }),
@@ -595,7 +595,7 @@ test('computeLadder: liveAt names the row where work is actually in flight, and 
   const stalled = computeLadder([
     entry('stalled', {
       codename: 'Stalled',
-      stage: 'shipping',
+      stage: 'development',
       milestones: [
         milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
         milestone({ id: 'M2', label: 'M2', depth: 2, status: 'blocked', plan: 'm2-plan.md' }),

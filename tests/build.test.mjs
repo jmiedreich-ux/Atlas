@@ -483,7 +483,7 @@ test('build: every failure names a repository-relative path, and never an absolu
           JSON.stringify({
             codename: 'Nova',
             what: 'Invented for this test',
-            stage: 'shipping',
+            stage: 'development',
             position: 'Invented for this test',
             gate: 'Nothing but this test',
             label: 'workstream:nova',
@@ -520,7 +520,7 @@ test('build: every failure names a repository-relative path, and never an absolu
           JSON.stringify({
             codename: 'Nova',
             what: 'Invented for this test',
-            stage: 'shipping',
+            stage: 'development',
             position: 'Invented for this test',
             gate: 'Nothing but this test',
             label: 'workstream:nova',
@@ -828,7 +828,7 @@ test('build: every URL it emits is encoded, on the pages and in state.json alike
     JSON.stringify({
       codename: 'Spacey',
       what: 'Invented for this test',
-      stage: 'shipping',
+      stage: 'development',
       position: 'Invented for this test',
       gate: 'Nothing but this test',
       label: 'workstream:spacey',

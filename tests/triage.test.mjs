@@ -97,13 +97,30 @@ const TABLE = [
   ['planned', 'parked', 'awaiting-decision'],
   ['planned', 'unplanned', 'awaiting-decision'],
 
-  // Only a shipping workstream is read through its milestones at all.
-  ['shipping', null, 'awaiting-decision'],
-  ['shipping', 'done', 'awaiting-decision'],
-  ['shipping', 'next', 'moving'],
-  ['shipping', 'blocked', 'awaiting-decision'],
-  ['shipping', 'parked', 'blocked'],
-  ['shipping', 'unplanned', 'awaiting-decision'],
+  // Only a workstream past 'planned' is read through its milestones at all. `classifyTriage`
+  // does not distinguish among the three real deployment stages that replaced 'shipping' (Task
+  // 2, M8) — development, staging, and release all fall through to the same milestone logic, so
+  // each gets its own row here with the identical expected values 'shipping' used to carry.
+  ['development', null, 'awaiting-decision'],
+  ['development', 'done', 'awaiting-decision'],
+  ['development', 'next', 'moving'],
+  ['development', 'blocked', 'awaiting-decision'],
+  ['development', 'parked', 'blocked'],
+  ['development', 'unplanned', 'awaiting-decision'],
+
+  ['staging', null, 'awaiting-decision'],
+  ['staging', 'done', 'awaiting-decision'],
+  ['staging', 'next', 'moving'],
+  ['staging', 'blocked', 'awaiting-decision'],
+  ['staging', 'parked', 'blocked'],
+  ['staging', 'unplanned', 'awaiting-decision'],
+
+  ['release', null, 'awaiting-decision'],
+  ['release', 'done', 'awaiting-decision'],
+  ['release', 'next', 'moving'],
+  ['release', 'blocked', 'awaiting-decision'],
+  ['release', 'parked', 'blocked'],
+  ['release', 'unplanned', 'awaiting-decision'],
 ];
 
 test('triage: every stage against every milestone status lands where it lands today', () => {
@@ -127,16 +144,16 @@ test('triage: the table covers the whole closed vocabulary, so a new value canno
 });
 
 test('triage: "next" beats "parked" — a workstream moving somewhere is not blocked', () => {
-  assert.equal(classifyTriage(manifest({ stage: 'shipping', statuses: ['parked', 'next'] })), 'moving');
-  assert.equal(classifyTriage(manifest({ stage: 'shipping', statuses: ['next', 'parked'] })), 'moving');
-  assert.equal(classifyTriage(manifest({ stage: 'shipping', statuses: ['done', 'parked'] })), 'blocked');
+  assert.equal(classifyTriage(manifest({ stage: 'development', statuses: ['parked', 'next'] })), 'moving');
+  assert.equal(classifyTriage(manifest({ stage: 'development', statuses: ['next', 'parked'] })), 'moving');
+  assert.equal(classifyTriage(manifest({ stage: 'development', statuses: ['done', 'parked'] })), 'blocked');
 });
 
 test('triage: a workstream that has run out of milestones is waiting on the owner', () => {
   // Anchor's case in the fixture: four milestones, all done, nothing left on record to do. The
   // fallback puts it first on the phone, which is why it is a fallback rather than an error.
   assert.equal(
-    classifyTriage(manifest({ stage: 'shipping', statuses: ['done', 'done', 'done', 'done'] })),
+    classifyTriage(manifest({ stage: 'development', statuses: ['done', 'done', 'done', 'done'] })),
     'awaiting-decision',
   );
 });
@@ -167,9 +184,9 @@ function entry(slug, stage, statuses) {
 test('orderByTriage: cards come out in decision 27\'s order, not the config\'s and not alphabetically', () => {
   const entries = [
     entry('alpha', 'not-started', []),
-    entry('bravo', 'shipping', ['done']),
-    entry('charlie', 'shipping', ['parked']),
-    entry('delta', 'shipping', ['next']),
+    entry('bravo', 'development', ['done']),
+    entry('charlie', 'development', ['parked']),
+    entry('delta', 'development', ['next']),
     entry('echo', 'designing', []),
   ];
 
@@ -181,9 +198,9 @@ test('orderByTriage: cards come out in decision 27\'s order, not the config\'s a
 
 test('orderByTriage: ties keep the order the config declared, so two cards never swap between builds', () => {
   const entries = [
-    entry('third', 'shipping', ['next']),
-    entry('first', 'shipping', ['next']),
-    entry('second', 'shipping', ['next']),
+    entry('third', 'development', ['next']),
+    entry('first', 'development', ['next']),
+    entry('second', 'development', ['next']),
   ];
 
   assert.deepEqual(orderByTriage(entries).map((e) => e.slug), ['third', 'first', 'second']);
@@ -192,9 +209,9 @@ test('orderByTriage: ties keep the order the config declared, so two cards never
 test('orderByTriage: every workstream comes out exactly once, carrying its own state', () => {
   const entries = [
     entry('alpha', 'not-started', []),
-    entry('bravo', 'shipping', ['done']),
-    entry('charlie', 'shipping', ['parked']),
-    entry('delta', 'shipping', ['next']),
+    entry('bravo', 'development', ['done']),
+    entry('charlie', 'development', ['parked']),
+    entry('delta', 'development', ['next']),
     entry('echo', 'designing', []),
     entry('foxtrot', 'planned', []),
   ];
@@ -214,7 +231,7 @@ test('orderByTriage: every workstream comes out exactly once, carrying its own s
 });
 
 test('orderByTriage: the entries it returns keep every field they arrived with', () => {
-  const entries = [{ ...entry('alpha', 'shipping', ['next']), column: { tipLabel: 'M1' } }];
+  const entries = [{ ...entry('alpha', 'development', ['next']), column: { tipLabel: 'M1' } }];
   const [ordered] = orderByTriage(entries);
 
   assert.equal(ordered.slug, 'alpha');
@@ -225,7 +242,7 @@ test('orderByTriage: the entries it returns keep every field they arrived with',
 });
 
 test('orderByTriage: the input array and its manifests are left untouched', () => {
-  const entries = [entry('alpha', 'shipping', ['next']), entry('bravo', 'not-started', [])];
+  const entries = [entry('alpha', 'development', ['next']), entry('bravo', 'not-started', [])];
   const before = JSON.parse(JSON.stringify(entries));
 
   orderByTriage(entries);
