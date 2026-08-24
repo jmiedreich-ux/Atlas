@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { build, assembleSite } from '../src/build.mjs';
+import { build, assembleSite, gitBlobSha } from '../src/build.mjs';
 import { MILESTONE_STATUSES } from '../src/schema.mjs';
 import { serialiseSwaConfig } from '../src/swa.mjs';
 
@@ -1786,6 +1786,61 @@ test('build: the fixture builds with nothing to warn about, so the warning stays
   assert.deepEqual(SUMMARY.unnamedFeatures, []);
 });
 
+// --- M8 task 7 fix round: the deployment log's SHA, computed at build time ----------------------
+//
+// `theme/deploy.js` used to fetch the deployment log's current SHA from GitHub's public,
+// unauthenticated contents API at click time — which 404s on every real Atlas project, since those
+// live in private repositories gated behind an invited role (decision 7). `currentSha` always
+// resolved to `null` in practice; the round-trip bought nothing but latency. The real fix: the
+// build already reads the deployment log's bytes off disk (`readDeploymentLog`, M8 task 6) to
+// compute `displayedStage`/`deploymentHistory` — the exact same read can compute the file's git
+// blob SHA at the same time, with no network call at all. `gitBlobSha` is the well-defined,
+// short algorithm `git hash-object` uses: `sha1("blob " + byteLength + "\0" + content)`.
+test('gitBlobSha: matches a known SHA-1 blob hash for a short, fixed string', () => {
+  // "hello world\n" (12 bytes) is a git-hash-object value quoted in Git's own documentation and
+  // reproducible anywhere: `printf 'hello world\n' | git hash-object --stdin`.
+  assert.equal(gitBlobSha('hello world\n'), '3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+});
+
+test('gitBlobSha: matches `git hash-object` on a real file in this repository, not just a hard-coded constant', async () => {
+  const { spawnSync } = await import('node:child_process');
+
+  const content = JSON.stringify(
+    [
+      { stage: 'development', note: 'first deploy to dev' },
+      { stage: 'staging', note: null },
+    ],
+    null,
+    2,
+  ) + '\n';
+  const file = path.join(TMP_ROOT, 'blob-sha-ground-truth.json');
+  mkdirSync(TMP_ROOT, { recursive: true });
+  writeFileSync(file, content);
+
+  const result = spawnSync('git', ['hash-object', file], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `git hash-object failed: ${result.stderr}`);
+  const expected = result.stdout.trim();
+
+  assert.equal(gitBlobSha(content), expected, "gitBlobSha must agree with git's own hash-object");
+});
+
+test('gitBlobSha: byte length, not JS string length, is what goes in the header (multi-byte content)', async () => {
+  // A content string with multi-byte UTF-8 characters has a different byte length than its JS
+  // `.length` (UTF-16 code units) — proving the header uses `Buffer.byteLength`, not `.length`.
+  const { spawnSync } = await import('node:child_process');
+
+  const content = '{"note":"promoted to staging — done ✅"}\n';
+  const file = path.join(TMP_ROOT, 'blob-sha-multibyte.json');
+  mkdirSync(TMP_ROOT, { recursive: true });
+  writeFileSync(file, content);
+
+  const result = spawnSync('git', ['hash-object', file], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `git hash-object failed: ${result.stderr}`);
+  const expected = result.stdout.trim();
+
+  assert.equal(gitBlobSha(content), expected);
+});
+
 // --- M8 task 6: the displayed stage, and the deployment history it came from --------------------
 //
 // "Chip says Shipping, feature is really in dev": `manifest.stage` is the manifest's own,
@@ -1821,7 +1876,8 @@ test('build: displayedStage is the log\'s latest entry when a deployment log exi
     { stage: 'development', note: 'first deploy to dev' },
     { stage: 'staging', note: 'promoted to staging' },
   ];
-  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  const logContent = `${JSON.stringify(history, null, 2)}\n`;
+  writeFileSync(path.join(projectRoot, logPath), logContent);
   editManifest(projectRoot, 'beacon', (manifest) => {
     manifest.deploymentLog = logPath;
   });
@@ -1833,13 +1889,22 @@ test('build: displayedStage is the log\'s latest entry when a deployment log exi
   assert.equal(beacon.manifest.stage, 'development', 'the manifest\'s own stage should be untouched');
   assert.equal(beacon.displayedStage, 'staging', "the log's latest entry should override the manifest's stage");
   assert.deepEqual(beacon.deploymentHistory, history, 'the full parsed history should be exposed, not just the latest entry');
+  // The build-time SHA (M8 task 7 fix round): computed from the exact bytes on disk, so it must
+  // agree with `git hash-object` on that same file — not just with `gitBlobSha` calling itself.
+  assert.equal(
+    beacon.deploymentLogSha,
+    gitBlobSha(logContent),
+    "deploymentLogSha must be the log file's own git blob SHA",
+  );
+  assert.match(beacon.deploymentLogSha, /^[0-9a-f]{40}$/, 'deploymentLogSha must be a 40-character hex blob SHA');
 
-  // harbor names no deploymentLog at all: displayedStage is simply the manifest's own stage, and
-  // deploymentHistory is empty — not missing, not null, an empty array a template can iterate.
+  // harbor names no deploymentLog at all: displayedStage is simply the manifest's own stage,
+  // deploymentHistory is empty, and there is no file to hash, so deploymentLogSha is null.
   const harbor = bySlug.get('harbor');
   assert.equal(harbor.manifest.deploymentLog, undefined, 'fixture drifted: harbor now names a deploymentLog');
   assert.equal(harbor.displayedStage, harbor.manifest.stage);
   assert.deepEqual(harbor.deploymentHistory, []);
+  assert.equal(harbor.deploymentLogSha, null);
 });
 
 test('build: a deploymentLog naming a file that does not exist yet falls back silently — a workstream that has never logged anything is normal, not broken', async () => {
@@ -1854,6 +1919,7 @@ test('build: a deploymentLog naming a file that does not exist yet falls back si
 
   assert.equal(shoal.displayedStage, 'not-started', 'a missing log should fall back to the manifest\'s own stage');
   assert.deepEqual(shoal.deploymentHistory, []);
+  assert.equal(shoal.deploymentLogSha, null, 'no file on disk means nothing to hash');
 });
 
 test('build: a deploymentLog that exists but is not valid JSON fails the build loudly, naming the path (decision 32)', async () => {

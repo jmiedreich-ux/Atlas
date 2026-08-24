@@ -11,9 +11,10 @@
                      chip renders THIS, never `manifest.stage` directly.
     deploymentHistory — src/build.mjs's assembleSite (M8 task 6): the ordered `{ stage, note }`
                      array read from `stream.manifest.deploymentLog`, or `[]` when the workstream
-                     names no log yet. Rendered as `.stage-history` below, beside (not inside)
-                     `.milestone-spine` — a stage transition is a fact about the feature, not
-                     about any one milestone (M8 design doc, "Where the ordered history renders").
+                     names no log yet. Rendered as `.stage-history` below, directly above (not
+                     inside) `.milestone-spine` — a stage transition is a fact about the feature,
+                     not about any one milestone (M8 design doc, "Where the ordered history
+                     renders").
     column   — computeLadder's own entry: covered[], completedCount, milestoneCount, tipLabel
     triage   — src/triage.mjs's classifyTriage result
     milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
@@ -27,6 +28,13 @@
   template conditional was found to mirror (grepped `theme/`, `src/`, `api/` first) — `api/answer`
   and `api/acceptance` are real endpoints with no caller anywhere in `theme/`, so this is Atlas's
   first write-back UI, not a copy of one.
+
+  `data-sha` (M8 task 7 fix round) carries `stream.deploymentLogSha` — the deployment log's own
+  git blob SHA, computed at build time from the file's actual bytes on disk (`src/build.mjs`'s
+  `gitBlobSha`), `""` when there is no log yet. `theme/deploy.js` reads this attribute directly
+  instead of fetching a SHA from GitHub client-side at click time: every real Atlas project lives
+  in a private repository (decision 7), so an unauthenticated client-side GET to GitHub's contents
+  API always 404s there — the build-time value is the one that actually works.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -75,6 +83,22 @@
 </div>
 <a class="feature-link" href="{{ stream.url }}">View {{ stream.manifest.codename }}'s own page</a>
 <div class="feature-spine" id="spine-{{ stream.slug }}" data-feature-spine hidden>
+{#- Directly above .milestone-spine, not inside it (see the header comment above, and the M8
+    design doc's "Where the ordered history renders"). Never blank: a workstream with no logged
+    transitions yet still shows one node for its own current displayedStage, which is the
+    pre-deployment case, not an empty state. -#}
+<ol class="stage-history" aria-label="Deployment history">
+{%- if stream.deploymentHistory.length == 0 %}
+<li class="stage-node"><span class="stage-node-label">{{ ui.chipLabel(stream.displayedStage) }}</span></li>
+{%- else %}
+{%- for transition in stream.deploymentHistory %}
+<li class="stage-node">
+<span class="stage-node-label">{{ ui.chipLabel(transition.stage) }}</span>
+{%- if transition.note %}<span class="stage-node-note">{{ transition.note }}</span>{% endif %}
+</li>
+{%- endfor %}
+{%- endif %}
+</ol>
 {%- if stream.milestones.length == 0 %}
 <p class="spine-empty">No milestones on record yet.</p>
 {%- else %}
@@ -109,23 +133,8 @@
 {%- endfor %}
 </ol>
 {%- endif %}
-{#- Beside .milestone-spine, not inside it (see the header comment above). Never blank: a
-    workstream with no logged transitions yet still shows one node for its own current
-    displayedStage, which is the pre-deployment case, not an empty state. -#}
-<ol class="stage-history" aria-label="Deployment history">
-{%- if stream.deploymentHistory.length == 0 %}
-<li class="stage-node"><span class="stage-node-label">{{ ui.chipLabel(stream.displayedStage) }}</span></li>
-{%- else %}
-{%- for transition in stream.deploymentHistory %}
-<li class="stage-node">
-<span class="stage-node-label">{{ ui.chipLabel(transition.stage) }}</span>
-{%- if transition.note %}<span class="stage-node-note">{{ transition.note }}</span>{% endif %}
-</li>
-{%- endfor %}
-{%- endif %}
-</ol>
 {%- if stream.manifest.deploymentLog %}
-<div class="stage-trigger" data-stage-trigger data-log="{{ stream.manifest.deploymentLog }}" data-repo="{{ repo }}">
+<div class="stage-trigger" data-stage-trigger data-log="{{ stream.manifest.deploymentLog }}" data-repo="{{ repo }}" data-sha="{{ stream.deploymentLogSha }}">
 <p class="stage-trigger-label">Record a deployment transition</p>
 <button type="button" class="stage-trigger-button" data-transition-to="development" data-slug="{{ stream.slug }}">Development</button>
 <button type="button" class="stage-trigger-button" data-transition-to="staging" data-slug="{{ stream.slug }}">Staging</button>

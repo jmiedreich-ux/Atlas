@@ -17,48 +17,35 @@
 // pipeline is watching (see the M8 design doc's "What this milestone does NOT build": a
 // deployment agent is explicitly out of scope here).
 //
-// TWO-STEP WRITE. `api/lib/handlers.mjs`'s own header lays out the server's five-step contract;
-// this mirrors its read side from the browser, since a page has no installation token of its own
-// to call GitHub's contents API the way `api/lib/github.mjs`'s `createContentsClient.read` does
-// server-side:
+// ONE STEP, A BUILD-TIME SHA (M8 task 7 fix round). This file used to GET the deployment log's
+// current SHA from GitHub's PUBLIC, unauthenticated contents API before every POST, on the theory
+// that it bought a "staleness guarantee" beyond the server's own check. That GET never actually
+// worked: every real Atlas project lives in a PRIVATE repository (decision 7 — the site itself is
+// gated behind an invited role), so an unauthenticated request to GitHub's contents API 404s on it
+// every time. `currentSha` always resolved to `null` in practice, and the round-trip bought
+// nothing but latency — not the guarantee its own header used to claim.
 //
-//   1. GET the deployment log's current SHA from GitHub's PUBLIC, unauthenticated contents API —
-//      same endpoint shape, same field (`sha`) the server reads for itself a moment later.
-//   2. POST the transition, carrying that SHA.
+// The SHA the endpoint actually wants (`api/lib/payload.mjs:87` — `"sha" must be the... blob SHA
+// the page was rendered from`) is exactly what it says: the SHA the *page* was rendered from.
+// `src/build.mjs` already knows that value at build time, because it is the one reading the
+// deployment log's bytes off disk in the first place (`gitBlobSha`, computed inside
+// `readDeploymentLog`). `depth.njk` renders it onto `.stage-trigger`'s `data-sha`; this file reads
+// it straight from the DOM below — no network call, and no private-repo problem to route around.
 //
-// The SHA is optional to the endpoint (`api/lib/payload.mjs`'s `checkSha` accepts `null`), and the
-// server re-reads the file itself before writing regardless of what this sends — that is the
-// endpoint's own narrow guarantee, and it holds with or without a SHA here. What the SHA bought by
-// this GET is the WIDE guarantee: catching a page that is stale against what a reader is looking
-// at right now, same distinction `api/lib/handlers.mjs`'s `staleAgainstCaller` documents. A GET
-// that fails — no network, rate-limited, CORS — does not stop the write from being attempted; it
-// only forfeits the wide guarantee, which is why `currentSha` below returns `null` on any failure
-// rather than throwing.
-
-const GITHUB_API_ROOT = 'https://api.github.com';
-
-/**
- * The public contents API URL for one file, unauthenticated. `repo` is `"owner/name"`; `path` is
- * repository-relative. No `ref` is sent — a rendered page does not know which branch the site was
- * built from, so this reads whatever GitHub calls the repository's default branch, the same
- * answer opening the file in a browser would give.
- *
- * @param {string} repo
- * @param {string} path
- * @returns {string}
- */
-export function contentsUrl(repo, path) {
-  return `${GITHUB_API_ROOT}/repos/${repo}/contents/${path
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/')}`;
-}
+// What this SHA still protects against, and what it never did: `api/lib/handlers.mjs`'s
+// `staleAgainstCaller` check compares the SHA sent here against the log file's SHA at write time
+// and refuses the write if they differ — the narrow race where somebody else's write lands between
+// this page being rendered and this click. It does not, and never did (with or without the old
+// GET), guarantee the page reflects a change that happened after the page was built; that would
+// need a live re-read, which is what the removed GET was reaching for and never actually achieved
+// against a private repository.
 
 /**
  * The body `POST /api/deployment-transition` (Task 5) accepts, and nothing else —
  * `api/lib/payload.mjs`'s `DEPLOYMENT_TRANSITION_FIELDS` refuses an unknown field by name, so this
- * sends exactly `workstream`, `stage`, `sha`. `sha` is `null` when the GET above could not
- * complete; the endpoint still accepts that.
+ * sends exactly `workstream`, `stage`, `sha`. `sha` is `null` when the page was rendered before
+ * any log existed (`stream.deploymentLogSha` is `null` in that case, per `readDeploymentLog`); the
+ * endpoint still accepts that.
  *
  * @param {{ slug: string, stage: string, sha: string | null }} args
  * @returns {string}
@@ -89,31 +76,18 @@ export function outcomeMessage({ status, body }) {
 //
 // Everything below touches the DOM and the network and runs only in a browser. Guarded the same
 // way `theme/order.js` guards its own wiring (see its header), so importing this module in the
-// test runner exercises the three pure functions above without going near a document, or a
-// network, that is not there.
-
-async function currentSha(repo, path, fetchImpl) {
-  if (!repo || !path) return null;
-  try {
-    const response = await fetchImpl(contentsUrl(repo, path), {
-      headers: { Accept: 'application/vnd.github+json' },
-    });
-    if (!response.ok) return null;
-    const payload = await response.json();
-    return typeof payload?.sha === 'string' ? payload.sha : null;
-  } catch (err) {
-    // No network, rate-limited, CORS: none of these should stop the write from being attempted —
-    // see this file's own header on the narrow-vs-wide guarantee.
-    return null;
-  }
-}
+// test runner exercises the two pure functions above without going near a document, or a network,
+// that is not there.
 
 function wire(doc, fetchImpl) {
   const triggers = doc.querySelectorAll('[data-stage-trigger]');
 
   triggers.forEach((trigger) => {
-    const repo = trigger.getAttribute('data-repo');
-    const log = trigger.getAttribute('data-log');
+    // The build-time blob SHA (`stream.deploymentLogSha`, `depth.njk`'s `data-sha`). Empty string
+    // when the workstream has no log yet — `getAttribute` never returns `null` for an attribute
+    // that is present but rendered empty, so this is normalised to `null` here, the same value
+    // `transitionBody` already treats as "no SHA to send".
+    const sha = trigger.getAttribute('data-sha') || null;
     const status = trigger.querySelector('[data-stage-trigger-status]');
     const buttons = [...trigger.querySelectorAll('[data-transition-to]')];
 
@@ -129,7 +103,6 @@ function wire(doc, fetchImpl) {
 
         let outcome;
         try {
-          const sha = await currentSha(repo, log, fetchImpl);
           const response = await fetchImpl('/api/deployment-transition', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

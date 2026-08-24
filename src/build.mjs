@@ -23,6 +23,7 @@
 // and nothing is dated.
 
 import Eleventy from '@11ty/eleventy';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -260,12 +261,38 @@ function collectAssets(projectRoot) {
     });
 }
 
+// A git blob SHA-1 — the same value `git hash-object` (and GitHub's contents API `sha` field)
+// computes for a file's exact bytes: `sha1("blob " + <byte length> + "\0" + <content>)`. Exported
+// so a test can check it against a real `git hash-object` invocation as ground truth, not just a
+// hard-coded constant.
+//
+// Why this exists (M8 task 7 fix round): `theme/deploy.js` used to fetch this value from GitHub's
+// public, unauthenticated contents API at click time. Every real Atlas project lives in a private
+// repository (decision 7), so that GET 404s every time and `currentSha` always resolved to `null`
+// — the round-trip bought nothing but latency. The build already reads the deployment log's exact
+// bytes off disk to compute `displayedStage`/`deploymentHistory` below; computing the blob SHA
+// from those same bytes, once, at build time, is the value a client-side GET was only ever trying
+// to approximate — and unlike the GET, it actually works against a private repository.
+//
+// @param {string} content - the file's exact text, as read from disk (not re-serialised).
+// @returns {string} the 40-character hex blob SHA.
+export function gitBlobSha(content) {
+  const body = Buffer.from(content, 'utf8');
+  const header = Buffer.from(`blob ${body.length}\0`, 'utf8');
+  return createHash('sha1').update(Buffer.concat([header, body])).digest('hex');
+}
+
 // A workstream's *displayed* stage, and the deployment history it was read from — the fix for
 // "chip says Shipping, feature is really in dev". `manifest.stage` is the manifest's own,
 // possibly-stale word for where a workstream stands; a deployment log, when the workstream has
 // one, is the record of what has actually gone out, and its latest entry is what a reader should
 // see on the chip. Computed once, here, the same way `triage` is computed from `classifyTriage`
 // rather than read off the manifest, so every surface agrees.
+//
+// Also returns `deploymentLogSha` (M8 task 7 fix round) — the log file's own git blob SHA, `null`
+// when there is no log yet (nothing on disk to hash). This is what `depth.njk` renders onto the
+// trigger buttons' wrapper, and what `theme/deploy.js` sends back with a transition request
+// instead of fetching a SHA from GitHub client-side — see `gitBlobSha`'s own header above.
 //
 // A workstream that names no `deploymentLog`, or one that has not been written to yet, has
 // nothing to override with — this is the normal, unremarkable state of a workstream that has not
@@ -279,18 +306,19 @@ function readDeploymentLog(projectRoot, stream) {
   const displayedStage = stream.manifest.stage;
 
   if (!stream.manifest.deploymentLog) {
-    return { displayedStage, deploymentHistory: [] };
+    return { displayedStage, deploymentHistory: [], deploymentLogSha: null };
   }
 
   const absolute = path.join(projectRoot, stream.manifest.deploymentLog);
   if (!existsSync(absolute)) {
-    return { displayedStage, deploymentHistory: [] };
+    return { displayedStage, deploymentHistory: [], deploymentLogSha: null };
   }
 
   const where = relPath(projectRoot, absolute);
+  const raw = readFileSync(absolute, 'utf8');
   let deploymentHistory;
   try {
-    deploymentHistory = JSON.parse(readFileSync(absolute, 'utf8'));
+    deploymentHistory = JSON.parse(raw);
   } catch (error) {
     throw new Error(
       `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
@@ -310,6 +338,7 @@ function readDeploymentLog(projectRoot, stream) {
   return {
     displayedStage: latest ? latest.stage : displayedStage,
     deploymentHistory,
+    deploymentLogSha: gitBlobSha(raw),
   };
 }
 
@@ -364,7 +393,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
-    const { displayedStage, deploymentHistory } = readDeploymentLog(config.projectRoot, stream);
+    const { displayedStage, deploymentHistory, deploymentLogSha } = readDeploymentLog(config.projectRoot, stream);
 
     return {
       ...stream,
@@ -377,6 +406,10 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       // feature is really in dev": see `readDeploymentLog` above.
       displayedStage,
       deploymentHistory,
+      // The log's own build-time git blob SHA, or `null` when there is no log yet. Rendered onto
+      // `.stage-trigger`'s `data-sha` in `depth.njk`; `theme/deploy.js` reads it from there instead
+      // of fetching it from GitHub client-side (M8 task 7 fix round — see `gitBlobSha`'s header).
+      deploymentLogSha,
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();

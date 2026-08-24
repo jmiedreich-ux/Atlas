@@ -20,7 +20,7 @@ import { computeLadder, spineDetail } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
-import { contentsUrl, transitionBody, outcomeMessage } from '../theme/deploy.js';
+import { transitionBody, outcomeMessage } from '../theme/deploy.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -129,6 +129,10 @@ function entry(codename, overrides = {}) {
 // the manifest is `deploymentLog`, a path, not the parsed array). `displayedStage` is then
 // computed here exactly the way `readDeploymentLog` computes it: the latest entry's `stage`, or
 // the manifest's own `stage` when there is no history yet.
+//
+// M8 task 7's fix round added a third field the same way — `deploymentLogSha`, the log file's own
+// git blob SHA computed at build time (`src/build.mjs`'s `gitBlobSha`), `null` when there is no
+// log yet. A fixture attaches it directly on the entry, same convention as `deploymentHistory`.
 function assemble(entries) {
   const ladder = computeLadder(entries);
   const triaged = orderByTriage(entries.map((stream, index) => ({ ...stream, column: ladder.columns[index] })));
@@ -145,6 +149,7 @@ function assemble(entries) {
       triage: triageBySlug.get(stream.slug),
       displayedStage: latest ? latest.stage : stream.manifest.stage,
       deploymentHistory,
+      deploymentLogSha: stream.deploymentLogSha ?? null,
       milestones: stream.manifest.milestones.map((entry) => ({
         manifest: { ...entry, tasks: entry.tasks ?? [] },
         url: milestoneUrl(stream.slug, entry.id),
@@ -1732,6 +1737,42 @@ test('stage-history: it renders beside .milestone-spine, never inside it', () =>
   assert.match(html, /<ol class="stage-history"/, 'no .stage-history rendered at all');
 });
 
+test('stage-history: it renders directly above .milestone-spine, per the design doc', () => {
+  const stream = entry('Quartzite', {
+    stage: 'development',
+    milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+  });
+  stream.deploymentHistory = [{ stage: 'development', note: null }];
+
+  const html = renderDepth([stream]);
+  const historyIndex = html.indexOf('<ol class="stage-history"');
+  const spineIndex = html.indexOf('<ol class="milestone-spine">');
+
+  assert.notEqual(historyIndex, -1, 'no .stage-history rendered at all');
+  assert.notEqual(spineIndex, -1, 'no .milestone-spine rendered at all');
+  assert.ok(
+    historyIndex < spineIndex,
+    '.stage-history must render directly above .milestone-spine, per the design doc\'s ' +
+      '"Where the ordered history renders"',
+  );
+});
+
+test('stage-history: it renders above the spine-empty state too, when a workstream has no milestones', () => {
+  const stream = entry('Quartzite', { stage: 'development', milestones: [] });
+  stream.deploymentHistory = [{ stage: 'development', note: null }];
+
+  const html = renderDepth([stream]);
+  const historyIndex = html.indexOf('<ol class="stage-history"');
+  const emptyIndex = html.indexOf('<p class="spine-empty">');
+
+  assert.notEqual(historyIndex, -1, 'no .stage-history rendered at all');
+  assert.notEqual(emptyIndex, -1, 'no .spine-empty rendered for a workstream with no milestones');
+  assert.ok(
+    historyIndex < emptyIndex,
+    '.stage-history must render above the spine-empty state as well, not just above a populated spine',
+  );
+});
+
 test('stage-trigger: the three buttons carry data-transition-to and data-slug, and render only when the workstream names a deploymentLog', () => {
   const withLog = entry('Alkali', { deploymentLog: 'docs/features/alkali/deployment-log.json' });
   const withoutLog = entry('Basalt', {});
@@ -1782,12 +1823,24 @@ test("order.js: the row lookup is scoped to a row's own direct children, not any
   );
 });
 
-test('stage-trigger: the wrapper carries the deploymentLog path and the repo, for theme/deploy.js to read', () => {
+test('stage-trigger: the wrapper carries the deploymentLog path and the repo', () => {
   const stream = entry('Gypsum', { deploymentLog: 'docs/features/gypsum/deployment-log.json' });
   const html = renderDepth([stream]);
 
   assert.match(html, /data-stage-trigger[^>]*data-log="docs\/features\/gypsum\/deployment-log\.json"/);
   assert.deepEqual(attrValues(html, 'data-repo'), [config.repo]);
+});
+
+test('stage-trigger: the wrapper carries data-sha — stream.deploymentLogSha, the build-time blob SHA theme/deploy.js reads instead of fetching one from GitHub client-side (M8 task 7 fix round)', () => {
+  const withSha = entry('Basalt', { deploymentLog: 'docs/features/basalt/deployment-log.json' });
+  withSha.deploymentLogSha = 'a'.repeat(40);
+  const withoutSha = entry('Feldspar', { deploymentLog: 'docs/features/feldspar/deployment-log.json' });
+  // No `deploymentLogSha` attached at all — the pre-deployment case: no log on disk yet, so
+  // nothing to hash. `assemble()` defaults it to `null`, the same way `readDeploymentLog` does.
+
+  const html = renderDepth([withSha, withoutSha]);
+
+  assert.deepEqual(attrValues(html, 'data-sha'), ['a'.repeat(40), '']);
 });
 
 test('deploy.js: only the feature planning page loads the trigger script, decision 12', () => {
@@ -1798,19 +1851,8 @@ test('deploy.js: only the feature planning page loads the trigger script, decisi
   }
 });
 
-// deploy.js's own pure functions — the two-step read-then-write shape and the confirmation text,
-// none of which touch a document or a network (see the module's own header on that guard).
-test('deploy.js: contentsUrl builds GitHub\'s public, unauthenticated contents API URL, path segments encoded', () => {
-  assert.equal(
-    contentsUrl('acme/atlas', 'docs/features/alkali/deployment-log.json'),
-    'https://api.github.com/repos/acme/atlas/contents/docs/features/alkali/deployment-log.json',
-  );
-  assert.equal(
-    contentsUrl('acme/atlas', 'docs/a b/log.json'),
-    'https://api.github.com/repos/acme/atlas/contents/docs/a%20b/log.json',
-    'a path segment must be encoded, and the slashes between segments must not be',
-  );
-});
+// deploy.js's own pure functions — the one-step write and the confirmation text, none of which
+// touch a document or a network (see the module's own header on that guard).
 
 test('deploy.js: transitionBody sends exactly the fields the endpoint accepts, sha null when unknown', () => {
   assert.deepEqual(
