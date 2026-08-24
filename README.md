@@ -175,7 +175,7 @@ fixed convention, at its own root:
   ```json
   { "codename": "Beacon",
     "what": "A six-milestone workstream ...",
-    "stage": "shipping",
+    "stage": "development",
     "position": "Three milestones shipped, fourth in flight",
     "gate": "Owner sign-off on the M4 demo before M5 starts",
     "label": "workstream:beacon",
@@ -198,11 +198,25 @@ fixed convention, at its own root:
   never as links. CI cannot reach either of them, so a link would be one nobody could follow;
   Atlas neither fetches nor renders them, and `state.json` carries the same names, unlinked.
 
+  `deploymentLog` is optional — absent, or `null`, for a workstream that has never been deployed.
+  When present it is a path relative to the project root naming the JSON file `POST
+  /api/deployment-transition` writes into (see "The deployment log's shape" under Write-back,
+  below). A workstream's own `stage` above is its manifest's word for where it stands, written by
+  a person; the moment a deployment log exists and holds an entry, its **latest** entry's `stage`
+  is what the chip, `state.json` and the ladder actually display instead (M8: "chip says Shipping,
+  feature is really in dev") — `stage` is not overwritten, but it is no longer trusted once a log
+  says otherwise. A log with entries against a manifest `stage` still `not-started` or `designing`
+  is a stale record, not a fact, and fails the build by decision 32 rather than rendering two
+  surfaces that disagree.
+
   Two vocabularies are closed, and an unrecognised value fails the build rather than rendering a
   blank chip (decision 32):
 
-  - workstream **`stage`** ∈ `not-started, designing, planned, shipping`
+  - workstream **`stage`** ∈ `not-started, designing, planned, development, staging, release`
   - milestone **`status`** ∈ `done, next, blocked, parked, unplanned`
+  - deployment transition **`stage`** ∈ `development, staging, release` — the subset of
+    workstream `stage` that names something a caller can actually deploy *to*; there is no
+    transition named "designing".
 
   `started` and `completed` are optional and are stored calendar days, written `YYYY-MM-DD` — the
   day the milestone began and the day it closed. Both are facts recorded when they happened;
@@ -290,19 +304,22 @@ See `src/swa.mjs`, which is the authoritative source for the emitted file.
 
 ## Write-back — answering, not only reading
 
-Decisions 34 to 37. Two endpoints ship beside the site as Azure Static Web Apps **managed
+Decisions 34 to 37. Three endpoints ship beside the site as Azure Static Web Apps **managed
 Functions**, in the same deployable and behind the same auth — which is what decision 5 chose
 Static Web Apps for, and what the Free tier includes.
 
-| Endpoint               | What it writes                                                                               |
-| ---------------------- | -------------------------------------------------------------------------------------------- |
-| `POST /api/answer`     | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
-| `POST /api/acceptance` | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
+| Endpoint                        | What it writes                                                                               |
+| -------------------------------- | -------------------------------------------------------------------------------------------- |
+| `POST /api/answer`               | An answer to a question, into `docs/features/<workstream>/open-questions.md`.                  |
+| `POST /api/acceptance`           | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
+| `POST /api/deployment-transition` | A deployment stage transition, appended to the JSON log the workstream's manifest names in `deploymentLog` (M8, decision 35 amended: a third writable thing, not a second one). |
 
 **And nothing else.** Decision 35 gives creating issues, approving milestones, editing manifests
 and triggering work to the project's own operations console: *two consoles that both act is how
-they diverge*. There is no endpoint that sets a milestone's status, and adding one is a decision
-rather than a feature.
+they diverge*. There is no endpoint that sets a milestone's `status`, and adding one is a decision
+rather than a feature — a deployment stage transition is not that: it is a workstream telling the
+site where its own build actually landed, the same kind of fact `acceptance` already records, not
+a new kind of authority over the plan.
 
 Atlas keeps no state of its own (decision 37). A write is a commit; the page is rebuilt from that
 commit by the ordinary build workflow. There is no database, no cache, no queue and no pending
@@ -426,6 +443,34 @@ Per tenant.
 Answering again replaces that block rather than adding a second — the register says what is
 settled, and git already holds how it got there. Nothing outside the block is touched, and nothing
 in the write path reads the clock.
+
+### The deployment log's shape
+
+A deployment log is a flat JSON array of transitions, oldest first, at the path a workstream's
+manifest names in `deploymentLog`:
+
+```json
+[
+  { "stage": "development", "note": "first deploy to dev" },
+  { "stage": "staging" }
+]
+```
+
+Each entry is `{ "stage": ..., "note"? }` — `stage` is one of the three real deployment stages
+(`development, staging, release`; decision 32), and `note` is omitted rather than written as
+`null` when the caller sent none, the same convention `records.mjs` follows everywhere else.
+`POST /api/deployment-transition` only ever appends; nothing is rewritten or removed, so the log
+is the workstream's own deploy history, not just its current stage. Who recorded the entry and
+when is the commit that appended it, not a field inside the JSON — decision 37 again: the record
+is the repository, not a copy of git's own metadata kept a second time.
+
+The build reads this file once per workstream (`readDeploymentLog`, `src/build.mjs`) and rejects
+it the same way it rejects any other broken reference (decision 32): the file existing but not
+being valid JSON, its content not being a JSON array, or any entry's `stage` not being one of the
+three real deployment stages, each fail the build by name rather than rendering a blank or
+made-up chip. A workstream that names no `deploymentLog`, or names one that has not been written
+to yet, is simply a workstream that has not started deploying — not a broken reference, and not an
+error.
 
 ### The routes, and the runtime
 
