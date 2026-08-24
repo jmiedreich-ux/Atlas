@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { build } from '../src/build.mjs';
+import { build, assembleSite } from '../src/build.mjs';
 import { MILESTONE_STATUSES } from '../src/schema.mjs';
 import { serialiseSwaConfig } from '../src/swa.mjs';
 
@@ -1776,4 +1776,92 @@ test('build: a feature written but never put on the sheet is reported, and does 
 test('build: the fixture builds with nothing to warn about, so the warning stays worth reading', () => {
   // A build that always warns is a warning nobody reads. This is the control for the test above.
   assert.deepEqual(SUMMARY.unnamedFeatures, []);
+});
+
+// --- M8 task 6: the displayed stage, and the deployment history it came from --------------------
+//
+// "Chip says Shipping, feature is really in dev": `manifest.stage` is the manifest's own,
+// possibly-stale word for where a workstream stands. `assembleSite` now computes a *displayed*
+// stage — the log's latest entry when the workstream has one — the same way it already computes
+// `triage` from `classifyTriage` rather than reading it off the manifest. `assembleSite` is
+// exported (build.mjs) solely so these tests can inspect the computed field directly, rather than
+// only through rendered HTML or state.json (neither of which carries it: only the theme's chip
+// reads `displayedStage`, and state.json is untouched by this task).
+//
+// Every test below fixes the four workstreams that still carry the retired 'shipping' value
+// before building — `resolveWorkstreams` validates the whole project, so a workstream this test
+// does not care about still has to hold a value from the closed vocabulary. That cleanup belongs
+// to Task 7 Step 1 (the theme's own chipLabel) and Task 10 Step 3 (the repository-wide sweep), not
+// to this task, so it is done here, per-test-copy, rather than on the shared `fixture/` itself.
+function fixtureCopyWithValidStages(name) {
+  const root = fixtureCopy(name);
+  for (const slug of ['beacon', 'tide', 'anchor', 'reef']) {
+    editManifest(root, slug, (manifest) => {
+      manifest.stage = 'development';
+    });
+  }
+  return root;
+}
+
+test('build: displayedStage is the log\'s latest entry when a deployment log exists, overriding a stale manifest.stage; deploymentHistory carries the full parsed log', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-override');
+
+  // beacon's manifest says 'development'; its log's latest entry says 'staging'. The chip must
+  // trust the log once one exists — that is the entire point of this task.
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [
+    { stage: 'development', note: 'first deploy to dev' },
+    { stage: 'staging', note: 'promoted to staging' },
+  ];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const bySlug = new Map(site.workstreams.map((stream) => [stream.slug, stream]));
+
+  const beacon = bySlug.get('beacon');
+  assert.equal(beacon.manifest.stage, 'development', 'the manifest\'s own stage should be untouched');
+  assert.equal(beacon.displayedStage, 'staging', "the log's latest entry should override the manifest's stage");
+  assert.deepEqual(beacon.deploymentHistory, history, 'the full parsed history should be exposed, not just the latest entry');
+
+  // harbor names no deploymentLog at all: displayedStage is simply the manifest's own stage, and
+  // deploymentHistory is empty — not missing, not null, an empty array a template can iterate.
+  const harbor = bySlug.get('harbor');
+  assert.equal(harbor.manifest.deploymentLog, undefined, 'fixture drifted: harbor now names a deploymentLog');
+  assert.equal(harbor.displayedStage, harbor.manifest.stage);
+  assert.deepEqual(harbor.deploymentHistory, []);
+});
+
+test('build: a deploymentLog naming a file that does not exist yet falls back silently — a workstream that has never logged anything is normal, not broken', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-missing');
+
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = 'docs/features/shoal/deployment-log.json'; // never written
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const shoal = site.workstreams.find((stream) => stream.slug === 'shoal');
+
+  assert.equal(shoal.displayedStage, 'not-started', 'a missing log should fall back to the manifest\'s own stage');
+  assert.deepEqual(shoal.deploymentHistory, []);
+});
+
+test('build: a deploymentLog that exists but is not valid JSON fails the build loudly, naming the path (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-malformed');
+
+  const logPath = 'docs/features/shoal/deployment-log.json';
+  writeFileSync(path.join(projectRoot, logPath), 'not json at all');
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a malformed deployment log should fail the build, not silently fall back');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the broken file');
 });

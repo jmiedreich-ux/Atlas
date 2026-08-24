@@ -224,6 +224,14 @@ export function validateWorkstream(obj) {
   requireString(obj, 'gate', '', errors);
   requireString(obj, 'label', '', errors);
 
+  // Decision 14-style nullable string, same rule `acceptance.record` uses below — but genuinely
+  // OPTIONAL rather than a required-but-nullable key: a workstream that has never reached
+  // development has nowhere to log yet, and every manifest written before this field existed
+  // omits the key entirely, so omission has to validate as cleanly as `null` does.
+  if (obj.deploymentLog !== undefined && !isNullableString(obj.deploymentLog)) {
+    errors.push({ path: 'deploymentLog', message: '"deploymentLog" must be a non-empty string or null' });
+  }
+
   if (!Array.isArray(obj.design)) {
     errors.push({ path: 'design', message: '"design" is required and must be an array' });
   } else {

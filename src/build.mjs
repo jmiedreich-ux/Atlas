@@ -252,12 +252,69 @@ function collectAssets(projectRoot) {
     });
 }
 
+// A workstream's *displayed* stage, and the deployment history it was read from — the fix for
+// "chip says Shipping, feature is really in dev". `manifest.stage` is the manifest's own,
+// possibly-stale word for where a workstream stands; a deployment log, when the workstream has
+// one, is the record of what has actually gone out, and its latest entry is what a reader should
+// see on the chip. Computed once, here, the same way `triage` is computed from `classifyTriage`
+// rather than read off the manifest, so every surface agrees.
+//
+// A workstream that names no `deploymentLog`, or one that has not been written to yet, has
+// nothing to override with — this is the normal, unremarkable state of a workstream that has not
+// started deploying, not a broken reference, so it is the one file read in this generator that is
+// tolerant of a missing file in total silence (contrast `fetchProjectIssues`, which warns when
+// GitHub is unreachable: that is a real failure to reach something that should be there; a log
+// nobody has written yet is not). A file that IS there and is not valid JSON is a different thing
+// — a broken record — and fails the build by decision 32, naming the path, the same as every other
+// broken reference here.
+function readDeploymentLog(projectRoot, stream) {
+  const displayedStage = stream.manifest.stage;
+
+  if (!stream.manifest.deploymentLog) {
+    return { displayedStage, deploymentHistory: [] };
+  }
+
+  const absolute = path.join(projectRoot, stream.manifest.deploymentLog);
+  if (!existsSync(absolute)) {
+    return { displayedStage, deploymentHistory: [] };
+  }
+
+  const where = relPath(projectRoot, absolute);
+  let deploymentHistory;
+  try {
+    deploymentHistory = JSON.parse(readFileSync(absolute, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+        `deploymentLog "${stream.manifest.deploymentLog}", but ${where} is not valid JSON ` +
+        `(${error.message}).`,
+    );
+  }
+  if (!Array.isArray(deploymentHistory)) {
+    throw new Error(
+      `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+        `deploymentLog "${stream.manifest.deploymentLog}", but ${where}'s content is not a JSON array ` +
+        `of transitions.`,
+    );
+  }
+
+  const latest = deploymentHistory.at(-1);
+  return {
+    displayedStage: latest ? latest.stage : displayedStage,
+    deploymentHistory,
+  };
+}
+
 // --- the model both the pages and state.json are made from ---------------------------------------
 
 // One model, assembled once. The pages render from it and `buildState` projects it, so the
 // agent-facing output cannot drift from the human-facing one — they are not two derivations of the
 // same data, they are one.
-async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
+//
+// Exported (only) so a test can inspect a computed, not-yet-templated field — `displayedStage`
+// and `deploymentHistory` as of M8 task 6 — directly, the same way `triage.mjs` and `depth.mjs`
+// are unit-tested against their own inputs rather than only through rendered HTML or state.json.
+export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const config = loadConfig(projectRoot);
 
   assertRoadmapExists(config.projectRoot);
@@ -299,6 +356,7 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
+    const { displayedStage, deploymentHistory } = readDeploymentLog(config.projectRoot, stream);
 
     return {
       ...stream,
@@ -307,6 +365,10 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       url: workstreamUrl(stream.slug),
       column: ladder.columns[index],
       issues: issues.byLabel.get(stream.manifest.label) ?? [],
+      // Decision 32's "fail loudly" exception carve-out, and the fix for "chip says Shipping,
+      // feature is really in dev": see `readDeploymentLog` above.
+      displayedStage,
+      deploymentHistory,
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();

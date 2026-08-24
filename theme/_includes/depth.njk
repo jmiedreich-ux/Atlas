@@ -6,6 +6,9 @@
 
   Data this layout expects — `workstreams`, in the order the config declares, each:
     slug, manifest { codename, stage, gate, milestones: [{ id, label, depth, title, status, tasks }] }
+    displayedStage — src/build.mjs's assembleSite: the manifest's own `stage`, overridden by a
+                     deployment log's latest entry when the workstream has one (M8 task 6). The
+                     chip renders THIS, never `manifest.stage` directly.
     column   — computeLadder's own entry: covered[], completedCount, milestoneCount, tipLabel
     triage   — src/triage.mjs's classifyTriage result
     milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
@@ -41,7 +44,7 @@
 >
 <span class="disclosure" aria-hidden="true">▸</span>
 <span class="feature-name">{{ stream.manifest.codename }}</span>
-{{ ui.chip('stage', stream.manifest.stage) }}
+{{ ui.chip('stage', stream.displayedStage) }}
 {%- if stream.column.milestoneCount %}
 <span class="milestone-strip" role="img" aria-label="{{ stream.column.completedCount }} of {{ stream.column.milestoneCount }} milestones complete">
 {%- for filled in stream.column.covered %}<span class="strip-seg{% if filled %} is-filled{% endif %}"></span>{% endfor -%}
