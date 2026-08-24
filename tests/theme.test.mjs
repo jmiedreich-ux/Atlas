@@ -23,7 +23,12 @@ import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
 import { approveBody, outcomeMessage as approveOutcomeMessage, wire as wireApprove } from '../theme/approve.js';
-import { outcomeMessage as refreshOutcomeMessage, wire as wireRefresh } from '../theme/refresh.js';
+import {
+  outcomeMessage as refreshOutcomeMessage,
+  pollMessage,
+  pollRunStatus,
+  wire as wireRefresh,
+} from '../theme/refresh.js';
 import { openActionModal, wire as wireActionModal } from '../theme/action-modal.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
@@ -2328,6 +2333,153 @@ test('refresh.js: wire() surfaces the real refusal message from the server', asy
   assert.equal(trigger.button.disabled, false);
   assert.equal(doc.modal.message.textContent, 'Not triggered: writing needs the "author" role');
   assert.equal(doc.modal.track.className, 'action-modal-track is-failure');
+});
+
+// refresh.js's run-status polling (M9 follow-up, decision 61) — a dispatch that names what it
+// triggered hands off to watching the real run instead of declaring victory on dispatch alone.
+// `intervalMs`/`timeoutMs` overrides keep every case here running in milliseconds.
+
+test('refresh.js: wire() starts polling when the dispatch names a run to watch, not resolving immediately', async () => {
+  const trigger = fakeRefreshTrigger();
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url === '/api/refresh') {
+      return {
+        status: 200,
+        json: async () => ({ ok: true, workflow: 'atlas.yml', ref: 'master', dispatchedAt: '2026-01-01T00:00:00.000Z' }),
+      };
+    }
+    // The status endpoint is polled asynchronously, after wire()'s own click handler already
+    // returned — this test only asserts the dispatch itself did not resolve the modal.
+    return { status: 200, json: async () => ({ ok: true, state: 'pending' }) };
+  };
+
+  const doc = fakeRefreshDoc(trigger);
+  wireRefresh(doc, fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(calls[0], '/api/refresh');
+  assert.equal(trigger.button.disabled, false, 'the button re-enables on dispatch, not on the run finishing');
+  assert.equal(doc.modal.track.className, 'action-modal-track is-running', 'still running — not resolved yet');
+});
+
+test('pollMessage: names the run once one is known, stays generic before that', () => {
+  assert.equal(pollMessage({ state: 'pending' }), 'Dispatched — waiting for GitHub to start the run…');
+  assert.equal(pollMessage({ state: 'running', run: 42 }), 'Building (run #42)…');
+  assert.equal(pollMessage(null), 'Building…');
+});
+
+/**
+ * A real `openActionModal` handle backed by fake DOM parts, the same object `pollRunStatus`
+ * actually receives from `theme/refresh.js`'s own `wire()` — not the raw parts, which have no
+ * `update`/`resolve`/`isOpen` of their own.
+ */
+function fakeOpenModal() {
+  const parts = fakeActionModalBackdrop();
+  const doc = { querySelector: (selector) => (selector === '[data-action-modal-backdrop]' ? parts.backdrop : null) };
+  const modal = openActionModal(doc, 'Refreshing…');
+  return { parts, modal };
+}
+
+test('pollRunStatus: pending, then running, then a successful completion resolves the modal', async () => {
+  const { parts, modal } = fakeOpenModal();
+  const responses = [
+    { ok: true, state: 'pending' },
+    { ok: true, state: 'running', run: 7 },
+    { ok: true, state: 'done', conclusion: 'success', run: 7 },
+  ];
+  let i = 0;
+  const fetchImpl = async () => ({ status: 200, ok: true, json: async () => responses[i++] });
+
+  await pollRunStatus(modal, fetchImpl, {
+    dispatchedAt: '2026-01-01T00:00:00.000Z',
+    workflow: 'atlas.yml',
+    intervalMs: 1,
+    timeoutMs: 1000,
+  });
+
+  assert.equal(i, 3, 'polled exactly as many times as there were responses queued');
+  assert.equal(parts.track.className, 'action-modal-track is-success');
+  assert.equal(parts.message.textContent, 'Rebuild deployed.');
+});
+
+test('pollRunStatus: a completed-but-failed run resolves as a failure, naming the real conclusion', async () => {
+  const { parts, modal } = fakeOpenModal();
+  const fetchImpl = async () => ({
+    status: 200,
+    ok: true,
+    json: async () => ({ ok: true, state: 'done', conclusion: 'cancelled', run: 9 }),
+  });
+
+  await pollRunStatus(modal, fetchImpl, {
+    dispatchedAt: '2026-01-01T00:00:00.000Z',
+    workflow: 'atlas.yml',
+    intervalMs: 1,
+    timeoutMs: 1000,
+  });
+
+  assert.equal(parts.track.className, 'action-modal-track is-failure');
+  assert.equal(parts.message.textContent, 'Rebuild finished: cancelled.');
+});
+
+test('pollRunStatus: a real refusal from the status endpoint stops polling and surfaces the real message', async () => {
+  const { parts, modal } = fakeOpenModal();
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return { status: 403, ok: false, json: async () => ({ message: 'writing needs the "author" role' }) };
+  };
+
+  await pollRunStatus(modal, fetchImpl, {
+    dispatchedAt: '2026-01-01T00:00:00.000Z',
+    workflow: 'atlas.yml',
+    intervalMs: 1,
+    timeoutMs: 1000,
+  });
+
+  assert.equal(calls, 1, 'a real refusal stops polling immediately rather than retrying');
+  assert.equal(parts.track.className, 'action-modal-track is-failure');
+  assert.equal(parts.message.textContent, 'writing needs the "author" role');
+});
+
+test('pollRunStatus: stops the moment the visitor closes the modal, without resolving it', async () => {
+  const { parts, modal } = fakeOpenModal();
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    parts.backdrop.hidden = true; // the visitor closed it during this very poll
+    return { status: 200, ok: true, json: async () => ({ ok: true, state: 'pending' }) };
+  };
+
+  await pollRunStatus(modal, fetchImpl, {
+    dispatchedAt: '2026-01-01T00:00:00.000Z',
+    workflow: 'atlas.yml',
+    intervalMs: 1,
+    timeoutMs: 1000,
+  });
+
+  assert.equal(calls, 1, 'polled once, then noticed the close and stopped');
+  assert.equal(
+    parts.track.className,
+    'action-modal-track is-running',
+    'never resolved — still in its running state, just no longer watched',
+  );
+});
+
+test('pollRunStatus: gives up honestly after the timeout, without claiming failure', async () => {
+  const { parts, modal } = fakeOpenModal();
+  const fetchImpl = async () => ({ status: 200, ok: true, json: async () => ({ ok: true, state: 'pending' }) });
+
+  await pollRunStatus(modal, fetchImpl, {
+    dispatchedAt: '2026-01-01T00:00:00.000Z',
+    workflow: 'atlas.yml',
+    intervalMs: 1,
+    timeoutMs: 5,
+  });
+
+  assert.equal(parts.track.className, 'action-modal-track is-success', 'a timeout is not evidence of failure');
+  assert.match(parts.message.textContent, /Still running/);
 });
 
 // theme/action-modal.js — the shared modal itself, tested directly rather than only through the

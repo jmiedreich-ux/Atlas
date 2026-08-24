@@ -76,10 +76,23 @@ export function openActionModal(doc, title) {
   parts.modal.setAttribute('aria-hidden', 'false');
 
   return {
+    // A caller that needs to report interim progress before the outcome is known (M9 follow-up,
+    // decision 61's own run-status polling: "queued", "building…") without ending the running
+    // state — `resolve` below is still the only thing that switches the track's class.
+    update(message) {
+      parts.message.textContent = message;
+    },
     resolve({ ok, message }) {
       parts.track.className = `action-modal-track ${ok ? 'is-success' : 'is-failure'}`;
       parts.message.textContent = message;
       parts.message.className = `action-modal-message ${ok ? 'is-success' : 'is-failure'}`;
+    },
+    // A poll loop's own exit condition: the visitor closed the modal (the X, the backdrop, or
+    // Escape — all three go through `close()` below, which this reads live rather than caching,
+    // the same reason `modalParts` itself is read fresh on every `openActionModal` call) before
+    // the thing it was watching finished. Polling after that would update text nobody can see.
+    isOpen() {
+      return !parts.backdrop.hidden;
     },
   };
 }

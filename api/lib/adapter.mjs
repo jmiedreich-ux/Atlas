@@ -25,6 +25,11 @@ export async function run(handler, context, req) {
       // `body` when the host parsed JSON for us, `rawBody` when it did not. The payload validator
       // takes either and refuses anything that is not an object.
       body: req?.body ?? req?.rawBody,
+      // The Functions host's own parsed query string (a plain object of string values) — only
+      // `GET /api/refresh-status` reads this; every write endpoint takes its fields from `body`
+      // instead, because a query string is visible in logs and a write is not a place to put
+      // anything a caller names.
+      query: req?.query ?? {},
     },
     {
       // The credential is a deployment setting, and this is the only place it is read from.

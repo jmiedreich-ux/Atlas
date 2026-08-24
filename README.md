@@ -307,9 +307,10 @@ See `src/swa.mjs`, which is the authoritative source for the emitted file.
 
 ## Write-back — answering, not only reading
 
-Decisions 34 to 37, 58 to 61. Five endpoints ship beside the site as Azure Static Web Apps
+Decisions 34 to 37, 58 to 61. Six endpoints ship beside the site as Azure Static Web Apps
 **managed Functions**, in the same deployable and behind the same auth — which is what decision 5
-chose Static Web Apps for, and what the Free tier includes.
+chose Static Web Apps for, and what the Free tier includes. Five of them write; the sixth only
+reads, below the table.
 
 | Endpoint                        | What it writes                                                                               |
 | -------------------------------- | -------------------------------------------------------------------------------------------- |
@@ -318,6 +319,14 @@ chose Static Web Apps for, and what the Free tier includes.
 | `POST /api/deployment-transition` | A deployment stage transition, appended to the JSON log the workstream's manifest names in `deploymentLog` (M8, decision 35 amended: a third writable thing, not a second one). |
 | `POST /api/approve`              | Moves `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, scaffolds its first milestone there, and registers it in `atlas.config.json` — all as one commit (M9, decision 59; there is no longer an intermediate `docs/design/approved/<slug>/` stop — see decisions 58/59 above). |
 | `POST /api/refresh`              | Nothing — it triggers the consuming project's own rebuild workflow (the filename `atlas.config.json`'s `"workflow"` field names) and commits no content at all (M9, decision 61). |
+
+**`GET /api/refresh-status`** (M9 follow-up, decision 61) reads rather than writes: a dispatch
+cannot hand back the run it created — `workflow_dispatch` queues one asynchronously — so this is
+how a caller finds out how that run is actually going. `?since=<ISO timestamp>&workflow=<filename>`
+the first time (what `POST /api/refresh`'s own response already names); `?run=<id>` on every poll
+after the first one it names. Gated on `author`, the same role every write needs — `src/swa.mjs`
+emits one role rule for the whole of `/api/*`, so there is no lesser `reader` tier this route could
+answer to without a separate, deliberate routing change this is not making.
 
 The first three each edit one record at a known SHA — read, edit the text, write with that SHA,
 which both commits and gives optimistic concurrency for free. `approve` moves several files at
