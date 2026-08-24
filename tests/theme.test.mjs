@@ -962,6 +962,14 @@ const OCCURRING_PAIRS = [
   ['.chip-designing', '.chip-designing'],
   ['.chip-next', '.chip-next'],
   ['.chip-unplanned', '.chip-unplanned'],
+  // M8 task 8: the stage-history row and trigger buttons render inside `.feature-spine`, which
+  // itself paints no background of its own — the ground under all of them is `.feature-row`'s,
+  // the same one `.feature-next` and `.disclosure` already sit on above.
+  ['.stage-node-label', '.feature-row'],
+  ['.stage-node-note', '.feature-row'],
+  ['.stage-trigger-label', '.feature-row'],
+  ['.stage-trigger-status', '.feature-row'],
+  ['.stage-trigger-button', '.feature-row'],
 ];
 
 test('tokens.css: every text-on-ground pairing the site actually renders clears WCAG AA', () => {
