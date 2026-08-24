@@ -918,20 +918,21 @@ a.assignee-name:hover {
   margin: var(--sky-space-1) 0 0;
 }
 
-/* M9's Approve section (decision 59) — a short, separate list below the feature list, not another
- * kind of .feature-row: a proposed design has no manifest yet, so there is nothing to expand. */
-.proposed-section {
+/* M9's Upcoming Features section (decision 59) — a short, separate list below the feature list,
+ * not another kind of .feature-row: a proposed design has no manifest yet, so there is nothing to
+ * expand. */
+.upcoming-section {
   margin: var(--sky-space-6) 0 0;
 }
 
-.proposed-list {
+.upcoming-list {
   border-top: 1px solid var(--sky-color-border);
   list-style: none;
   margin: var(--sky-space-3) 0 0;
   padding: 0;
 }
 
-.proposed-row {
+.upcoming-row {
   align-items: baseline;
   border-bottom: 1px solid var(--sky-color-border);
   display: flex;
@@ -940,7 +941,9 @@ a.assignee-name:hover {
   padding: var(--sky-space-3) 0;
 }
 
-.proposed-name {
+/* Applies whether the row rendered an <a> (the common case) or a <span> (no matching document
+ * found — see depth.njk's own comment) — the same visual weight either way. */
+.upcoming-name {
   color: var(--sky-text-primary);
   font-weight: 600;
 }
