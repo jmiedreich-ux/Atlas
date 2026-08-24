@@ -240,6 +240,9 @@ const EXPECTED_FILES = [
   'docs/features/beacon/m4-plan/index.html',
   'docs/features/beacon/m5-plan/index.html',
   'docs/features/beacon/m6-plan/index.html',
+  // M5: the fixture's one register (Task 7's own instruction — a real register.json in the
+  // fixture, so the fixture site exercises the whole pipeline, not just tests against it).
+  'docs/features/beacon/register/index.html',
   'docs/features/reef/m1-plan/index.html',
   'docs/features/reef/m2-plan/index.html',
   'docs/features/reef/m3-plan/index.html',
@@ -258,6 +261,9 @@ const EXPECTED_FILES = [
   'library/index.html',
   'mobile/index.html',
   'order.js',
+  // M5 Task 4: the registers index, generated whenever any workstream has a register — beacon
+  // does, in this fixture.
+  'registers/index.html',
   'state.json',
   'staticwebapp.config.json',
   'tokens.css',
@@ -1108,6 +1114,125 @@ test("build: the project's Markdown records are rendered as pages at their own p
       readFileSync(page, 'utf8').includes(record),
       `${record}'s page never names the file it was rendered from (decision 2)`,
     );
+  }
+});
+
+// --- M5: a register's document is generated, never a file anybody edits ------------------------
+
+test('register: a register.json produces a generated document, and a hand edit to the output is lost on the next build', async () => {
+  const projectRoot = fixtureCopy('register-generated');
+  const registerPath = path.join(projectRoot, 'docs', 'features', 'beacon', 'register.json');
+  writeFileSync(
+    registerPath,
+    JSON.stringify(
+      {
+        slug: 'beacon',
+        title: 'Beacon Register',
+        questions: [
+          {
+            id: 'Q1',
+            question: 'Real question, invented for this test?',
+            why: 'Real why.',
+            options: ['A', 'B'],
+            recommended: 'A',
+            severity: 'BLOCKING',
+            chosen: { kind: 'offered', value: 'A' },
+            citations: [],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+
+  const out1 = path.join(TMP_ROOT, 'register-generated-out');
+  rmSync(out1, { recursive: true, force: true });
+  await build(projectRoot, out1, { fetchImpl: stubFetch, quiet: true });
+
+  const generatedPage = path.join(out1, 'docs', 'features', 'beacon', 'register', 'index.html');
+  assert.ok(existsSync(generatedPage), 'no page was generated for the register at all');
+  const rendered = readFileSync(generatedPage, 'utf8');
+  assert.ok(rendered.includes('Beacon Register'), "the generated page never names the register's own title");
+  assert.ok(rendered.includes('Real question, invented for this test?'), 'the generated page never rendered the question itself');
+
+  // A hand edit made directly to the OUTPUT (not the source register.json) does not survive a
+  // rebuild — the document is regenerated from the record every time, never read back as its own
+  // source (decision 3's "no artifact without a generator", applied to a register).
+  writeFileSync(generatedPage, 'HAND EDITED, SHOULD NOT SURVIVE');
+  await build(projectRoot, out1, { fetchImpl: stubFetch, quiet: true });
+  const rebuilt = readFileSync(generatedPage, 'utf8');
+  assert.ok(!rebuilt.includes('HAND EDITED'), 'a hand edit to the generated output survived a rebuild');
+  assert.equal(rebuilt, rendered, 'the rebuilt page differs from the first build with no source change');
+});
+
+test('register: the index shows a structured register\'s open count, orders by it, and shows a legacy register as a plain link with no count', async () => {
+  const projectRoot = fixtureCopy('register-index');
+
+  // beacon: structured, 2 of 3 open.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'beacon', 'register.json'),
+    JSON.stringify({
+      slug: 'beacon', title: 'Beacon Register',
+      questions: [
+        { id: 'Q1', question: 'Q1?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q2', question: 'Q2?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q3', question: 'Q3?', why: 'W', options: ['A'], recommended: 'A', severity: 'minor', chosen: { kind: 'offered', value: 'A' }, citations: [] },
+      ],
+    }),
+  );
+  // tide: structured, 1 of 2 open — fewer open than beacon, so must sort after it.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'tide', 'register.json'),
+    JSON.stringify({
+      slug: 'tide', title: 'Tide Register',
+      questions: [
+        { id: 'Q1', question: 'Q1?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q2', question: 'Q2?', why: 'W', options: ['A'], recommended: 'A', severity: 'minor', chosen: { kind: 'offered', value: 'A' }, citations: [] },
+      ],
+    }),
+  );
+  // reef: legacy prose only, no register.json.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'reef', 'open-questions.md'),
+    '# Reef Build — Open Questions Register\n\n### Q1 · BLOCKING\n\n**A legacy question?**\n\nWhy.\n\n*Recommended:* A\n\n*Answer:* A\n',
+  );
+  // anchor: neither — must be absent from the index entirely.
+
+  const out = path.join(TMP_ROOT, 'register-index-out');
+  rmSync(out, { recursive: true, force: true });
+  await build(projectRoot, out, { fetchImpl: stubFetch, quiet: true });
+
+  const indexHtml = readFileSync(path.join(out, 'registers', 'index.html'), 'utf8');
+
+  const beaconIndex = indexHtml.indexOf('Beacon Register');
+  const tideIndex = indexHtml.indexOf('Tide Register');
+  const reefIndex = indexHtml.indexOf('Reef Build');
+  assert.ok(beaconIndex !== -1, 'the structured Beacon register is missing from the index');
+  assert.ok(tideIndex !== -1, 'the structured Tide register is missing from the index');
+  assert.ok(reefIndex !== -1, 'the legacy Reef register is missing from the index');
+
+  assert.ok(beaconIndex < tideIndex, 'Beacon (2 open) must sort before Tide (1 open) — more open first');
+  assert.ok(tideIndex < reefIndex, 'structured registers must sort before legacy-prose ones');
+
+  // Real counts render for structured entries.
+  assert.match(indexHtml.slice(beaconIndex - 5, beaconIndex + 200), /2\s*open/i);
+  assert.match(indexHtml.slice(tideIndex - 5, tideIndex + 200), /1\s*open/i);
+
+  // The legacy entry carries no count.
+  assert.doesNotMatch(indexHtml.slice(reefIndex - 5, reefIndex + 200), /\d+\s*open/i);
+
+  // Anchor has neither register.json nor open-questions.md — absent entirely.
+  assert.ok(!indexHtml.includes('Anchor'), 'a workstream with no register at all appeared in the index');
+});
+
+test('register: a workstream with no register.json builds exactly as it did before this milestone', () => {
+  // Beacon carries the fixture's one register.json (Task 7's own instruction) and is asserted
+  // separately above; every other shared-fixture workstream has none — this just asserts that
+  // absence is silent, not an error, for each of them.
+  for (const slug of FIXTURE_WORKSTREAMS.filter((s) => s !== 'beacon')) {
+    const page = path.join(OUT, 'docs', 'features', slug, 'register', 'index.html');
+    assert.ok(!existsSync(page), `${slug} has no register.json but a register page was generated anyway`);
   }
 });
 

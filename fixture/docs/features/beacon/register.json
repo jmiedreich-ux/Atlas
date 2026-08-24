@@ -1,0 +1,36 @@
+{
+  "slug": "beacon",
+  "title": "Beacon Register",
+  "questions": [
+    {
+      "id": "Q1",
+      "question": "How does the light rotate — motor or solenoid?",
+      "why": "Determines the whole mechanism the rest of the build depends on.",
+      "options": ["Motor", "Solenoid"],
+      "recommended": "Motor",
+      "severity": "BLOCKING",
+      "chosen": { "kind": "offered", "value": "Motor" },
+      "citations": ["m1-plan.md"]
+    },
+    {
+      "id": "Q2",
+      "question": "Should the horn sound on a fixed schedule or fog-triggered?",
+      "why": "Changes what the sensor package has to detect.",
+      "options": ["Fixed schedule", "Fog-triggered"],
+      "recommended": "Fixed schedule",
+      "severity": "important",
+      "chosen": { "kind": "written-in", "value": "Both, switchable by the keeper on duty." },
+      "citations": []
+    },
+    {
+      "id": "Q3",
+      "question": "What colour should the keeper's console be?",
+      "why": "Cosmetic, cheap to change late.",
+      "options": ["Brass", "Black"],
+      "recommended": "Brass",
+      "severity": "minor",
+      "chosen": { "kind": "deferred", "value": null },
+      "citations": []
+    }
+  ]
+}

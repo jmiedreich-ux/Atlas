@@ -18,6 +18,7 @@ import { milestoneUrl, workstreamUrl } from '../src/build.mjs';
 import { formatDay } from '../src/dates.mjs';
 import { computeLadder, spineDetail } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
+import { renderRegisterMarkdown } from '../src/register.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
@@ -214,12 +215,50 @@ const documentHtml = env.render('document.njk', {
   anchors: headingAnchors(decisionsText),
 });
 
+// M5: a register's own page. Real anchor ids, computed the same way build.mjs computes them
+// (headingAnchors against the actual rendered markdown) rather than a hand-rolled `#q1` — a real
+// "Q1 · BLOCKING" heading slugifies to `q1-blocking`, severity included, not the clean id an
+// earlier draft assumed.
+const SAMPLE_REGISTER = {
+  slug: 'beacon',
+  title: 'Beacon Register',
+  questions: [
+    {
+      id: 'Q1', question: 'Offered, invented for this test?', why: 'Because a test needs one.',
+      options: ['A', 'B'], recommended: 'A', severity: 'BLOCKING',
+      chosen: { kind: 'offered', value: 'A' }, citations: [],
+    },
+    {
+      id: 'Q2', question: 'Written in, invented for this test?', why: 'Because a test needs one.',
+      options: ['A', 'B'], recommended: 'A', severity: 'important',
+      chosen: { kind: 'written-in', value: 'Neither — a third way entirely.' }, citations: [],
+    },
+    {
+      id: 'Q3', question: 'Deferred, invented for this test?', why: 'Because a test needs one.',
+      options: ['A', 'B'], recommended: 'A', severity: 'minor',
+      chosen: { kind: 'deferred', value: null }, citations: [],
+    },
+  ],
+};
+const registerAnchors = headingAnchors(renderRegisterMarkdown(SAMPLE_REGISTER));
+const registerHtml = env.render('register.njk', {
+  ...site,
+  title: SAMPLE_REGISTER.title,
+  doc: { title: SAMPLE_REGISTER.title, path: 'docs/features/beacon/register.md' },
+  register: {
+    ...SAMPLE_REGISTER,
+    questions: SAMPLE_REGISTER.questions.map((q, i) => ({ ...q, anchorId: registerAnchors[i + 1]?.id })),
+  },
+  titleAnchorId: registerAnchors[0]?.id,
+});
+
 const ALL_PAGES = {
   'depth.njk': depthHtml,
   'mobile.njk': mobileHtml,
   'workstream.njk': workstreamHtml,
   'milestone.njk': milestoneHtml,
   'document.njk': documentHtml,
+  'register.njk': registerHtml,
 };
 
 // --- text helpers ------------------------------------------------------------------------------
@@ -1530,6 +1569,7 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     'workstream.njk': 'a stage chip, plus a status chip per milestone row',
     'milestone.njk': 'this milestone\'s own status',
     'document.njk': null, // a record page renders a record; it has no vocabulary to chip
+    'register.njk': 'each question\'s own severity',
   };
   assert.deepEqual(
     Object.keys(expected).sort(),
@@ -2077,6 +2117,57 @@ test('document: the link to the file resolves on any default branch', () => {
       /^https:\/\/github\.com\/[^/]+\/[^/]+\/blob\/HEAD\//,
       `a record page must reach its file on any default branch, so the ref is HEAD: ${href}`,
     );
+  }
+});
+
+// --- M5: register.njk — write-ins surfaced, not buried -------------------------------------------
+
+test('register: the written-in answers are surfaced as their own group, above the full list', () => {
+  const section = /<section class="written-in-answers">([\s\S]*?)<\/section>/.exec(registerHtml);
+  assert.ok(section, 'no written-in-answers section on the register page at all');
+
+  // Exactly the write-in question (Q2), not the offered one (Q1) or the deferred one (Q3).
+  assert.ok(!section[1].includes('>Offered, invented for this test?<'), 'an offered answer leaked into the written-in section');
+  assert.ok(!section[1].includes('>Deferred, invented for this test?<'), 'a deferred question leaked into the written-in section');
+
+  const realAnchorId = registerAnchors[2].id; // anchors[0] = H1 title, [1] = Q1, [2] = Q2
+  assert.match(
+    section[1],
+    new RegExp(`<a href="#${realAnchorId}"[^>]*>[^<]*Written in, invented for this test\\?`),
+    `the written-in entry does not link to Q2's real anchor id (#${realAnchorId})`,
+  );
+
+  // The section renders before the full question list, not after it.
+  const sectionIndex = registerHtml.indexOf('written-in-answers');
+  const fullListIndex = registerHtml.indexOf(`id="${realAnchorId}"`);
+  assert.ok(sectionIndex < fullListIndex, 'the written-in section renders after the full question list, not above it');
+});
+
+test('register: a register with no write-ins renders no written-in section at all', () => {
+  const noWriteIns = {
+    slug: 'beacon', title: 'All Offered',
+    questions: [{
+      id: 'Q1', question: 'Offered only?', why: 'W', options: ['A'], recommended: 'A',
+      severity: 'BLOCKING', chosen: { kind: 'offered', value: 'A' }, citations: [],
+    }],
+  };
+  const anchors = headingAnchors(renderRegisterMarkdown(noWriteIns));
+  const html = env.render('register.njk', {
+    ...site,
+    title: noWriteIns.title,
+    doc: { title: noWriteIns.title, path: 'docs/features/beacon/register.md' },
+    register: { ...noWriteIns, questions: noWriteIns.questions.map((q, i) => ({ ...q, anchorId: anchors[i + 1]?.id })) },
+    titleAnchorId: anchors[0]?.id,
+  });
+  assert.ok(!html.includes('written-in-answers'), 'a register with zero write-ins still rendered an (empty) written-in section');
+});
+
+test('register: every question renders at its own real anchor id, with its status and citations', () => {
+  for (let i = 0; i < SAMPLE_REGISTER.questions.length; i += 1) {
+    const q = SAMPLE_REGISTER.questions[i];
+    const anchorId = registerAnchors[i + 1]?.id;
+    assert.ok(anchorId, `question ${q.id} has no computed anchor id to check against`);
+    assert.match(registerHtml, new RegExp(`id="${anchorId}"`), `question ${q.id} does not render at its own real anchor id`);
   }
 });
 

@@ -1,0 +1,34 @@
+{#- Atlas — the registers index (M5, Task 4).
+
+  A reader needing to find a register when there are several of them, built from the discovered
+  set directly rather than a hand-maintained list (decision 3) — a workstream with neither
+  `register.json` nor `open-questions.md` is simply absent, and this page does not exist at all
+  when no workstream has a register of either kind.
+
+  Two kinds, and — the same discipline `library.njk` already applies to its own two kinds — the
+  difference is stated rather than hidden. A structured register (`register.json`) shows its real
+  open-question count; a legacy-prose one (a workstream whose register is still hand-written prose, and any register not yet migrated — Task 6's
+  stated cost) shows a plain link with none, because nothing here parses an open count out of
+  prose. Structured entries sort first, most open questions first; legacy entries after,
+  alphabetically.
+
+  Data this layout expects:
+    registers — [{ slug, codename, kind: 'structured'|'legacy', title, url, openCount: number|null }],
+               already in the order this page renders them
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+
+{% block bodyClass %}page page-registers{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Feature planning</a> · <a href="/library/">Library</a></p>
+<h1>Registers</h1>
+<p class="lede">Every feature's question register on this site. A structured one shows how many questions are still open; a register not yet converted from prose shows a link and no count.</p>
+
+<ul class="named-refs register-index">
+{%- for entry in registers %}
+<li data-kind="{{ entry.kind }}"><a href="{{ entry.url }}">{{ entry.title }}</a>{% if entry.kind == 'structured' %} <span class="register-open-count">{{ entry.openCount }} open</span>{% endif %} <span class="where">{{ entry.codename }}</span></li>
+{%- endfor %}
+</ul>
+{% endblock %}

@@ -16,7 +16,7 @@ const QUESTION_ID = /^[A-Za-z]{1,8}[-.]?\d+[a-z]?$/;
 /** A milestone's id (decision 18): `M<n>`, and its parts `M<n>.<m>`. Historical ids are wider. */
 const MILESTONE_ID = /^[A-Za-z][A-Za-z0-9.-]{0,31}$/;
 
-const ANSWER_FIELDS = Object.freeze(['workstream', 'question', 'answer', 'sha']);
+const ANSWER_FIELDS = Object.freeze(['workstream', 'question', 'answer', 'sha', 'chosenWasOffered']);
 const ACCEPTANCE_FIELDS = Object.freeze(['workstream', 'milestone', 'result', 'note', 'sha']);
 const DEPLOYMENT_TRANSITION_FIELDS = Object.freeze(['workstream', 'stage', 'note', 'sha']);
 
@@ -116,6 +116,15 @@ export function validateAnswerPayload(body) {
   const why = whyNotWritableText(value.answer);
   if (why) return fail(`"answer" cannot be written into the register because ${why}.`);
 
+  // M5: which register shape the workstream actually has decides whether "answer" is a prose block
+  // or a structured question's chosen text — the handler decides that, not this field. What this
+  // field says is only whether, on the structured path, the caller means "I picked one of the
+  // question's own options" or "I am writing something new in" — a caller cannot declare which
+  // KIND of register it thinks it is answering, only (when it matters) how to interpret its answer.
+  if (value.chosenWasOffered !== undefined && typeof value.chosenWasOffered !== 'boolean') {
+    return fail(`"chosenWasOffered" must be a boolean when present (got ${JSON.stringify(value.chosenWasOffered)}).`);
+  }
+
   const sha = checkSha(value.sha);
   if (!sha.ok) return sha;
 
@@ -125,6 +134,7 @@ export function validateAnswerPayload(body) {
       workstream: value.workstream,
       question: value.question.trim(),
       answer: value.answer,
+      chosenWasOffered: value.chosenWasOffered ?? false,
       sha: value.sha ?? null,
     },
   };

@@ -205,10 +205,14 @@ test('state: every URL it names is a page the same build actually wrote', () => 
 });
 
 test('state: every record path it names is a file in the project, not an absolute path', () => {
+  // A register's generated document (M5) is build output at `path` — no such file ships with the
+  // project. `generatedFrom` names the register.json it actually came from, and that's the path
+  // this test holds to the must-exist-on-disk standard instead.
+  const documentPaths = state.documents.map((d) => d.generatedFrom ?? d.path);
   const paths = [
     ...state.workstreams.map((w) => w.manifestPath),
     ...state.workstreams.flatMap((w) => w.milestones.map((m) => m.planPath)),
-    ...state.documents.map((d) => d.path),
+    ...documentPaths,
     ...state.assets.map((a) => a.path),
   ];
 

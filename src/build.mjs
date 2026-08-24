@@ -44,6 +44,7 @@ import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from 
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
 import { emptyBuckets, fetchIssueBodies, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
+import { validateRegister, renderRegisterMarkdown } from './register.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
 import { orderByTriage } from './triage.mjs';
@@ -75,6 +76,10 @@ const CONFIG_FILENAME = 'atlas.config.json';
 const ROADMAP = 'ROADMAP.md';
 const DOCS_DIRNAME = 'docs';
 const MANIFEST_FILENAME = 'workstream.json';
+// M5: a register source, read and transformed into a generated document (loadRegister above) —
+// the same reason workstream.json is excluded from the generic asset-copy pipeline below, not a
+// standalone file meant to be served as itself.
+const REGISTER_FILENAME = 'register.json';
 
 // --- paths ---------------------------------------------------------------------------------------
 
@@ -197,11 +202,50 @@ function assertRoadmapExists(projectRoot) {
 // and neither is ever the other. Recorded rather than renamed: both names are in the v1 `state.json`
 // contract.
 
-// The Markdown records: the roadmap, and everything under `docs/` (decision 40). A record renders
-// at the URL its own path implies — `docs/x/y.md` becomes `/docs/x/y/` — because that is precisely
-// what `src/markdown.mjs` rewrites a relative `y.md` link to. Render them anywhere else and every
-// cross-reference in the corpus breaks.
-function collectDocuments(projectRoot) {
+// One document entry, from a repository-relative `.md` path and its text — real, on disk, or
+// generated (M5's registers, below). The URL/permalink formula is the single thing that must
+// never diverge between the two: `docs/x/y.md` becomes `/docs/x/y/`, because that is precisely
+// what `src/markdown.mjs` rewrites a relative `y.md` link to, and a generated document that used
+// a different formula would be a cross-reference nothing else in the corpus could resolve.
+function documentFromMarkdown(source, relative, text) {
+  const withoutExtension = relative.replace(/\.md$/, '');
+  const anchors = headingAnchors(text);
+  return {
+    source,
+    path: relative,
+    url: `/${encodeUrlPath(withoutExtension)}/`,
+    permalink: `/${withoutExtension}/index.html`,
+    // Decision 15: the file is the authority, so its own first heading names it. Only when a
+    // record carries no heading at all does the filename stand in.
+    title: anchors.find((anchor) => anchor.level === 1)?.text.trim() || path.basename(withoutExtension),
+    hrefBase: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative),
+    text,
+    anchors,
+  };
+}
+
+// A question register (M5, decision 51): `docs/features/<slug>/register.json`, optional. Present
+// ones generate their own markdown document as build output — decision 3 applied to a register —
+// and are folded into the same `documents` collection every other rendered `.md` file goes
+// through, so a register's page is indistinguishable in the pipeline from any other document.
+function loadRegister(projectRoot, slug) {
+  const registerPath = path.join(projectRoot, DOCS_DIRNAME, 'features', slug, REGISTER_FILENAME);
+  if (!existsSync(registerPath)) return null;
+  const raw = JSON.parse(readFileSync(registerPath, 'utf8'));
+  const result = validateRegister(raw);
+  if (!result.ok) {
+    throw new Error(
+      `atlas: ${relPath(projectRoot, registerPath)} is not a valid register:\n` +
+        result.errors.map((e) => `  ${e.path || '(root)'}: ${e.message}`).join('\n'),
+    );
+  }
+  return result.value;
+}
+
+// The Markdown records: the roadmap, everything under `docs/` (decision 40), and every
+// workstream's register document, generated rather than read (M5). A record renders at the URL
+// its own path implies — see `documentFromMarkdown` above.
+function collectDocuments(projectRoot, slugs = []) {
   // The roadmap first, then the corpus. Its presence is not re-tested here: `assertRoadmapExists`
   // has already thrown if it is missing, and a second check would read as though it might not have.
   const sources = [
@@ -209,25 +253,78 @@ function collectDocuments(projectRoot) {
     ...filesUnder(path.join(projectRoot, DOCS_DIRNAME)).filter((file) => file.endsWith('.md')),
   ];
 
-  return sources.map((source) => {
+  const documents = sources.map((source) => {
     const relative = relPath(projectRoot, source);
-    const withoutExtension = relative.replace(/\.md$/, '');
-    const text = readFileSync(source, 'utf8');
-    const anchors = headingAnchors(text);
-
-    return {
-      source,
-      path: relative,
-      url: `/${encodeUrlPath(withoutExtension)}/`,
-      permalink: `/${withoutExtension}/index.html`,
-      // Decision 15: the file is the authority, so its own first heading names it. Only when a
-      // record carries no heading at all does the filename stand in.
-      title: anchors.find((anchor) => anchor.level === 1)?.text.trim() || path.basename(withoutExtension),
-      hrefBase: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative),
-      text,
-      anchors,
-    };
+    return documentFromMarkdown(source, relative, readFileSync(source, 'utf8'));
   });
+
+  for (const slug of slugs) {
+    const register = loadRegister(projectRoot, slug);
+    if (register === null) continue;
+    const virtualPath = path.posix.join(DOCS_DIRNAME, 'features', slug, 'register.md');
+    const doc = documentFromMarkdown(null, virtualPath, renderRegisterMarkdown(register));
+    // The write-ins section (Task 3, register.njk) links down to each question's full entry.
+    // `headingAnchors` already computed the real id markdown-it assigned each `### Q<n> ·
+    // <severity>` heading (NOT the clean `#q1` an earlier draft of this plan assumed — a real
+    // heading like "Q1 · BLOCKING" slugifies to `q1-blocking`, severity included) — reused here by
+    // position (the H1 title is anchors[0], then one heading per question in register order)
+    // rather than re-deriving a second slug algorithm that could drift from markdown-it's own.
+    doc.register = {
+      ...register,
+      questions: register.questions.map((q, i) => ({ ...q, anchorId: doc.anchors[i + 1]?.id })),
+    };
+    // Decision 15's "the path is where the record itself lives" doesn't hold here — `doc.path` is
+    // build output, not a file the project ships. `generatedFrom` names the real, hand-edited file
+    // it was rendered from, so state.mjs has something true to tell an agent that goes looking for
+    // this record on disk.
+    doc.generatedFrom = path.posix.join(DOCS_DIRNAME, 'features', slug, REGISTER_FILENAME);
+    documents.push(doc);
+  }
+
+  return documents;
+}
+
+// Task 4: one entry per workstream that has a register of either kind, sorted structured-first
+// (most open questions first — the one an owner most needs to look at), legacy-prose after
+// (alphabetically by codename, since there is no open count to sort a prose register by).
+function buildRegisterIndex(projectRoot, resolved, documents) {
+  const entries = [];
+  for (const stream of resolved) {
+    const virtualPath = path.posix.join(DOCS_DIRNAME, 'features', stream.slug, 'register.md');
+    const structuredDoc = documents.find((d) => d.path === virtualPath);
+    if (structuredDoc) {
+      const openCount = structuredDoc.register.questions.filter((q) => q.chosen.kind === 'deferred').length;
+      entries.push({
+        slug: stream.slug,
+        codename: stream.manifest.codename,
+        kind: 'structured',
+        title: structuredDoc.register.title,
+        url: structuredDoc.url,
+        openCount,
+      });
+      continue;
+    }
+    const legacyRelative = path.posix.join(DOCS_DIRNAME, 'features', stream.slug, 'open-questions.md');
+    const legacyDoc = documents.find((d) => d.path === legacyRelative);
+    if (legacyDoc) {
+      entries.push({
+        slug: stream.slug,
+        codename: stream.manifest.codename,
+        kind: 'legacy',
+        title: legacyDoc.title,
+        url: legacyDoc.url,
+        openCount: null,
+      });
+    }
+    // Neither register.json nor open-questions.md: this workstream has no register at all, and is
+    // absent from the index entirely — decision 3 again, an index cannot list what was not found.
+  }
+
+  const structured = entries.filter((e) => e.kind === 'structured').sort((a, b) => b.openCount - a.openCount);
+  const legacy = entries
+    .filter((e) => e.kind === 'legacy')
+    .sort((a, b) => (a.codename < b.codename ? -1 : a.codename > b.codename ? 1 : 0));
+  return [...structured, ...legacy];
 }
 
 // Decision 10: the standalone documents under `docs/` — thirty-two of them in the real corpus, ten
@@ -242,7 +339,12 @@ function collectDocuments(projectRoot) {
 // under their own dependencies.
 function collectAssets(projectRoot) {
   return filesUnder(path.join(projectRoot, DOCS_DIRNAME))
-    .filter((file) => !file.endsWith('.md') && path.basename(file) !== MANIFEST_FILENAME)
+    .filter(
+      (file) =>
+        !file.endsWith('.md') &&
+        path.basename(file) !== MANIFEST_FILENAME &&
+        path.basename(file) !== REGISTER_FILENAME,
+    )
     .map((source) => {
       const relative = relPath(projectRoot, source);
       return {
@@ -406,8 +508,14 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   // The records first, so a milestone can link its plan and its acceptance record to the pages
   // this same build renders for them, rather than leaving them as text nobody can follow.
-  const documents = collectDocuments(config.projectRoot);
+  const documents = collectDocuments(config.projectRoot, resolved.map((stream) => stream.slug));
   const documentUrlByPath = new Map(documents.map((doc) => [doc.path, doc.url]));
+
+  // Task 4: the registers index. Built from the discovered set directly (no hand-maintained list
+  // anywhere) — a structured register (register.json present) shows its real open count; a
+  // legacy-prose one (a workstream's open-questions.md, and any register not yet migrated — Task 6's
+  // stated cost) shows a plain link with none, since nothing parses its open count from prose.
+  const registerIndex = buildRegisterIndex(config.projectRoot, resolved, documents);
 
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
@@ -499,6 +607,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     triaged,
     issues,
     documents,
+    registerIndex,
     assets: collectAssets(config.projectRoot),
     // #780's task 12: the other half of decision 32. A config naming a directory that is not there
     // already fails the build; a feature that has been WRITTEN and never put on the sheet was
@@ -626,7 +735,45 @@ function planPages(site) {
     },
   });
 
+  // Task 4: the registers index, absent entirely when no workstream has a register of either
+  // kind — an empty page nobody would ever reach is not better than no page.
+  if (site.registerIndex.length > 0) {
+    pages.push({
+      name: 'registers',
+      extend: 'registers-index.njk',
+      data: {
+        ...shell,
+        permalink: '/registers/index.html',
+        title: 'Registers',
+        registers: site.registerIndex,
+      },
+    });
+  }
+
   for (const doc of site.documents) {
+    // A register (M5) renders through its own purpose-built template — "surfaced as a group"
+    // needs real layout over the structured question data, not a heading grep over rendered
+    // markdown, which is what every other document gets.
+    if (doc.register) {
+      pages.push({
+        name: `document-${doc.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+        extend: 'register.njk',
+        data: {
+          ...shell,
+          permalink: doc.permalink,
+          title: doc.title,
+          doc: { title: doc.title, path: doc.path },
+          register: doc.register,
+          // Decision 11: a record's own heading, not one Atlas re-prints — the same rule
+          // document.njk follows for every other document. doc.anchors[0] is the title's real,
+          // markdown-it-assigned id (the same one a reader following the generated document's own
+          // contents list would land on), computed once by documentFromMarkdown above and reused
+          // here rather than the template inventing a plain, id-less <h1>.
+          titleAnchorId: doc.anchors[0]?.id,
+        },
+      });
+      continue;
+    }
     pages.push({
       name: `document-${doc.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
       extend: 'document.njk',
