@@ -177,11 +177,18 @@ function assemble(entries) {
   });
 }
 
-function renderDepth(entries, proposedDesigns = []) {
+function renderDepth(entries) {
   return env.render('depth.njk', {
     ...site,
     title: 'Feature planning',
     workstreams: assemble(entries),
+  });
+}
+
+function renderBacklog(proposedDesigns) {
+  return env.render('backlog.njk', {
+    ...site,
+    title: 'Feature Backlog',
     proposedDesigns,
   });
 }
@@ -205,6 +212,7 @@ function renderWorkstream(stream, issues = []) {
 
 const depthHtml = renderDepth(workstreams);
 const mobileHtml = renderMobile(workstreams);
+const backlogHtml = renderBacklog([{ slug: 'lighthouse', url: '/docs/design/proposed/lighthouse/decisions/' }]);
 
 const beacon = workstreams.find((w) => w.slug === 'beacon');
 const beaconPlan = readFileSync(path.join(beacon.dir, 'm1-plan.md'), 'utf8');
@@ -274,6 +282,7 @@ const ALL_PAGES = {
   'milestone.njk': milestoneHtml,
   'document.njk': documentHtml,
   'register.njk': registerHtml,
+  'backlog.njk': backlogHtml,
 };
 
 // --- text helpers ------------------------------------------------------------------------------
@@ -1586,6 +1595,9 @@ test('chips: every status chip carries a text label, never colour alone', () => 
     'milestone.njk': 'this milestone\'s own status',
     'document.njk': null, // a record page renders a record; it has no vocabulary to chip
     'register.njk': 'each question\'s own severity',
+    // A proposal row (slug + link + Approve button) carries no status vocabulary of its own —
+    // there is no manifest yet for a chip to summarise.
+    'backlog.njk': null,
   };
   assert.deepEqual(
     Object.keys(expected).sort(),
@@ -2088,19 +2100,15 @@ test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so 
   assert.deepEqual(posted.map((p) => p.sha), [buildTimeSha, buildTimeSha]);
 });
 
-// --- the Upcoming Features section (M9, decision 59) ------------------------------------------------
+// --- the Feature Backlog page (M9, decision 59; moved off Feature Planning onto its own page,
+// renamed from "Upcoming Features", at the owner's request) --------------------------------------
 
-test('upcoming features section: absent entirely when there is nothing proposed — no empty heading', () => {
-  const html = renderDepth(workstreams, []);
-  assert.ok(!html.includes('id="upcoming-heading"'), 'the Upcoming Features section rendered with nothing in it');
-});
-
-test('upcoming features section: one row per slug, each with its own Approve button', () => {
-  const html = renderDepth(workstreams, [
+test('feature backlog: one row per slug, each with its own Approve button', () => {
+  const html = renderBacklog([
     { slug: 'keystone', url: '/docs/design/proposed/keystone/decisions/' },
     { slug: 'platform-operations', url: null },
   ]);
-  assert.match(html, /id="upcoming-heading"/);
+  assert.match(html, /<h1>Feature Backlog<\/h1>/);
   // Each slug appears twice — once on its <li>, once on its own button — so a Set is the right
   // check here, not a raw count.
   assert.deepEqual(
@@ -2111,8 +2119,8 @@ test('upcoming features section: one row per slug, each with its own Approve but
   assert.equal(buttons.length, 2);
 });
 
-test('upcoming features section: a slug with a resolved url links to it; one with none renders plain text', () => {
-  const html = renderDepth(workstreams, [
+test('feature backlog: a slug with a resolved url links to it; one with none renders plain text', () => {
+  const html = renderBacklog([
     { slug: 'keystone', url: '/docs/design/proposed/keystone/decisions/' },
     { slug: 'platform-operations', url: null },
   ]);
@@ -2121,11 +2129,24 @@ test('upcoming features section: a slug with a resolved url links to it; one wit
   assert.ok(!html.includes('<a class="upcoming-name" href="">'), 'a null url must never render an empty href');
 });
 
-test('approve.js: only the feature planning page loads the trigger script', () => {
-  assert.match(depthHtml, /<script type="module" src="\/approve\.js"><\/script>/);
+test('feature backlog: no longer rendered on the Feature Planning page itself', () => {
+  const html = renderDepth(workstreams);
+  assert.ok(!html.includes('upcoming-list'), 'the backlog moved to its own page — depth.njk must not render it too');
+});
+
+test('feature backlog: the nav link only renders when hasBacklog is true, on every page (base.njk, shared)', () => {
+  const without = env.render('depth.njk', { ...site, title: 'Feature planning', workstreams: [] });
+  assert.ok(!without.includes('href="/backlog/"'), 'no backlog page to link to, so no link');
+
+  const withIt = env.render('depth.njk', { ...site, title: 'Feature planning', workstreams: [], hasBacklog: true });
+  assert.match(withIt, /<a href="\/backlog\/">Feature Backlog<\/a>/);
+});
+
+test('approve.js: only the feature backlog page loads the trigger script', () => {
+  assert.match(backlogHtml, /<script type="module" src="\/approve\.js"><\/script>/);
   for (const [name, html] of Object.entries(ALL_PAGES)) {
-    if (name === 'depth.njk') continue;
-    assert.ok(!html.includes('approve.js'), `${name} loads approve.js, and only feature planning should`);
+    if (name === 'backlog.njk') continue;
+    assert.ok(!html.includes('approve.js'), `${name} loads approve.js, and only the feature backlog should`);
   }
 });
 

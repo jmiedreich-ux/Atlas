@@ -161,6 +161,14 @@
    * a second home in the stylesheet. */
   --atlas-measure: 42rem;
 
+  /* `.site-main`'s own width, centered on a wide viewport — `--atlas-measure` above caps a single
+   * paragraph's reading line, not the page: without a width on `.site-main` itself, content just
+   * fills the viewport, so a wide-viewport reader sees every prose element flush against the LEFT
+   * padding with nothing but empty background past it — the owner's own "always left justly to the
+   * edge, never center screen". Wide enough for the milestone table and the accordion's own rows,
+   * which are not prose and should not be squeezed to `--atlas-measure`. */
+  --atlas-page-max-width: 75rem;
+
   /* The one ground the contract does not supply. `--sky-color-promotion` is a text colour with no
    * surface beside it, and the `designing`/`planned` chips need one.
    *
@@ -501,6 +509,8 @@ th.num {
 }
 
 .site-main {
+  margin: 0 auto;
+  max-width: var(--atlas-page-max-width);
   padding: var(--sky-space-5) var(--sky-space-4);
 }
 

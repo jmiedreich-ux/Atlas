@@ -1113,8 +1113,15 @@ test("build: the theme's own files are served where the layouts link to them", (
   assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
   // M8 task 7: the Development/Staging/Release trigger buttons' own script.
   assert.match(read('index.html'), /<script type="module" src="\/deploy\.js"><\/script>/);
-  // M9, decision 59: the Approve button's own script.
-  assert.match(read('index.html'), /<script type="module" src="\/approve\.js"><\/script>/);
+  // M9 follow-up: the Approve button and its script moved to the Feature Backlog page — this
+  // fixture proposes nothing, so that page does not exist in this particular build at all (the
+  // same "absent entirely when empty" test below covers that directly); a build WITH a real
+  // proposal is covered separately (tests/build.test.mjs's own "writes the Feature Backlog page"
+  // test).
+  assert.ok(
+    !read('index.html').includes('approve.js'),
+    'the Approve script moved to the Feature Backlog page and must not still load on Feature Planning',
+  );
   // No <script src="/action-modal.js"> anywhere — refresh.js/approve.js/deploy.js each import it
   // directly (theme/action-modal.js's own header explains why), so its only presence in a page is
   // as the import target those scripts resolve, not a tag of its own.
@@ -2323,6 +2330,38 @@ test('build: sibling loose proposed files sharing a filename stem list and link 
   const entries = site.proposedDesigns.filter((entry) => entry.slug === 'display-stale-signals');
   assert.equal(entries.length, 1, 'nine sibling files should still be exactly one Upcoming Features row');
   assert.equal(entries[0].url, '/docs/design/proposed/display-stale-signals/', 'links to the rendered .md, not the image');
+});
+
+test('build: a real build with a proposed design writes the Feature Backlog page and links it from the nav', async () => {
+  const projectRoot = fixtureCopy('proposed-design-backlog-page');
+  const proposedRoot = path.join(projectRoot, 'docs', 'design', 'proposed');
+  mkdirSync(proposedRoot, { recursive: true });
+  writeFileSync(path.join(proposedRoot, 'observability-and-performance-telemetry.md'), '# Observability\n');
+
+  const out = path.join(TMP_ROOT, 'backlog-page-out');
+  rmSync(out, { recursive: true, force: true });
+  await build(projectRoot, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+
+  const backlogHtml = readFileSync(path.join(out, 'backlog', 'index.html'), 'utf8');
+  assert.match(backlogHtml, /<h1>Feature Backlog<\/h1>/);
+  assert.match(backlogHtml, /data-slug="observability-and-performance-telemetry"/);
+
+  const indexHtml = readFileSync(path.join(out, 'index.html'), 'utf8');
+  assert.match(indexHtml, /<a href="\/backlog\/">Feature Backlog<\/a>/, 'the nav link must appear on OTHER pages too, not only the backlog page itself');
+  assert.ok(!indexHtml.includes('upcoming-list'), 'the list itself must not still render on the Feature Planning page');
+});
+
+test('build: no Feature Backlog page or nav link at all when nothing is proposed', async () => {
+  const projectRoot = fixtureCopy('no-proposed-designs');
+
+  const out = path.join(TMP_ROOT, 'no-backlog-out');
+  rmSync(out, { recursive: true, force: true });
+  await build(projectRoot, out, { fetchImpl: forbiddenFetch, offline: true, quiet: true });
+
+  assert.ok(!existsSync(path.join(out, 'backlog', 'index.html')), 'an empty backlog is not better than no page');
+
+  const indexHtml = readFileSync(path.join(out, 'index.html'), 'utf8');
+  assert.ok(!indexHtml.includes('/backlog/'), 'no link to a page that does not exist');
 });
 
 test('build: README.md directly under docs/design/proposed/ never becomes an Upcoming Features row', async () => {
