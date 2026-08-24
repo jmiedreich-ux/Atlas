@@ -5,7 +5,7 @@
 // it is where the milestone's two structural rules are enforced rather than described:
 //
 //   * **Decision 32 — fail loudly.** A manifest pointing at a plan that does not exist, a status
-//     outside the closed vocabulary, a workstream with no gate: each aborts the build, non-zero,
+//     outside the closed vocabulary, a workstream with no `next`: each aborts the build, non-zero,
 //     naming the path. Nothing is written. This is what makes decision 1 — built from source,
 //     never maintained — structural instead of aspirational: a record Atlas cannot render is a
 //     record somebody has to fix, not a blank cell nobody notices. `src/github.mjs` is the whole
@@ -374,7 +374,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   assertRoadmapExists(config.projectRoot);
 
-  // Throws on an unknown status, a missing gate, a milestone with no title — the closed
+  // Throws on an unknown status, a missing `next`, a milestone with no title — the closed
   // vocabularies and required fields of `src/schema.mjs` (decision 32).
   const resolved = resolveWorkstreams(config);
   assertPlansExist(config.projectRoot, resolved);

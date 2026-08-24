@@ -198,7 +198,7 @@ test('build: a page per workstream, and a page per milestone', () => {
     const manifest = manifestOf(slug);
     const html = readFileSync(page, 'utf8');
     assert.ok(html.includes(manifest.codename), `${slug}'s page never names it`);
-    assert.ok(html.includes(manifest.gate), `${slug}'s page never states its gate (decision 32)`);
+    assert.ok(html.includes(manifest.next), `${slug}'s page never states its next (decision 32)`);
 
     for (const milestone of manifest.milestones) {
       const milestonePage = path.join(OUT, 'workstream', slug, milestone.id.toLowerCase(), 'index.html');
@@ -485,7 +485,7 @@ test('build: every failure names a repository-relative path, and never an absolu
             what: 'Invented for this test',
             stage: 'development',
             position: 'Invented for this test',
-            gate: 'Nothing but this test',
+            next: 'Nothing but this test',
             label: 'workstream:nova',
             design: [{ name: 'nova/Overview v1', where: 'design-project' }],
             milestones: [
@@ -522,7 +522,7 @@ test('build: every failure names a repository-relative path, and never an absolu
             what: 'Invented for this test',
             stage: 'development',
             position: 'Invented for this test',
-            gate: 'Nothing but this test',
+            next: 'Nothing but this test',
             label: 'workstream:nova',
             design: [{ name: 'nova/Overview v1', where: 'design-project' }],
             milestones: [
@@ -830,7 +830,7 @@ test('build: every URL it emits is encoded, on the pages and in state.json alike
       what: 'Invented for this test',
       stage: 'development',
       position: 'Invented for this test',
-      gate: 'Nothing but this test',
+      next: 'Nothing but this test',
       label: 'workstream:spacey',
       design: [{ name: 'spacey/Overview v1', where: 'design-project' }],
       milestones: [
@@ -1219,19 +1219,19 @@ test('build: an unknown milestone status fails the build, naming the value', asy
   );
 });
 
-test('build: a workstream with no gate fails the build (decision 32)', async () => {
-  const projectRoot = fixtureCopy('no-gate');
+test('build: a workstream with no next fails the build (decision 32)', async () => {
+  const projectRoot = fixtureCopy('no-next');
   editManifest(projectRoot, 'harbor', (manifest) => {
-    manifest.gate = '';
+    manifest.next = '';
   });
 
-  const error = await build(projectRoot, path.join(TMP_ROOT, 'no-gate-out'), {
+  const error = await build(projectRoot, path.join(TMP_ROOT, 'no-next-out'), {
     fetchImpl: forbiddenFetch,
     quiet: true,
   }).then(() => null, (err) => err);
 
-  assert.ok(error, 'the build rendered a workstream with no gate rather than failing');
-  assert.match(error.message, /gate/, 'the failure never named the missing field');
+  assert.ok(error, 'the build rendered a workstream with no next rather than failing');
+  assert.match(error.message, /next/, 'the failure never named the missing field');
 });
 
 test('build: an output directory inside the project is refused before anything is deleted', async () => {

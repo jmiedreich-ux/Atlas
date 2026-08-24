@@ -108,7 +108,7 @@ function entry(codename, overrides = {}) {
       // Task 9's real-manifest migration uses.
       stage: 'development',
       position: 'Invented for this test',
-      gate: `Nothing gates ${codename} but this test`,
+      next: `Nothing but this test for ${codename}`,
       label: `workstream:${slug}`,
       design: [{ name: `${slug}/Overview v1`, where: 'design-project' }],
       milestones: [],
@@ -949,7 +949,7 @@ const OCCURRING_PAIRS = [
   // The feature row's secondary text sits directly on the row's own card background.
   ['.feature-next', '.feature-row'],
   ['.disclosure', '.feature-row'],
-  ['.meta-label', '.gate-callout'],
+  ['.meta-label', '.next-callout'],
   ['.meta-label', '.contents'],
   ['.card-what', '.card'],
   ['.track-count', '.card'],
@@ -1335,7 +1335,7 @@ test('mobile: a not-started workstream sorts last even when it sorts first alpha
 });
 
 
-test('mobile: the gate is the last line of every card', () => {
+test('mobile: next is the last line of every card', () => {
   const cards = [...mobileHtml.matchAll(/<article\b[^>]*data-workstream="([^"]+)"[^>]*>([\s\S]*?)<\/article>/g)];
   assert.equal(cards.length, workstreams.length, 'expected one card per workstream');
 
@@ -1344,10 +1344,10 @@ test('mobile: the gate is the last line of every card', () => {
     const lines = [...body.matchAll(/<p\b[^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/p>/g)];
     const last = lines[lines.length - 1];
     assert.ok(last, `card ${codename} has no lines at all`);
-    assert.match(last[1], /card-gate/, `card ${codename}: the last line must be the gate, decision 27`);
+    assert.match(last[1], /card-status/, `card ${codename}: the last line must be next, decision 27`);
     assert.ok(
-      stripTags(last[2]).includes(manifest.gate),
-      `card ${codename}: the gate line must carry the manifest's gate`,
+      stripTags(last[2]).includes(manifest.next),
+      `card ${codename}: the last line must carry the manifest's next`,
     );
   }
 });
@@ -1430,13 +1430,13 @@ test('triage: 1a is fully gone — no status-board table shape on this page', ()
   assert.doesNotMatch(mobileHtml, /<table/);
 });
 
-test('triage: each card still says what, position and gate, same as before this rebuild', () => {
+test('triage: each card still says what, position and next, same as before this rebuild', () => {
   for (const stream of workstreams) {
     // htmlIncludesText, not a raw .includes: Nunjucks autoescape turns an apostrophe into `&#39;`,
     // and the fixture's own "what" prose ("decision 20 is exercised: no workstream's numbering...")
     // has one.
     assert.ok(htmlIncludesText(mobileHtml, stream.manifest.what), `${stream.slug}'s "what" is missing`);
-    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.gate), `${stream.slug}'s gate is missing`);
+    assert.ok(htmlIncludesText(mobileHtml, stream.manifest.next), `${stream.slug}'s next is missing`);
   }
 });
 

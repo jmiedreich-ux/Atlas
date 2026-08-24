@@ -51,7 +51,7 @@ function manifest(overrides = {}) {
     what: 'A workstream invented for this test',
     stage: 'planned',
     position: 'Designed, not approved',
-    gate: 'Owner sign-off before build',
+    next: 'Owner sign-off before build',
     label: 'workstream:nova',
     design: [{ name: 'nova/Overview v1', where: 'design-project' }],
     milestones: [],
@@ -216,9 +216,9 @@ test('computeLadder: a workstream with nothing at all produces no bar', () => {
 
 // --- decision 25: every column carries a note --------------------------------------------------
 
-test('computeLadder: every column carries the manifest\'s gate as its note', () => {
+test('computeLadder: every column carries the manifest\'s next as its note', () => {
   const { columns } = computeLadder([
-    entry('nova', { gate: 'Owner sign-off before the next step' }),
+    entry('nova', { next: 'Owner sign-off before the next step' }),
   ]);
   assert.equal(columns[0].note, 'Owner sign-off before the next step');
 });
@@ -363,7 +363,7 @@ test('computeLadder: the tip is null exactly when no milestone is on record for 
     manifest: {
       codename,
       stage,
-      gate: `Nothing gates ${codename} but this test`,
+      next: `Nothing but this test for ${codename}`,
       milestones: statuses.map((status, i) => ({
         id: `M${i + 1}`,
         label: `M${i + 1}`,

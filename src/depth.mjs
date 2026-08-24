@@ -104,7 +104,7 @@ function depthOfDepthRowId(rowId) {
  */
 export function computeLadder(workstreams) {
   const columns = workstreams.map(({ manifest }) => {
-    const { codename, stage, gate, milestones } = manifest;
+    const { codename, stage, next, milestones } = manifest;
 
     // Decision 24: both ends come from the manifest. The bar's length is what's already
     // complete; the head sits one position past it — the one rule this task exists to get
@@ -177,7 +177,7 @@ export function computeLadder(workstreams) {
       barTo,
       headAt,
       tipLabel,
-      note: gate,
+      note: next,
       completedCount: covered.filter(Boolean).length,
       milestoneCount: milestones.length,
       covered,

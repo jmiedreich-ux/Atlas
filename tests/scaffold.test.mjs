@@ -69,7 +69,7 @@ test('scaffoldWorkstream: writes a workstream.json the generator accepts', () =>
   assert.equal(manifest.milestones[0].id, 'M1');
   assert.equal(manifest.milestones[0].status, 'unplanned');
   assert.match(manifest.milestones[0].title, /<<.*replace.*>>/i);
-  assert.match(manifest.gate, /<<.*replace.*>>/i);
+  assert.match(manifest.next, /<<.*replace.*>>/i);
   cleanReadySlug();
 });
 

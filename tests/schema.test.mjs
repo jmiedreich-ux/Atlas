@@ -19,7 +19,7 @@ function validManifest() {
     what: 'A sample workstream used only to exercise the schema',
     stage: 'planned',
     position: 'Designed, not approved',
-    gate: 'Owner sign-off before build',
+    next: 'Owner sign-off before build',
     label: 'workstream:nova',
     design: [{ name: 'nova/Overview v1', where: 'design-project' }],
     milestones: [
@@ -228,7 +228,7 @@ test('validateWorkstream: an otherwise-valid manifest with an uncloneable extra 
 });
 
 test('validateWorkstream: rejects a manifest missing required top-level fields', () => {
-  for (const field of ['codename', 'what', 'stage', 'position', 'gate', 'label', 'design', 'milestones']) {
+  for (const field of ['codename', 'what', 'stage', 'position', 'next', 'label', 'design', 'milestones']) {
     const manifest = validManifest();
     delete manifest[field];
     const result = validateWorkstream(manifest);
@@ -470,7 +470,8 @@ test('validateConfig: ordinary directory names are still accepted, punctuation i
 
 test('schema: the closed milestone vocabulary says "blocked", and no longer says "gated"', () => {
   // #780: "Drop the word 'gated'." It describes a gate the owner holds, which is what the
-  // workstream's own `gate` field is for; on a milestone the fact is simply that it cannot start.
+  // workstream's own field (now `next`, since M4.2) is for; on a milestone the fact is simply
+  // that it cannot start.
   // The phone view already had a `blocked` triage state reading "Blocked", so this leaves one word
   // in the product rather than two that nearly mean the same thing.
   assert.deepEqual([...MILESTONE_STATUSES], ['done', 'next', 'blocked', 'parked', 'unplanned']);

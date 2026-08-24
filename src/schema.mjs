@@ -221,7 +221,7 @@ export function validateWorkstream(obj) {
   requireString(obj, 'what', '', errors);
   requireEnum(obj, 'stage', WORKSTREAM_STAGES, '', errors);
   requireString(obj, 'position', '', errors);
-  requireString(obj, 'gate', '', errors);
+  requireString(obj, 'next', '', errors);
   requireString(obj, 'label', '', errors);
 
   // Decision 14-style nullable string, same rule `acceptance.record` uses below — but genuinely

@@ -21,8 +21,9 @@ export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'pla
 // be recorded in a transition.
 export const DEPLOYMENT_STAGES = Object.freeze(['development', 'staging', 'release']);
 
-// `blocked`, not `gated` (#780): the word "gate" belongs to the workstream's own `gate` field —
-// the thing the owner holds — and what a milestone is recording is simply that it cannot start.
+// `blocked`, not `gated` (#780): the word "gate" used to belong to the workstream's own field —
+// since M4.2, that field is `next` — and what a milestone is recording is simply that it cannot
+// start.
 // The phone view's triage vocabulary already said `blocked`, so the product now has one word for
 // this rather than two that nearly mean the same thing.
 //
