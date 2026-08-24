@@ -76,6 +76,10 @@ const CONFIG_FILENAME = 'atlas.config.json';
 const ROADMAP = 'ROADMAP.md';
 const DOCS_DIRNAME = 'docs';
 const MANIFEST_FILENAME = 'workstream.json';
+// M5: a register source, read and transformed into a generated document (loadRegister above) —
+// the same reason workstream.json is excluded from the generic asset-copy pipeline below, not a
+// standalone file meant to be served as itself.
+const REGISTER_FILENAME = 'register.json';
 
 // --- paths ---------------------------------------------------------------------------------------
 
@@ -225,7 +229,7 @@ function documentFromMarkdown(source, relative, text) {
 // and are folded into the same `documents` collection every other rendered `.md` file goes
 // through, so a register's page is indistinguishable in the pipeline from any other document.
 function loadRegister(projectRoot, slug) {
-  const registerPath = path.join(projectRoot, DOCS_DIRNAME, 'features', slug, 'register.json');
+  const registerPath = path.join(projectRoot, DOCS_DIRNAME, 'features', slug, REGISTER_FILENAME);
   if (!existsSync(registerPath)) return null;
   const raw = JSON.parse(readFileSync(registerPath, 'utf8'));
   const result = validateRegister(raw);
@@ -269,6 +273,11 @@ function collectDocuments(projectRoot, slugs = []) {
       ...register,
       questions: register.questions.map((q, i) => ({ ...q, anchorId: doc.anchors[i + 1]?.id })),
     };
+    // Decision 15's "the path is where the record itself lives" doesn't hold here — `doc.path` is
+    // build output, not a file the project ships. `generatedFrom` names the real, hand-edited file
+    // it was rendered from, so state.mjs has something true to tell an agent that goes looking for
+    // this record on disk.
+    doc.generatedFrom = path.posix.join(DOCS_DIRNAME, 'features', slug, REGISTER_FILENAME);
     documents.push(doc);
   }
 
@@ -330,7 +339,12 @@ function buildRegisterIndex(projectRoot, resolved, documents) {
 // under their own dependencies.
 function collectAssets(projectRoot) {
   return filesUnder(path.join(projectRoot, DOCS_DIRNAME))
-    .filter((file) => !file.endsWith('.md') && path.basename(file) !== MANIFEST_FILENAME)
+    .filter(
+      (file) =>
+        !file.endsWith('.md') &&
+        path.basename(file) !== MANIFEST_FILENAME &&
+        path.basename(file) !== REGISTER_FILENAME,
+    )
     .map((source) => {
       const relative = relPath(projectRoot, source);
       return {
@@ -750,6 +764,12 @@ function planPages(site) {
           title: doc.title,
           doc: { title: doc.title, path: doc.path },
           register: doc.register,
+          // Decision 11: a record's own heading, not one Atlas re-prints — the same rule
+          // document.njk follows for every other document. doc.anchors[0] is the title's real,
+          // markdown-it-assigned id (the same one a reader following the generated document's own
+          // contents list would land on), computed once by documentFromMarkdown above and reused
+          // here rather than the template inventing a plain, id-less <h1>.
+          titleAnchorId: doc.anchors[0]?.id,
         },
       });
       continue;

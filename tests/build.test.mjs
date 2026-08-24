@@ -240,6 +240,9 @@ const EXPECTED_FILES = [
   'docs/features/beacon/m4-plan/index.html',
   'docs/features/beacon/m5-plan/index.html',
   'docs/features/beacon/m6-plan/index.html',
+  // M5: the fixture's one register (Task 7's own instruction — a real register.json in the
+  // fixture, so the fixture site exercises the whole pipeline, not just tests against it).
+  'docs/features/beacon/register/index.html',
   'docs/features/reef/m1-plan/index.html',
   'docs/features/reef/m2-plan/index.html',
   'docs/features/reef/m3-plan/index.html',
@@ -258,6 +261,9 @@ const EXPECTED_FILES = [
   'library/index.html',
   'mobile/index.html',
   'order.js',
+  // M5 Task 4: the registers index, generated whenever any workstream has a register — beacon
+  // does, in this fixture.
+  'registers/index.html',
   'state.json',
   'staticwebapp.config.json',
   'tokens.css',
@@ -1221,9 +1227,10 @@ test('register: the index shows a structured register\'s open count, orders by i
 });
 
 test('register: a workstream with no register.json builds exactly as it did before this milestone', () => {
-  // The fixture's own shared build (OUT, built once at module load) has no register.json anywhere
-  // under it — this just asserts that absence is silent, not an error, for every fixture workstream.
-  for (const slug of FIXTURE_WORKSTREAMS) {
+  // Beacon carries the fixture's one register.json (Task 7's own instruction) and is asserted
+  // separately above; every other shared-fixture workstream has none — this just asserts that
+  // absence is silent, not an error, for each of them.
+  for (const slug of FIXTURE_WORKSTREAMS.filter((s) => s !== 'beacon')) {
     const page = path.join(OUT, 'docs', 'features', slug, 'register', 'index.html');
     assert.ok(!existsSync(page), `${slug} has no register.json but a register page was generated anyway`);
   }

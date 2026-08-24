@@ -249,6 +249,7 @@ const registerHtml = env.render('register.njk', {
     ...SAMPLE_REGISTER,
     questions: SAMPLE_REGISTER.questions.map((q, i) => ({ ...q, anchorId: registerAnchors[i + 1]?.id })),
   },
+  titleAnchorId: registerAnchors[0]?.id,
 });
 
 const ALL_PAGES = {
@@ -2156,6 +2157,7 @@ test('register: a register with no write-ins renders no written-in section at al
     title: noWriteIns.title,
     doc: { title: noWriteIns.title, path: 'docs/features/beacon/register.md' },
     register: { ...noWriteIns, questions: noWriteIns.questions.map((q, i) => ({ ...q, anchorId: anchors[i + 1]?.id })) },
+    titleAnchorId: anchors[0]?.id,
   });
   assert.ok(!html.includes('written-in-answers'), 'a register with zero write-ins still rendered an (empty) written-in section');
 });

@@ -9,13 +9,20 @@
   data, not a heading grep over rendered markdown.
 
   Data this layout expects:
-    doc      — { title, path } — same shape document.njk expects
-    register — { slug, title, questions: [{ id, question, why, options, recommended, severity,
-               chosen: { kind, value }, citations, anchorId }] } — `anchorId` is computed by
-               `src/build.mjs` from the SAME `headingAnchors` call the generated document's own
-               contents list would use, not a separately invented slug — a real heading like
-               "Q1 · BLOCKING" slugifies to `q1-blocking`, severity included, never the clean `#q1`
-               a hand-rolled scheme would guess at.
+    doc           — { title, path } — same shape document.njk expects
+    register      — { slug, title, questions: [{ id, question, why, options, recommended,
+                    severity, chosen: { kind, value }, citations, anchorId }] } — `anchorId` is
+                    computed by `src/build.mjs` from the SAME `headingAnchors` call the generated
+                    document's own contents list would use, not a separately invented slug — a
+                    real heading like "Q1 · BLOCKING" slugifies to `q1-blocking`, severity
+                    included, never the clean `#q1` a hand-rolled scheme would guess at.
+    titleAnchorId — the id `headingAnchors` assigned the generated document's own `# {{ title }}`
+                    heading. Decision 11 requires a record's OWN heading, not one Atlas re-prints —
+                    document.njk gets this for free by rendering the record's markdown directly;
+                    this template prints `register.title` by hand instead (it needs the structured
+                    data, not markdown-rendered HTML, for everything below the title), so the real
+                    id has to be threaded through explicitly or the page would carry a plain,
+                    layout-authored `<h1>` with no id — exactly what decision 11 exists to catch.
     project, repo, title — see base.njk
 -#}
 {% extends "base.njk" %}
@@ -27,7 +34,7 @@
 <p class="breadcrumb"><a href="/">Feature planning</a> · <a href="/library/">Library</a></p>
 <p class="lede">Generated from <code>{{ doc.path }}</code>. A hand edit to this page is lost on the next build — the record is <code>{{ doc.path }}</code> itself, not this rendering of it.</p>
 
-<h1>{{ register.title }}</h1>
+<h1 id="{{ titleAnchorId }}">{{ register.title }}</h1>
 
 {#- `selectattr` with a dotted path ("chosen.kind") silently matches nothing in this project's
     pinned Nunjucks version rather than erroring — the same limitation M8's execution independently

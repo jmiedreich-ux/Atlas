@@ -180,8 +180,15 @@ export function buildState(site) {
     },
 
     // Decision 15: Markdown is the authority for content. These are the records Atlas rendered,
-    // and the path is where the record itself lives.
-    documents: site.documents.map((doc) => ({ title: doc.title, path: doc.path, url: doc.url })),
+    // and the path is where the record itself lives — except a register's generated document
+    // (M5), whose `path` is build output with no file of its own; `generatedFrom` names the real
+    // register.json it was rendered from instead.
+    documents: site.documents.map((doc) => ({
+      title: doc.title,
+      path: doc.path,
+      url: doc.url,
+      ...(doc.generatedFrom ? { generatedFrom: doc.generatedFrom } : {}),
+    })),
 
     // Decision 10: copied byte-for-byte, never rendered. Listed separately for exactly that
     // reason — an agent must not mistake one for a page Atlas produced.
