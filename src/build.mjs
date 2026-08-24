@@ -38,6 +38,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { DEPLOYMENT_STAGES } from '../api/lib/contract.mjs';
 import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
@@ -334,6 +335,23 @@ function readDeploymentLog(projectRoot, stream) {
     );
   }
 
+  // Decision 32's closed vocabulary, enforced on the way in rather than trusted. A hand-edited or
+  // corrupted log entry (an arbitrary string, or one missing "stage" entirely — e.g. a truncated
+  // `{}` as the final write) would otherwise reach `displayedStage` unvalidated, and from there
+  // `state.json` and the rendered chip's CSS class/`data-stage` attribute — the exact thing every
+  // other broken reference in this generator is held to account for by name, not rendered.
+  for (const entry of deploymentHistory) {
+    const stageValue =
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry) ? entry.stage : undefined;
+    if (!DEPLOYMENT_STAGES.includes(stageValue)) {
+      throw new Error(
+        `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+          `deploymentLog "${stream.manifest.deploymentLog}", but ${where} contains an entry whose "stage" ` +
+          `is ${JSON.stringify(stageValue)}, not one of: ${DEPLOYMENT_STAGES.join(', ')}.`,
+      );
+    }
+  }
+
   const latest = deploymentHistory.at(-1);
   return {
     displayedStage: latest ? latest.stage : displayedStage,
@@ -394,6 +412,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
     const { displayedStage, deploymentHistory, deploymentLogSha } = readDeploymentLog(config.projectRoot, stream);
+    // FIX2-MARKER
 
     return {
       ...stream,

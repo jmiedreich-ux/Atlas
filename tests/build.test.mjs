@@ -1848,14 +1848,16 @@ test('gitBlobSha: byte length, not JS string length, is what goes in the header 
 // stage — the log's latest entry when the workstream has one — the same way it already computes
 // `triage` from `classifyTriage` rather than reading it off the manifest. `assembleSite` is
 // exported (build.mjs) solely so these tests can inspect the computed field directly, rather than
-// only through rendered HTML or state.json (neither of which carries it: only the theme's chip
-// reads `displayedStage`, and state.json is untouched by this task).
+// only through rendered HTML or state.json (`state.json` DOES carry it, as of this task's own fix
+// rounds: `workstreams[].stage` and `ladder.columns[].stage` both project `displayedStage`, not
+// the raw manifest value — inspecting `assembleSite`'s own output directly is still the more
+// direct way to test the computation itself, one step removed from the projection).
 //
-// Every test below fixes the four workstreams that still carry the retired 'shipping' value
-// before building — `resolveWorkstreams` validates the whole project, so a workstream this test
-// does not care about still has to hold a value from the closed vocabulary. That cleanup belongs
-// to Task 7 Step 1 (the theme's own chipLabel) and Task 10 Step 3 (the repository-wide sweep), not
-// to this task, so it is done here, per-test-copy, rather than on the shared `fixture/` itself.
+// Every test below pins the four workstreams beacon/tide/anchor/reef to a known 'development'
+// stage before building, rather than relying on whatever the shared `fixture/` happens to hold —
+// `resolveWorkstreams` validates the whole project, so a workstream this test does not care about
+// still has to hold a value from the closed vocabulary, and a test that assumed the fixture's own
+// values would silently break if a later edit to `fixture/` ever changed them.
 function fixtureCopyWithValidStages(name) {
   const root = fixtureCopy(name);
   for (const slug of ['beacon', 'tide', 'anchor', 'reef']) {
@@ -1939,3 +1941,59 @@ test('build: a deploymentLog that exists but is not valid JSON fails the build l
   assert.ok(error, 'a malformed deployment log should fail the build, not silently fall back');
   assert.match(error.message, /deployment-log\.json/, 'the failure never named the broken file');
 });
+
+// --- final whole-branch review fix: closed-vocabulary validation on a log entry's "stage" -------
+//
+// `readDeploymentLog` above trusted `latest.stage` — the JSON-array shape was checked, but not
+// what each entry's own "stage" actually held. A hand-edited or corrupted log could put any
+// string there, which then reached `state.json` (`workstreams[].stage`, `ladder.columns[].stage`)
+// and the rendered chip's CSS class/`data-stage` attribute unvalidated, bypassing decision 32's
+// closed vocabulary — the one rule every OTHER broken reference in this generator is held to.
+test('build: a deployment log entry with a stage outside DEPLOYMENT_STAGES fails the build loudly, naming the workstream, the log path, and the bad value (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-invalid-stage');
+
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [
+    { stage: 'development', note: 'first deploy to dev' },
+    { stage: 'shipping', note: 'a hand-edit using the retired vocabulary' },
+  ];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log entry with an invalid stage should fail the build, not render it');
+  assert.match(error.message, /[Bb]eacon/, 'the failure never named the workstream');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the log file');
+  assert.match(error.message, /shipping/, 'the failure never named the bad stage value');
+});
+
+// A malformed final entry (e.g. `{}`, from a truncated write) has no "stage" at all — this must
+// fail the same way as any other invalid stage, not silently produce a blank chip via
+// `latest ? latest.stage : displayedStage` reading `undefined`.
+test('build: a deployment log whose final entry has no "stage" fails the build loudly, the same as any other invalid stage (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-blank-entry');
+
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }, {}];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log entry missing "stage" should fail the build, not produce a blank chip');
+  assert.match(error.message, /[Bb]eacon/, 'the failure never named the workstream');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the log file');
+});
+
+// FIX2-TESTS-MARKER
