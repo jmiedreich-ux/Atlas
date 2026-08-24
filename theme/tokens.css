@@ -646,6 +646,46 @@ h3 {
   color: var(--sky-text-secondary);
 }
 
+/* The hidden-features bar: a short, glanceable row of restore controls, not a form. Shaped like
+ * `.chip` (same pill radius, same neutral fill, same small type) because these genuinely are
+ * small controls in a row — the craft floor's own exception to "pills are for small controls" —
+ * but `.chip` is display-only, so hover/focus/press states are added here rather than reused. */
+.hidden-bar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+}
+
+.hidden-bar-label {
+  color: var(--sky-text-secondary);
+  font-size: 0.85rem;
+}
+
+.hidden-restore {
+  background: var(--sky-color-shell);
+  border: none;
+  border-radius: var(--sky-radius-pill);
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 0.2rem var(--sky-space-3);
+  white-space: nowrap;
+}
+
+.hidden-restore:hover {
+  background: var(--sky-color-fill-subtle);
+  color: var(--sky-text-primary);
+}
+
+.hidden-restore:focus-visible {
+  outline: 2px solid var(--sky-focus-color);
+  outline-offset: 2px;
+}
+
 .feature-spine[hidden] {
   display: none;
 }
