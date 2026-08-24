@@ -800,6 +800,16 @@ h3 {
   gap: var(--sky-space-2);
 }
 
+/* The label+title pair, together, as one link to that milestone's own page — decision 24's chip
+ * beside it stays outside the link, since a status is not the thing being navigated to. Flex here
+ * for the same reason `.milestone-head` is: the two spans it wraps used to be its direct children
+ * and shared its gap; this keeps that layout now that they sit one level deeper. */
+.milestone-name-link {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+}
+
 .milestone-label {
   font-family: var(--atlas-font-mono, monospace);
   font-size: 0.75rem;

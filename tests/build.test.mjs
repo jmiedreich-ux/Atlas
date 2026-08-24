@@ -909,6 +909,9 @@ test('build: every URL it emits is encoded, on the pages and in state.json alike
   const chart = readFileSync(path.join(out, 'index.html'), 'utf8');
   assert.ok(chart.includes('href="/workstream/har%20bor/"'), 'the chart links to an unencoded URL');
   assert.ok(!chart.includes('href="/workstream/har bor/"'), 'the chart links to an unencoded URL');
+  // The accordion's own milestone name links to that milestone's own page (M9 follow-up: "a link
+  // to each milestone in the accordion"), the same unencoded-URL rule as the workstream link above.
+  assert.ok(chart.includes('href="/workstream/har%20bor/m1/"'), 'the accordion links to an unencoded milestone URL');
   assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'index.html')), 'no page was written');
   assert.ok(existsSync(path.join(out, 'workstream', 'har bor', 'm1', 'index.html')));
 });

@@ -120,8 +120,10 @@
 <span class="milestone-icon" aria-hidden="true"></span>
 <div class="milestone-body">
 <div class="milestone-head">
+<a class="milestone-name-link" href="{{ milestone.url }}">
 <span class="milestone-label">{{ milestone.manifest.label }}</span>
 <span class="milestone-title">{{ milestone.manifest.title }}</span>
+</a>
 {{ ui.chip('status', milestone.manifest.status) }}
 </div>
 {%- if detail == 'full' or detail == 'full-muted' %}
