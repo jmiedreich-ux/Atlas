@@ -21,6 +21,10 @@ const ACCEPTANCE_FIELDS = Object.freeze(['workstream', 'milestone', 'result', 'n
 const DEPLOYMENT_TRANSITION_FIELDS = Object.freeze(['workstream', 'stage', 'note', 'sha']);
 const APPROVE_FIELDS = Object.freeze(['slug']);
 const REFRESH_FIELDS = Object.freeze([]);
+const REFRESH_STATUS_FIELDS = Object.freeze(['run', 'since', 'workflow']);
+
+/** A GitHub workflow filename: no path, no whitespace — the same shape `atlas.config.json`'s own `"workflow"` field already has to have to dispatch at all. */
+const WORKFLOW_FILENAME = /^[^\s/\\]+$/;
 
 function fail(message) {
   return { ok: false, status: 400, error: 'invalid-payload', message };
@@ -300,4 +304,48 @@ export function validateRefreshPayload(body) {
   }
 
   return { ok: true, value: {} };
+}
+
+/**
+ * `GET /api/refresh-status`'s query string: either `run` alone (the caller already knows which
+ * run it is watching, from an earlier poll), or `since` and `workflow` together (the ordinary
+ * first call after a dispatch, which never gets a run id back — see `findRun`, `api/lib/github.mjs`).
+ * Never a mix of both shapes; a query string is not a place for a caller to name two conflicting
+ * ways of asking the same question.
+ *
+ * @param {unknown} query - a plain object of string values, `req.query`'s own shape.
+ * @returns {{ ok: true, value: { run: number } | { run: null, since: string, workflow: string } }
+ *   | { ok: false, status: 400, error: 'invalid-payload', message: string }}
+ */
+export function validateRefreshStatusQuery(query) {
+  const parsed = query && typeof query === 'object' && !Array.isArray(query) ? query : {};
+
+  const unknown = unknownFields(parsed, REFRESH_STATUS_FIELDS);
+  if (unknown.length > 0) {
+    return fail(
+      `${unknown.map((f) => `"${f}"`).join(', ')} ${unknown.length > 1 ? 'are fields' : 'is a field'} ` +
+        `Atlas does not accept here. GET /api/refresh-status takes "run" alone, or "since" and ` +
+        `"workflow" together.`,
+    );
+  }
+
+  if (parsed.run !== undefined) {
+    if (parsed.since !== undefined || parsed.workflow !== undefined) {
+      return fail('"run" cannot be combined with "since" or "workflow" — send one shape or the other, not both.');
+    }
+    const run = Number(parsed.run);
+    if (!Number.isInteger(run) || run <= 0) {
+      return fail(`"run" must be a positive integer run id (got ${JSON.stringify(parsed.run)}).`);
+    }
+    return { ok: true, value: { run } };
+  }
+
+  if (typeof parsed.since !== 'string' || parsed.since.trim() === '' || Number.isNaN(Date.parse(parsed.since))) {
+    return fail(`"since" is required (when "run" is absent) and must be a parseable timestamp (got ${JSON.stringify(parsed.since)}).`);
+  }
+  if (typeof parsed.workflow !== 'string' || parsed.workflow.trim() === '' || !WORKFLOW_FILENAME.test(parsed.workflow)) {
+    return fail(`"workflow" is required (when "run" is absent) and must be a bare filename, not a path (got ${JSON.stringify(parsed.workflow)}).`);
+  }
+
+  return { ok: true, value: { run: null, since: parsed.since, workflow: parsed.workflow } };
 }

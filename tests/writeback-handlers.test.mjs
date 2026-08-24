@@ -753,9 +753,11 @@ test('deployment-transition: a malformed deployment log is a clean refusal, not 
 
 // --- decision 35's boundary -----------------------------------------------------------------------
 
-test('the Function exports exactly the named write handlers, and no stray one', async () => {
+test('the Function exports exactly the named handlers, and no stray one', async () => {
   // Not a fixed count (decision 58 retired that posture) — still a closed, named list: a stray
-  // export starting with `handle` would be a write path nobody decided on and no route wires to.
+  // export starting with `handle` would be a route nobody decided on and no `api/*/index.mjs`
+  // wires to. `handleRefreshStatus` (M9 follow-up) is the first of these that reads rather than
+  // writes — this list was "write handlers" before it, and is every handler now.
   const module = await import('../api/lib/handlers.mjs');
   const handlers = Object.keys(module).filter((name) => name.startsWith('handle'));
   assert.deepEqual(handlers.sort(), [
@@ -764,6 +766,7 @@ test('the Function exports exactly the named write handlers, and no stray one', 
     'handleApprove',
     'handleDeploymentTransition',
     'handleRefresh',
+    'handleRefreshStatus',
   ]);
 });
 

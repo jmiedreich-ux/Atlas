@@ -1670,6 +1670,16 @@ test('build: no surface calls it Records — the library is the Library, everywh
   assert.match(nav, /href="\/library\/"/, 'the nav does not point at the new route');
 });
 
+test('build: the nav carries a way to log out, on every page', () => {
+  // Static Web Apps' own `/.auth/logout` already worked before this — the gap was that nothing on
+  // the site ever linked to it (M9 follow-up, decision 61).
+  for (const page of ['index.html', 'library/index.html']) {
+    const nav = /<nav class="site-nav"[^>]*>([\s\S]*?)<\/nav>/.exec(read(page))?.[1];
+    assert.ok(nav, `${page} has no site nav to check`);
+    assert.match(nav, /href="\/\.auth\/logout/, `${page}'s nav has no way to log out`);
+  }
+});
+
 test('build: the records index lists every record of both kinds, and every surface links to it', () => {
   const index = read('library/index.html');
 

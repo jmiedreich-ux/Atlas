@@ -57,6 +57,7 @@ import {
   validateApprovePayload,
   validateDeploymentTransitionPayload,
   validateRefreshPayload,
+  validateRefreshStatusQuery,
 } from './payload.mjs';
 
 /** The register a workstream's open questions live in (decision 40's convention). */
@@ -647,7 +648,118 @@ export async function handleRefresh(request, deps) {
     const workflowClient = createWorkflowClient({ repo: credential.repo, token, fetchImpl: deps.fetchImpl });
     await workflowClient.dispatch({ workflow, ref: credential.branch });
 
-    return respond(200, { ok: true, workflow, ref: credential.branch, triggeredBy: principal.author });
+    // ISO, not the raw seconds `deps.nowSeconds` carries — `findRun`'s own `created` filter is a
+    // GitHub API query parameter and this is the shape GitHub's own API expects and returns
+    // elsewhere, so a client polling `handleRefreshStatus` below can pass this straight back
+    // without reformatting it itself.
+    const dispatchedAt = new Date(deps.nowSeconds * 1000).toISOString();
+
+    return respond(200, {
+      ok: true,
+      workflow,
+      ref: credential.branch,
+      triggeredBy: principal.author,
+      dispatchedAt,
+    });
+  } catch (error) {
+    return fromError(error);
+  }
+}
+
+/**
+ * Steps 1 to 3 for a READ rather than a write — same identity and credential checks `prepare`
+ * gives every write endpoint, but a GET instead of a POST and a query string instead of a body.
+ * `handleRefreshStatus` below is the only caller: nothing here writes, so there is no fifth step
+ * to add once the token is fetched.
+ *
+ * Gated on `author`, the same role every write needs, not a lesser `reader` one — `src/swa.mjs`
+ * emits exactly one role rule for the whole of `/api/*`, so a `reader`-only route is not actually
+ * reachable without a second, deliberate routing decision this one is not making.
+ *
+ * @param {{ method?: string, headers: object, query: object }} request
+ * @param {object} deps
+ * @param {(query: object) => object} validate
+ * @returns {{ ok: true, principal: object, credential: object, token: string, query: object }
+ *   | { ok: false, response: object }}
+ */
+async function prepareRead(request, { env, fetchImpl, nowSeconds }, validate) {
+  if (typeof request.method !== 'string' || request.method.toUpperCase() !== 'GET') {
+    return {
+      ok: false,
+      response: refusal({
+        status: 405,
+        error: 'method-not-allowed',
+        message: 'this endpoint reads a run\'s status, so it answers GET and nothing else.',
+      }),
+    };
+  }
+
+  const caller = authorise(request.headers);
+  if (!caller.ok) return { ok: false, response: refusal(caller) };
+
+  const credential = readCredential(env);
+  if (!credential.ok) return { ok: false, response: refusal(credential) };
+
+  const query = validate(request.query ?? {});
+  if (!query.ok) return { ok: false, response: refusal(query) };
+
+  let token;
+  try {
+    token = await fetchInstallationToken({
+      appId: credential.value.appId,
+      installationId: credential.value.installationId,
+      privateKey: credential.value.privateKey,
+      nowSeconds,
+      fetchImpl,
+    });
+  } catch (error) {
+    return { ok: false, response: fromError(error) };
+  }
+
+  return { ok: true, principal: caller.principal, credential: credential.value, token, query: query.value };
+}
+
+/**
+ * `GET /api/refresh-status` — the run a preceding `POST /api/refresh` triggered, and how it is
+ * going (M9 follow-up, decision 61's own polling: "we need to keep a poll in a window while the
+ * background job is refreshing").
+ *
+ * Two GitHub calls, never more than one per poll tick: `findRun` once the caller has not already
+ * been handed a run id (`?run=` absent — the ordinary case right after a dispatch, since dispatch
+ * itself cannot return one), then `getRun` on every call once one is known. The caller — the
+ * modal's own poll loop — decides when to stop calling this at all; nothing here loops or waits.
+ *
+ * @param {{ method?: string, headers: object, query: object }} request
+ * @param {object} deps
+ * @returns {Promise<{ status: number, headers: object, body: object }>}
+ */
+export async function handleRefreshStatus(request, deps) {
+  const ready = await prepareRead(request, deps, validateRefreshStatusQuery);
+  if (!ready.ok) return ready.response;
+
+  const { credential, token, query } = ready;
+
+  try {
+    const workflowClient = createWorkflowClient({ repo: credential.repo, token, fetchImpl: deps.fetchImpl });
+
+    let run;
+    if (query.run) {
+      run = await workflowClient.getRun({ runId: query.run });
+    } else {
+      run = await workflowClient.findRun({ workflow: query.workflow, since: query.since });
+      if (!run) return respond(200, { ok: true, state: 'pending' });
+    }
+
+    if (run.status !== 'completed') {
+      return respond(200, { ok: true, state: 'running', run: run.id, url: run.url });
+    }
+    return respond(200, {
+      ok: true,
+      state: 'done',
+      conclusion: run.conclusion,
+      run: run.id,
+      url: run.url,
+    });
   } catch (error) {
     return fromError(error);
   }

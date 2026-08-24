@@ -496,5 +496,71 @@ export function createWorkflowClient({ repo, token, fetchImpl = fetch, apiRoot =
         `GitHub answered ${response.status} dispatching ${workflow}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
       );
     },
+
+    /**
+     * The newest run of `workflow` created at or after `since` (M9 follow-up, decision 61's own
+     * run-status polling — a dispatch hands back no run id, so a caller that wants to know when
+     * the triggered run finishes has to find it this way instead).
+     *
+     * GitHub's own `created` filter does the narrowing server-side rather than this client paging
+     * through runs by hand; `per_page: 1` with the API's own newest-first order then hands back
+     * exactly the run being asked about, in the ordinary case. Two real races this does not try to
+     * resolve, because resolving them needs more than one repository can promise: a second
+     * dispatch of the SAME workflow landing in the same instant would be indistinguishable from
+     * this one, and GitHub can take a few seconds to register a just-dispatched run at all — a
+     * `null` here just as often means "not created yet" as "never will be," so the caller decides
+     * how many times to ask again, not this method.
+     *
+     * @param {{ workflow: string, since: string }} args - `since` an ISO 8601 timestamp.
+     * @returns {Promise<{ id: number, status: string, conclusion: string | null, url: string } | null>}
+     */
+    async findRun({ workflow, since }) {
+      const url =
+        `${apiRoot}/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/runs` +
+        `?event=workflow_dispatch&per_page=1&created=${encodeURIComponent(`>=${since}`)}`;
+      let response;
+      try {
+        response = await fetchImpl(url, { headers });
+      } catch (error) {
+        throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
+      }
+      const payload = await readJson(response);
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} listing runs for ${workflow}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      const run = payload?.workflow_runs?.[0];
+      if (!run) return null;
+      return { id: run.id, status: run.status, conclusion: run.conclusion, url: run.html_url };
+    },
+
+    /**
+     * One run's current `status`/`conclusion`, by id — what a poll loop calls on every tick once
+     * `findRun` above has told it which run to watch.
+     *
+     * @param {{ runId: number }} args
+     * @returns {Promise<{ id: number, status: string, conclusion: string | null, url: string }>}
+     * @throws {GitHubError} `no-such-run` (404 — the id names no run this repository has).
+     */
+    async getRun({ runId }) {
+      const url = `${apiRoot}/repos/${repo}/actions/runs/${encodeURIComponent(runId)}`;
+      let response;
+      try {
+        response = await fetchImpl(url, { headers });
+      } catch (error) {
+        throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
+      }
+      const payload = await readJson(response);
+      if (response.status === 404) {
+        throw new GitHubError(`there is no run ${runId} on this repository.`, { status: 404, code: 'no-such-run' });
+      }
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} reading run ${runId}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      return { id: payload.id, status: payload.status, conclusion: payload.conclusion, url: payload.html_url };
+    },
   };
 }

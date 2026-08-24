@@ -39,7 +39,14 @@ test('the deployable holds exactly the named functions, and no stray ones', () =
   // Not a fixed count any more (decision 58 retired the closed-count posture decision 35 held) —
   // still a closed, named list, because a stray directory holding a `function.json` would be an
   // endpoint nobody decided on, and this is the test that would catch it.
-  assert.deepEqual(functionDirs(), ['acceptance', 'answer', 'approve', 'deployment-transition', 'refresh']);
+  assert.deepEqual(functionDirs(), [
+    'acceptance',
+    'answer',
+    'approve',
+    'deployment-transition',
+    'refresh',
+    'refresh-status',
+  ]);
 });
 
 test('the Function app declares no dependencies at all, so there are none to justify', () => {

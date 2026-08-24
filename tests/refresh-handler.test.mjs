@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 
-import { handleRefresh } from '../api/lib/handlers.mjs';
+import { handleRefresh, handleRefreshStatus } from '../api/lib/handlers.mjs';
 
 const { privateKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -42,6 +42,10 @@ function reply(status, json) {
 
 function post(headers, body) {
   return { method: 'POST', headers, body };
+}
+
+function get(headers, query) {
+  return { method: 'GET', headers, query };
 }
 
 function deps(fetchImpl, env = ENV) {
@@ -106,6 +110,9 @@ test('an authorised refresh dispatches the configured workflow on the configured
   assert.equal(response.body.triggeredBy, 'someone@example.com');
   assert.equal(github.calls.dispatchedWorkflow, 'atlas.yml');
   assert.equal(github.calls.dispatchedRef, 'master');
+  // ISO, so `handleRefreshStatus` (below) can be pointed straight at it as a `since` filter — a
+  // client polling for the run this dispatch created never has to reformat the timestamp itself.
+  assert.equal(response.body.dispatchedAt, new Date(NOW * 1000).toISOString());
 });
 
 test('a missing body is the ordinary case, not a refusal', async () => {
@@ -202,4 +209,135 @@ test('an unrecognised GitHub failure is reported without a stack trace', async (
   const response = await handleRefresh(post(AUTHOR, {}), deps(github));
   assert.equal(response.status, 502);
   assert.ok(!/at handleRefresh|node_modules/.test(response.body.message), 'a stack trace leaked to the caller');
+});
+
+// --- GET /api/refresh-status (M9 follow-up, decision 61) -------------------------------------------
+//
+// Its own stub: `handleRefresh`'s stub above answers a dispatch and a contents read, neither of
+// which `handleRefreshStatus` ever calls — it only ever lists or reads runs.
+
+/**
+ * @param {{ runs?: object[], runById?: Record<number, object> }} [opts] - `runs`: what the
+ *   runs-listing endpoint answers, newest first, same shape `findRun` reads. `runById`: what
+ *   `getRun` answers for a specific id, keyed by that id.
+ */
+function statusStub({ runs = [], runById = {} } = {}) {
+  const calls = [];
+  const impl = async (url) => {
+    calls.push(url);
+    if (url.includes('/access_tokens')) {
+      return reply(201, { token: 'ghs_installation', expires_at: 'later' });
+    }
+    if (url.includes('/actions/runs/')) {
+      const id = Number(/\/actions\/runs\/(\d+)/.exec(url)?.[1]);
+      const run = runById[id];
+      if (!run) return reply(404, { message: 'Not Found' });
+      return reply(200, run);
+    }
+    if (url.includes('/actions/workflows/')) {
+      return reply(200, { workflow_runs: runs });
+    }
+    return reply(404, { message: 'Not Found' });
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+function ghRun({ id = 1, status = 'in_progress', conclusion = null, html_url = `https://github.com/an-owner/a-repo/actions/runs/${id}` }) {
+  return { id, status, conclusion, html_url };
+}
+
+test('no run created yet reports pending, not a failure', async () => {
+  const github = statusStub({ runs: [] });
+  const response = await handleRefreshStatus(
+    get(AUTHOR, { since: '2026-01-01T00:00:00.000Z', workflow: 'atlas.yml' }),
+    deps(github),
+  );
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, { ok: true, state: 'pending' });
+});
+
+test('a run found by "since"/"workflow" that is still going reports running, with its id', async () => {
+  const github = statusStub({ runs: [ghRun({ id: 42, status: 'in_progress' })] });
+  const response = await handleRefreshStatus(
+    get(AUTHOR, { since: '2026-01-01T00:00:00.000Z', workflow: 'atlas.yml' }),
+    deps(github),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(response.body.state, 'running');
+  assert.equal(response.body.run, 42);
+});
+
+test('a run looked up by id (a later poll) reports its real completion and conclusion', async () => {
+  const github = statusStub({ runById: { 42: ghRun({ id: 42, status: 'completed', conclusion: 'success' }) } });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.equal(response.status, 200);
+  assert.equal(response.body.state, 'done');
+  assert.equal(response.body.conclusion, 'success');
+  assert.equal(response.body.run, 42);
+});
+
+test('a failing run reports its own conclusion, not a generic failure', async () => {
+  const github = statusStub({ runById: { 7: ghRun({ id: 7, status: 'completed', conclusion: 'failure' }) } });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '7' }), deps(github));
+  assert.equal(response.body.state, 'done');
+  assert.equal(response.body.conclusion, 'failure');
+});
+
+test('a reader (not an author) is refused before any GitHub call is made', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(get(READER, { run: '1' }), deps(github));
+  assert.equal(response.status, 403);
+  assert.equal(github.calls.length, 0);
+});
+
+test('a POST to this endpoint is refused — it only ever reads', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(post(AUTHOR, {}), deps(github));
+  assert.equal(response.status, 405);
+});
+
+test('"run" and "since"/"workflow" together is refused as an ambiguous request, not silently resolved one way', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '1', since: '2026-01-01T00:00:00.000Z' }), deps(github));
+  assert.equal(response.status, 400);
+  assert.equal(github.calls.length, 0);
+});
+
+test('neither "run" nor "since"+"workflow" is refused by name, not guessed at', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(get(AUTHOR, {}), deps(github));
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /"since"/);
+});
+
+test('an unparseable "since" is refused clearly', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(get(AUTHOR, { since: 'not-a-date', workflow: 'atlas.yml' }), deps(github));
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /"since"/);
+});
+
+test('a "workflow" naming a path rather than a bare filename is refused clearly', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(
+    get(AUTHOR, { since: '2026-01-01T00:00:00.000Z', workflow: '../secrets.yml' }),
+    deps(github),
+  );
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /"workflow"/);
+});
+
+test('an unknown query field is refused by name', async () => {
+  const github = statusStub();
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '1', extra: 'nope' }), deps(github));
+  assert.equal(response.status, 400);
+  assert.match(response.body.message, /"extra"/);
+});
+
+test('a run id naming nothing this repository has maps to a clear 404, not a stack trace', async () => {
+  const github = statusStub({ runById: {} });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '999' }), deps(github));
+  assert.equal(response.status, 404);
+  assert.equal(response.body.error, 'no-such-run');
 });
