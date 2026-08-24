@@ -170,6 +170,36 @@ function repo() {
   });
 }
 
+// M5: a workstream whose register is the new structured JSON form — same directory,
+// `register.json` beside where `open-questions.md` would be, per `src/build.mjs`'s own
+// `loadRegister` convention. No `open-questions.md` here at all, matching the real shape a
+// migrated (or newly-scaffolded) workstream actually has.
+const REGISTER_JSON_PATH = 'docs/features/a-stream/register.json';
+const STRUCTURED_REGISTER = JSON.stringify(
+  {
+    slug: 'a-stream',
+    title: 'A Stream Register',
+    questions: [
+      {
+        id: 'Q1', question: 'Does the cutover run per tenant or per environment?', why: 'W',
+        options: ['Per tenant', 'Per environment'], recommended: 'Per tenant', severity: 'BLOCKING',
+        chosen: { kind: 'deferred', value: null }, citations: [],
+      },
+    ],
+  },
+  null,
+  2,
+) + '\n';
+
+function repoWithStructuredRegister() {
+  return gitHub({
+    [REGISTER_JSON_PATH]: STRUCTURED_REGISTER,
+    [MANIFEST_PATH]: MANIFEST,
+    [DEMO_PATH]: DEMO,
+    [DEPLOYMENT_LOG_PATH]: DEPLOYMENT_LOG,
+  });
+}
+
 // --- the happy paths ---------------------------------------------------------------------------
 
 test('answer: an authorised answer becomes a commit, and the endpoint returns it', async () => {
@@ -198,6 +228,86 @@ test('answer: the answer is the only thing written — Atlas keeps no state of i
   const writes = github.calls.filter((call) => call.method === 'PUT');
   assert.equal(writes.length, 1);
   assert.ok(writes[0].url.includes('open-questions.md'), 'something other than the register was written');
+});
+
+// --- M5: the structured-register branch ---------------------------------------------------------
+
+test('answer: a workstream with a structured register writes register.json, offered case', async () => {
+  const github = repoWithStructuredRegister();
+  const response = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per tenant', chosenWasOffered: true }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.path, REGISTER_JSON_PATH);
+  const written = JSON.parse(github.files.get(REGISTER_JSON_PATH).text);
+  assert.deepEqual(written.questions[0].chosen, { kind: 'offered', value: 'Per tenant' });
+  // open-questions.md was never even read, let alone written — the probe 404'd nothing here
+  // because the file does not exist in this fixture at all.
+  assert.equal(github.calls.filter((c) => c.url.includes('open-questions.md')).length, 0);
+});
+
+test('answer: a workstream with a structured register marks a write-in distinctly', async () => {
+  const github = repoWithStructuredRegister();
+  const response = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per venue, actually.', chosenWasOffered: false }),
+    deps(github),
+  );
+
+  assert.equal(response.status, 200);
+  const written = JSON.parse(github.files.get(REGISTER_JSON_PATH).text);
+  assert.deepEqual(written.questions[0].chosen, { kind: 'written-in', value: 'Per venue, actually.' });
+});
+
+test('answer: chosenWasOffered defaults to false when omitted', async () => {
+  const github = repoWithStructuredRegister();
+  await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Something new.' }), deps(github));
+  const written = JSON.parse(github.files.get(REGISTER_JSON_PATH).text);
+  assert.equal(written.questions[0].chosen.kind, 'written-in');
+});
+
+test('answer: a workstream with NO register.json falls through to the prose path unchanged', async () => {
+  // repo() (no register.json) is the pre-M5 fixture every existing prose test already uses — this
+  // just asserts the probe read for register.json actually happens and 404s before falling
+  // through, rather than assuming the existing passing tests prove it silently.
+  const github = repo();
+  const response = await handleAnswer(post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per tenant.' }), deps(github));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.path, REGISTER_PATH);
+  const probed = github.calls.filter((c) => c.url.includes('register.json'));
+  assert.equal(probed.length, 1, 'the structured-register probe never ran at all');
+  assert.equal(probed[0].method, 'GET');
+});
+
+test('answer: an offered answer naming no real option is refused, structured path', async () => {
+  const github = repoWithStructuredRegister();
+  const response = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Not a real option', chosenWasOffered: true }),
+    deps(github),
+  );
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error, 'invalid-payload');
+  assert.equal(github.calls.filter((c) => c.method === 'PUT').length, 0, 'a bad answer still got written');
+});
+
+test('answer: a conflict on the structured register is a real conflict, same as the prose path', async () => {
+  const github = repoWithStructuredRegister();
+  const first = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per tenant', chosenWasOffered: true }),
+    deps(github),
+  );
+  assert.equal(first.status, 200);
+
+  // Someone else commits between this caller's read and write, honestly: send the SAME (now
+  // stale) sha the caller would have had from before the first answer.
+  const staleResponse = await handleAnswer(
+    post(AUTHOR, { workstream: 'a-stream', question: 'Q1', answer: 'Per environment', chosenWasOffered: true, sha: blobSha(REGISTER_JSON_PATH, 0) }),
+    deps(github),
+  );
+  assert.equal(staleResponse.status, 409);
 });
 
 test('acceptance: the result goes into the record the MANIFEST names, not one a caller named', async () => {

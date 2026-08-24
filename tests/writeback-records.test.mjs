@@ -17,7 +17,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { RecordError, answerQuestion, recordAcceptance, whyNotWritableText } from '../api/lib/records.mjs';
+import { RecordError, answerQuestion, answerRegisterQuestion, recordAcceptance, whyNotWritableText } from '../api/lib/records.mjs';
 
 const REGISTER = [
   '# Open questions',
@@ -341,4 +341,83 @@ test('records: the same stray marker in a register does not swallow a later ques
   assert.match(after, /## Q2 · Another question/);
   assert.match(after, /Second answer\./);
   assert.ok(!/First answer\./.test(after));
+});
+
+// --- M5: answerRegisterQuestion — the JSON-record counterpart of answerQuestion ------------------
+
+function registerJson(overrides = {}) {
+  return JSON.stringify({
+    slug: 'lighthouse',
+    title: 'T',
+    questions: [
+      {
+        id: 'Q1', question: 'Q?', why: 'W', options: ['A', 'B'], recommended: 'A',
+        severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [],
+      },
+    ],
+    ...overrides,
+  });
+}
+
+test('records: answerRegisterQuestion sets chosen on the named question, offered case', () => {
+  const after = JSON.parse(
+    answerRegisterQuestion(registerJson(), { questionId: 'Q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' }),
+  );
+  assert.deepEqual(after.questions[0].chosen, { kind: 'offered', value: 'A' });
+});
+
+test('records: answerRegisterQuestion marks a written-in answer distinctly', () => {
+  const after = JSON.parse(
+    answerRegisterQuestion(registerJson(), {
+      questionId: 'Q1', chosen: 'Something else entirely', chosenWasOffered: false, author: 'jeremy',
+    }),
+  );
+  assert.deepEqual(after.questions[0].chosen, { kind: 'written-in', value: 'Something else entirely' });
+});
+
+test('records: answerRegisterQuestion refuses an unknown question id', () => {
+  assert.throws(
+    () => answerRegisterQuestion(registerJson(), { questionId: 'Q99', chosen: 'A', chosenWasOffered: true, author: 'jeremy' }),
+    (error) => error instanceof RecordError && error.code === 'no-such-question',
+  );
+});
+
+test('records: answerRegisterQuestion refuses an offered answer that names no real option', () => {
+  assert.throws(
+    () => answerRegisterQuestion(registerJson(), { questionId: 'Q1', chosen: 'Option Z', chosenWasOffered: true, author: 'jeremy' }),
+    (error) => error instanceof RecordError && error.code === 'invalid-payload',
+  );
+});
+
+test('records: answering twice replaces, does not append', () => {
+  const once = answerRegisterQuestion(registerJson(), { questionId: 'Q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' });
+  const twice = JSON.parse(
+    answerRegisterQuestion(once, { questionId: 'Q1', chosen: 'B', chosenWasOffered: true, author: 'jeremy' }),
+  );
+  assert.equal(twice.questions.length, 1);
+  assert.deepEqual(twice.questions[0].chosen, { kind: 'offered', value: 'B' });
+});
+
+test("records: written-in text is guarded by the same whyNotWritableText the payload layer already applies", () => {
+  // Not this function's own job — the SAME payload field (`answer`) both paths share is already
+  // guarded at the payload-validation layer (api/lib/payload.mjs), before either path is ever
+  // reached. This test asserts that guard function itself still refuses the same shapes it always
+  // has, since M5 does not touch it.
+  assert.ok(whyNotWritableText('<script>steal()</script>'));
+  assert.ok(whyNotWritableText('A'.repeat(9000)));
+  assert.ok(!whyNotWritableText('A perfectly ordinary written-in answer.'));
+});
+
+test('records: answerRegisterQuestion is case-insensitive on the question id, matching answerQuestion', () => {
+  const after = JSON.parse(
+    answerRegisterQuestion(registerJson(), { questionId: 'q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' }),
+  );
+  assert.deepEqual(after.questions[0].chosen, { kind: 'offered', value: 'A' });
+});
+
+test('records: answerRegisterQuestion refuses register text that is not valid JSON', () => {
+  assert.throws(
+    () => answerRegisterQuestion('not json at all', { questionId: 'Q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' }),
+    (error) => error instanceof RecordError && error.code === 'invalid-payload',
+  );
 });

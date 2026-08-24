@@ -248,6 +248,48 @@ export function answerQuestion(text, { question, answer, author, where = 'the re
 }
 
 /**
+ * Set a register question's `chosen`, in the structured record (M5). Sibling to `answerQuestion`
+ * above, which stays for any register still `open-questions.md` prose — this is the JSON-record
+ * counterpart, not a replacement.
+ *
+ * `answer`'s own writability (length, markup) is guarded once, upstream, at the payload layer
+ * (`whyNotWritableText`, `api/lib/payload.mjs`) — the same field carries both a prose answer and a
+ * structured write-in, so the same guard already covers both paths before either function here is
+ * ever reached.
+ *
+ * @param {string} currentJsonText - the register's current JSON text, as read from the repo.
+ * @param {{ questionId: string, chosen: string, chosenWasOffered: boolean, author: string }} args
+ * @returns {string} the new JSON text.
+ * @throws {RecordError} 'no-such-question' | 'invalid-payload'
+ */
+export function answerRegisterQuestion(currentJsonText, { questionId, chosen, chosenWasOffered }) {
+  let parsed;
+  try {
+    parsed = JSON.parse(currentJsonText);
+  } catch (error) {
+    throw new RecordError(`the register is not valid JSON (${error.message})`, 'invalid-payload');
+  }
+
+  const wanted = String(questionId).toLowerCase();
+  const question = (parsed.questions ?? []).find(
+    (q) => typeof q?.id === 'string' && q.id.toLowerCase() === wanted,
+  );
+  if (!question) {
+    throw new RecordError(`no question ${JSON.stringify(questionId)} in this register`, 'no-such-question');
+  }
+
+  if (chosenWasOffered && !(question.options ?? []).includes(chosen)) {
+    throw new RecordError(
+      `${JSON.stringify(chosen)} names no option this question actually offers`,
+      'invalid-payload',
+    );
+  }
+
+  question.chosen = { kind: chosenWasOffered ? 'offered' : 'written-in', value: chosen };
+  return JSON.stringify(parsed, null, 2) + '\n';
+}
+
+/**
  * Write an acceptance result at the end of the record that holds it.
  *
  * The record is the one a milestone's manifest names in `acceptance.record` (decision 14), so no

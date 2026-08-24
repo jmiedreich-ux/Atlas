@@ -27,7 +27,7 @@
 
 import { GitHubError, createContentsClient } from './github.mjs';
 import { RECORDS_ROOT, whyNotAWritableRecord } from './contract.mjs';
-import { RecordError, answerQuestion, appendDeploymentTransition, recordAcceptance } from './records.mjs';
+import { RecordError, answerQuestion, answerRegisterQuestion, appendDeploymentTransition, recordAcceptance } from './records.mjs';
 import { authorise } from './principal.mjs';
 import { fetchInstallationToken } from './app-token.mjs';
 import { readCredential } from './credentials.mjs';
@@ -39,6 +39,9 @@ import {
 
 /** The register a workstream's open questions live in (decision 40's convention). */
 const REGISTER = 'open-questions.md';
+// M5: a structured register, same directory, same convention `src/build.mjs`'s `loadRegister`
+// already uses to decide whether a workstream has one.
+const REGISTER_JSON = 'register.json';
 const MANIFEST = 'workstream.json';
 const WORKSTREAMS_ROOT = 'docs/features';
 
@@ -171,35 +174,88 @@ export async function handleAnswer(request, deps) {
   if (!ready.ok) return ready.response;
 
   const { payload, principal, credential, client } = ready;
-  const path = workstreamPath(payload.workstream, REGISTER);
+
+  // M5: which register shape this workstream has decides which record gets written, and it is
+  // decided the same way `src/build.mjs` decides it — by whether `register.json` exists, not by a
+  // manifest field. A manifest field would be a second, separately-authored answer to the exact
+  // question file existence already answers for the build, and the two could drift; one source of
+  // truth for "does this workstream have a structured register" is worth one extra read.
+  const registerJsonPath = workstreamPath(payload.workstream, REGISTER_JSON);
 
   try {
-    const current = await client.read(path, credential.branch);
+    let current;
+    try {
+      current = await client.read(registerJsonPath, credential.branch);
+    } catch (error) {
+      if (error instanceof GitHubError && error.status === 404) {
+        // `await` here, not a bare `return` — a bare `return somePromise` inside this try block
+        // would hand the caller an unsettled promise directly, and a rejection from it would skip
+        // this function's own `catch` below entirely (the try/catch only catches what it awaits).
+        return await answerProseRegister({ payload, principal, credential, client });
+      }
+      throw error;
+    }
 
-    const stale = staleAgainstCaller(path, payload.sha, current.sha);
+    const stale = staleAgainstCaller(registerJsonPath, payload.sha, current.sha);
     if (stale) return stale;
 
-    const text = answerQuestion(current.text, {
-      question: payload.question,
-      answer: payload.answer,
+    const text = answerRegisterQuestion(current.text, {
+      questionId: payload.question,
+      chosen: payload.answer,
+      chosenWasOffered: payload.chosenWasOffered ?? false,
       author: principal.author,
-      where: path,
     });
 
     const commit = await client.write({
-      path,
-      // The commit message names the question and whoever answered. The App is the committer, so
-      // without this the history would say only that Atlas wrote something.
+      path: registerJsonPath,
       message: `atlas: answer ${payload.question} in ${payload.workstream}\n\nAnswered by ${principal.author} through Atlas.`,
       text,
       sha: current.sha,
       branch: credential.branch,
     });
 
-    return respond(200, { ok: true, path, question: payload.question, commit: commit.commitUrl, sha: commit.sha });
+    return respond(200, {
+      ok: true,
+      path: registerJsonPath,
+      question: payload.question,
+      commit: commit.commitUrl,
+      sha: commit.sha,
+    });
   } catch (error) {
     return fromError(error);
   }
+}
+
+// The prose path (pre-M5, and any register `register.json` deferral leaves as `open-questions.md`
+// — Task 6's stated cost). Unchanged from before this milestone: same file, same function, same
+// five-step order — this is that same code, only reachable now after the structured-register probe
+// above has already 404'd.
+async function answerProseRegister({ payload, principal, credential, client }) {
+  const path = workstreamPath(payload.workstream, REGISTER);
+
+  const current = await client.read(path, credential.branch);
+
+  const stale = staleAgainstCaller(path, payload.sha, current.sha);
+  if (stale) return stale;
+
+  const text = answerQuestion(current.text, {
+    question: payload.question,
+    answer: payload.answer,
+    author: principal.author,
+    where: path,
+  });
+
+  const commit = await client.write({
+    path,
+    // The commit message names the question and whoever answered. The App is the committer, so
+    // without this the history would say only that Atlas wrote something.
+    message: `atlas: answer ${payload.question} in ${payload.workstream}\n\nAnswered by ${principal.author} through Atlas.`,
+    text,
+    sha: current.sha,
+    branch: credential.branch,
+  });
+
+  return respond(200, { ok: true, path, question: payload.question, commit: commit.commitUrl, sha: commit.sha });
 }
 
 /**
