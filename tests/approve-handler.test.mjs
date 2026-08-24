@@ -295,18 +295,30 @@ test('approve: a slug whose destination already has a colliding file is refused 
   assert.equal(response.body.error, 'name-collision');
 });
 
-test('approve: a slug already scaffolded is refused — this writes a first milestone only', async () => {
-  const github = repoWithProposal({ [`docs/features/${SLUG}/workstream.json`]: '{}' });
+test('approve: a slug already scaffolded still moves its design in, without touching the existing manifest', async () => {
+  // Real case, not hypothetical: this is exactly keystone and platform-operations today — a real
+  // manifest predating `approve`, design still sitting in proposed/. See planApproval's own header.
+  const existingManifest = JSON.stringify({ codename: 'Keystone', stage: 'planned', marker: 'do-not-touch' });
+  const github = repoWithProposal({ [`docs/features/${SLUG}/workstream.json`]: existingManifest });
+  const manifestShaBefore = github.currentFiles().get(`docs/features/${SLUG}/workstream.json`).sha;
+
   const response = await handleApprove(post(AUTHOR, { slug: SLUG }), deps(github));
-  assert.equal(response.status, 409);
-  assert.equal(response.body.error, 'already-scaffolded');
+
+  assert.equal(response.status, 200);
+  const files = github.currentFiles();
+  assert.ok(!files.has(`docs/design/proposed/${SLUG}/decisions.md`), 'the proposed file was not moved out');
+  assert.ok(files.has(`docs/features/${SLUG}/decisions.md`), 'the moved design file never landed');
+
+  // A git blob is content-addressed: the SAME sha after the call is proof the manifest was never
+  // re-read and re-written, not just that its text happens to still match.
+  assert.equal(files.get(`docs/features/${SLUG}/workstream.json`).sha, manifestShaBefore);
 });
 
-test('approve: no proposed file was moved when the request is refused', async () => {
-  const github = repoWithProposal({ [`docs/features/${SLUG}/workstream.json`]: '{}' });
+test('approve: does not write a first-milestone plan when a manifest already exists', async () => {
+  const github = repoWithProposal({ [`docs/features/${SLUG}/workstream.json`]: '{"codename":"Keystone"}' });
   await handleApprove(post(AUTHOR, { slug: SLUG }), deps(github));
-  const commitCalls = github.calls.filter((c) => c.url.endsWith('/git/commits'));
-  assert.equal(commitCalls.length, 0, 'a commit was attempted on a refused request');
+  const files = github.currentFiles();
+  assert.ok(!files.has(`docs/features/${SLUG}/m1-plan.md`), 'a plan was scaffolded despite an existing manifest');
 });
 
 // --- the payload -----------------------------------------------------------------------------------

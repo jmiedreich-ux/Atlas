@@ -26,15 +26,26 @@ export class ApproveError extends Error {
 }
 
 /**
- * Everything `approve` needs to turn one proposed design into a moved-and-scaffolded one, computed
- * from a flat recursive tree listing — never a partial one; see `readTree`'s truncation guard.
+ * Everything `approve` needs to turn one proposed design into a moved-and-maybe-scaffolded one,
+ * computed from a flat recursive tree listing — never a partial one; see `readTree`'s truncation
+ * guard.
+ *
+ * A manifest already existing is not a refusal. A real consuming project can give a workstream a
+ * manifest before `approve` ever runs against it — adopting the generator against an
+ * already-underway feature, say — and that manifest can say, in its own words, that the design is
+ * still sitting unapproved in `proposed/`. Refusing outright whenever a manifest exists (as this
+ * once did) blocks exactly that case: a feature that already has tracking, whose design just never
+ * actually landed. `manifestExists` tells the caller whether to also scaffold a starter manifest
+ * and plan, or move the design in on its own and leave whatever tracking is already there
+ * untouched.
  *
  * @param {{ entries: { path: string, mode: string, type: string, sha: string }[], slug: string }} args
  * @returns {{
  *   moves: { from: string, to: string, mode: string, sha: string }[],
  *   configEntry: { path: string, mode: string, type: string, sha: string } | null,
+ *   manifestExists: boolean,
  * }}
- * @throws {ApproveError} 'no-such-proposal' | 'already-scaffolded' | 'name-collision' | 'no-config'
+ * @throws {ApproveError} 'no-such-proposal' | 'name-collision' | 'no-config'
  */
 export function planApproval({ entries, slug }) {
   const proposedPrefix = `${PROPOSED_ROOT}/${slug}/`;
@@ -42,14 +53,7 @@ export function planApproval({ entries, slug }) {
   const manifestPath = MANIFEST_PATH(slug);
 
   const blobs = entries.filter((entry) => entry.type === 'blob');
-
-  if (blobs.some((entry) => entry.path === manifestPath)) {
-    throw new ApproveError(
-      `${manifestPath} already exists — approve scaffolds a design's FIRST milestone only; a ` +
-        `workstream already on record is out of scope for it.`,
-      'already-scaffolded',
-    );
-  }
+  const manifestExists = blobs.some((entry) => entry.path === manifestPath);
 
   const proposed = blobs.filter((entry) => entry.path.startsWith(proposedPrefix));
   if (proposed.length === 0) {
@@ -68,8 +72,8 @@ export function planApproval({ entries, slug }) {
 
   // Design and tracking share one directory now (no more intermediate `approved/` stop), so a
   // proposed file can in principle land on top of something already in `docs/features/<slug>/` —
-  // an existing `open-questions.md`, a hand-placed note, whatever. `already-scaffolded` above only
-  // catches the manifest; this catches everything else a move would silently overwrite.
+  // the manifest itself, an existing `open-questions.md`, a hand-placed note, whatever. This is
+  // the one thing standing between a move and silently overwriting real, already-recorded content.
   const existingFeatureFiles = new Set(
     blobs.filter((entry) => entry.path.startsWith(featurePrefix)).map((entry) => entry.path),
   );
@@ -87,7 +91,7 @@ export function planApproval({ entries, slug }) {
     throw new ApproveError('atlas.config.json is missing, so there is nowhere to register this slug.', 'no-config');
   }
 
-  return { moves, configEntry };
+  return { moves, configEntry, manifestExists };
 }
 
 /**

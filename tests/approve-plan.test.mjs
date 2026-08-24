@@ -1,6 +1,9 @@
 // `planApproval` and `addWorkstreamToConfig` (api/lib/approve.mjs), in isolation — no GitHub, no
-// filesystem. This is the tree-shaped counterpart of `src/scaffold.mjs`'s `checkPreconditions`:
-// same refusals, read from a flat tree listing instead of `existsSync`.
+// filesystem. This is the tree-shaped counterpart of `src/scaffold.mjs`'s `checkPreconditions`,
+// read from a flat tree listing instead of `existsSync` — but the two now deliberately diverge on
+// one point: `scaffold.mjs` still refuses when a manifest already exists (its only job is writing
+// one), while `planApproval` treats an existing manifest as "move the design in, don't scaffold
+// again" rather than a refusal — see `planApproval`'s own header comment for why.
 //
 // A proposed design moves straight into `docs/features/<slug>/` now — there is no intermediate
 // `docs/design/approved/<slug>/` stop (that split was retired, Vennusign `AGENTS.md`, amended
@@ -75,12 +78,22 @@ test('planApproval: refuses when a move would overwrite a file already in docs/f
   );
 });
 
-test('planApproval: refuses a slug that already has a workstream.json', () => {
+test('planApproval: a slug that already has a workstream.json still moves its design in — manifestExists is true, not a refusal', () => {
+  // Real case, not hypothetical: keystone and platform-operations both had a workstream.json
+  // seeded when Atlas was first adopted, long before `approve` existed, with their design still
+  // sitting in proposed/. Refusing here would permanently block approving either of them.
   const entries = [...BASE_ENTRIES, blob('docs/features/keystone/workstream.json')];
-  assert.throws(
-    () => planApproval({ entries, slug: 'keystone' }),
-    (error) => error instanceof ApproveError && error.code === 'already-scaffolded',
+  const result = planApproval({ entries, slug: 'keystone' });
+  assert.equal(result.manifestExists, true);
+  assert.deepEqual(
+    result.moves.map((m) => m.from).sort(),
+    ['docs/design/proposed/keystone/decisions.html', 'docs/design/proposed/keystone/decisions.md'],
   );
+});
+
+test('planApproval: manifestExists is false when there is nothing at docs/features/<slug>/workstream.json', () => {
+  const result = planApproval({ entries: BASE_ENTRIES, slug: 'keystone' });
+  assert.equal(result.manifestExists, false);
 });
 
 test('planApproval: refuses when atlas.config.json is missing entirely', () => {
