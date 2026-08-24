@@ -38,7 +38,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { DEPLOYMENT_STAGES } from '../api/lib/contract.mjs';
+import { DEPLOYMENT_STAGES, proposedFileStem } from '../api/lib/contract.mjs';
 import { loadConfig, proposedDesignDirs, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
@@ -644,18 +644,32 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   };
 }
 
-// The document a proposed design's "Upcoming Features" row links to (M9 follow-up): the first
-// rendered Markdown record under its `docs/design/proposed/<slug>/` directory, or — a corpus that
-// is wireframes and nothing else, like `platform-operations` — the first copied HTML document
-// there. `null` when a slug's directory holds neither `.md` nor `.html`; `planApproval`'s own
-// precondition (the directory has files) means this shouldn't happen, but the row falls back to
-// plain, unlinked text rather than a broken href if it ever does.
+// The document a proposed design's "Upcoming Features" row links to (M9 follow-up, extended for
+// loose-file groups): the first rendered Markdown record under its `docs/design/proposed/<slug>/`
+// directory, or — a corpus that is wireframes and nothing else, like `platform-operations` — the
+// first copied HTML document there. A slug with no such directory falls back to the loose-file
+// shape (`proposedFileStem` — the ordinary case for a real proposal): the first document or copied
+// asset that sits directly under `docs/design/proposed/` and stems to this slug. `null` when
+// neither shape resolves to anything; `planApproval`'s own preconditions mean this shouldn't
+// happen for a slug this function was ever called with, but the row falls back to plain, unlinked
+// text rather than a broken href if it ever does.
 function proposedDesignUrl(slug, documents, assets) {
   const prefix = `docs/design/proposed/${slug}/`;
   const doc = documents.find((entry) => entry.path.startsWith(prefix));
   if (doc) return doc.url;
   const asset = assets.find((entry) => entry.isDocument && entry.path.startsWith(prefix));
-  return asset ? asset.url : null;
+  if (asset) return asset.url;
+
+  const looseRoot = 'docs/design/proposed/';
+  const stemsToSlug = (entryPath) => {
+    if (!entryPath.startsWith(looseRoot)) return false;
+    const rest = entryPath.slice(looseRoot.length);
+    return !rest.includes('/') && proposedFileStem(rest) === slug;
+  };
+  const looseDoc = documents.find((entry) => stemsToSlug(entry.path));
+  if (looseDoc) return looseDoc.url;
+  const looseAsset = assets.find((entry) => entry.isDocument && stemsToSlug(entry.path));
+  return looseAsset ? looseAsset.url : null;
 }
 
 // The page a workstream's `manifest.design[i].where` links to, or `null` — decision 21's "named,

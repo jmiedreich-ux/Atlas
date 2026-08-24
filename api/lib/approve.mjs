@@ -11,6 +11,13 @@
 // consuming project's own design-before-implementation policy now says approved design and
 // milestone tracking share one directory) — `approve` moves a proposed design directly into
 // `docs/features/<slug>/`.
+//
+// A proposal is either a directory (`docs/design/proposed/<slug>/`) or a loose-file group — every
+// top-level file directly under `docs/design/proposed/` whose name stems to `slug`
+// (`proposedFileStem`) — never both. `src/config.mjs`'s `proposedDesignDirs` lists both shapes the
+// same way, because a real consuming project's proposals are almost never their own directory.
+
+import { proposedFileStem } from './contract.mjs';
 
 const PROPOSED_ROOT = 'docs/design/proposed';
 const WORKSTREAMS_ROOT = 'docs/features';
@@ -45,7 +52,7 @@ export class ApproveError extends Error {
  *   configEntry: { path: string, mode: string, type: string, sha: string } | null,
  *   manifestExists: boolean,
  * }}
- * @throws {ApproveError} 'no-such-proposal' | 'name-collision' | 'no-config'
+ * @throws {ApproveError} 'no-such-proposal' | 'ambiguous-proposal' | 'name-collision' | 'no-config'
  */
 export function planApproval({ entries, slug }) {
   const proposedPrefix = `${PROPOSED_ROOT}/${slug}/`;
@@ -55,17 +62,44 @@ export function planApproval({ entries, slug }) {
   const blobs = entries.filter((entry) => entry.type === 'blob');
   const manifestExists = blobs.some((entry) => entry.path === manifestPath);
 
-  const proposed = blobs.filter((entry) => entry.path.startsWith(proposedPrefix));
+  const directoryShaped = blobs.filter((entry) => entry.path.startsWith(proposedPrefix));
+
+  // A loose file directly under `docs/design/proposed/` — no further `/` past that prefix — whose
+  // name stems to this slug (`proposedFileStem`). The ordinary shape a real proposal takes.
+  const looseShaped = blobs.filter((entry) => {
+    if (!entry.path.startsWith(`${PROPOSED_ROOT}/`)) return false;
+    const rest = entry.path.slice(PROPOSED_ROOT.length + 1);
+    if (rest.includes('/')) return false;
+    return proposedFileStem(rest) === slug;
+  });
+
+  if (directoryShaped.length > 0 && looseShaped.length > 0) {
+    throw new ApproveError(
+      `${slug} names both a directory (${PROPOSED_ROOT}/${slug}/) and a group of loose files ` +
+        `stemming to the same name — Atlas cannot tell which one this approval means. Rename one ` +
+        `of them so the slugs no longer collide.`,
+      'ambiguous-proposal',
+    );
+  }
+
+  const proposed = directoryShaped.length > 0 ? directoryShaped : looseShaped;
   if (proposed.length === 0) {
     throw new ApproveError(
-      `${PROPOSED_ROOT}/${slug}/ has no files — there is nothing to approve.`,
+      `${PROPOSED_ROOT}/${slug}/ has no files, and no loose file under ${PROPOSED_ROOT}/ stems to ` +
+        `${JSON.stringify(slug)} — there is nothing to approve.`,
       'no-such-proposal',
     );
   }
 
+  // A directory-shaped move keeps everything past the slug (subfolders included); a loose-file
+  // move is always flat — the file already sits directly under `PROPOSED_ROOT`, so its own
+  // basename is all there is to keep.
   const moves = proposed.map((entry) => ({
     from: entry.path,
-    to: `${featurePrefix}${entry.path.slice(proposedPrefix.length)}`,
+    to:
+      directoryShaped.length > 0
+        ? `${featurePrefix}${entry.path.slice(proposedPrefix.length)}`
+        : `${featurePrefix}${entry.path.slice(PROPOSED_ROOT.length + 1)}`,
     mode: entry.mode,
     sha: entry.sha,
   }));

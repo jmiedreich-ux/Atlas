@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadConfig, resolveWorkstreams, unnamedFeatureDirs } from '../src/config.mjs';
+import { loadConfig, proposedDesignDirs, resolveWorkstreams, unnamedFeatureDirs } from '../src/config.mjs';
 import { validateWorkstream } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file and for fixture/ only — the generator
@@ -356,4 +356,68 @@ test('promotion: the warning is a warning — it never throws, whatever it finds
 test('promotion: the fixture itself has no half-promoted feature, so the warning stays meaningful', () => {
   // A fixture that always warns is a warning nobody reads.
   assert.deepEqual(unnamedFeatureDirs(loadConfig(FIXTURE_ROOT)), []);
+});
+
+// --- proposedDesignDirs: directory-shaped AND loose-file-shaped proposals ----------------------
+
+test('proposedDesignDirs: a slug directory and a loose-file group are both listed', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), { project: 'Sample', repo: 'owner/sample', workstreams: [] });
+    const proposedRoot = path.join(root, 'docs', 'design', 'proposed');
+    mkdirSync(path.join(proposedRoot, 'keystone'), { recursive: true });
+    writeFileSync(path.join(proposedRoot, 'keystone', 'decisions.md'), '# Keystone\n');
+    writeFileSync(path.join(proposedRoot, 'observability-and-performance-telemetry.md'), '# Observability\n');
+
+    assert.deepEqual(proposedDesignDirs(loadConfig(root)), [
+      'keystone',
+      'observability-and-performance-telemetry',
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('proposedDesignDirs: sibling loose files sharing a filename stem list as one slug, not several', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), { project: 'Sample', repo: 'owner/sample', workstreams: [] });
+    const proposedRoot = path.join(root, 'docs', 'design', 'proposed');
+    mkdirSync(proposedRoot, { recursive: true });
+    for (const name of ['display-stale-signals.md', 'display-stale-signals.html', 'display-stale-signals-00.png', 'display-stale-signals-06.png']) {
+      writeFileSync(path.join(proposedRoot, name), 'x');
+    }
+    assert.deepEqual(proposedDesignDirs(loadConfig(root)), ['display-stale-signals']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('proposedDesignDirs: README.md beside the proposals is never listed as one', () => {
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), { project: 'Sample', repo: 'owner/sample', workstreams: [] });
+    const proposedRoot = path.join(root, 'docs', 'design', 'proposed');
+    mkdirSync(proposedRoot, { recursive: true });
+    writeFileSync(path.join(proposedRoot, 'README.md'), '# Proposed design references\n');
+    assert.deepEqual(proposedDesignDirs(loadConfig(root)), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('proposedDesignDirs: an existing manifest for the slug does not exclude it', () => {
+  // #18 retired this exclusion for directories; the same must hold for loose-file groups — a
+  // feature can already be tracked while its design is still a loose file in proposed/.
+  const root = makeTempProject();
+  try {
+    writeJson(path.join(root, 'atlas.config.json'), { project: 'Sample', repo: 'owner/sample', workstreams: ['nova'] });
+    writeJson(path.join(root, 'docs', 'features', 'nova', 'workstream.json'), validManifest());
+    const proposedRoot = path.join(root, 'docs', 'design', 'proposed');
+    mkdirSync(proposedRoot, { recursive: true });
+    writeFileSync(path.join(proposedRoot, 'nova.md'), '# Nova\n');
+    assert.deepEqual(proposedDesignDirs(loadConfig(root)), ['nova']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
