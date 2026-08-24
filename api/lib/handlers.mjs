@@ -1,4 +1,4 @@
-// The four endpoints.
+// The five endpoints.
 //
 //   * `POST /api/answer` records an answer to a question in a register.
 //   * `POST /api/acceptance` records an acceptance result.
@@ -7,16 +7,22 @@
 //   * `POST /api/approve` moves a proposed design into its feature's own directory, scaffolding
 //     its first milestone if one doesn't already exist, in one commit (M9, decision 59 — a
 //     fourth, and the first that is not "edit one record").
+//   * `POST /api/refresh` triggers the project's own rebuild workflow (M9, decision 61 — a fifth,
+//     and the first that commits nothing at all).
 //
 // Decision 35 scoped write-back to the first two of these and justified the rest going to a
 // separate "operations console" that would own approving milestones and editing manifests.
 // Decision 57 withdrew that justification — the console named does not do those things — without
-// itself widening the scope; decision 58 retired decision 35 on that basis, and decision 59 is the
-// first thing actually re-decided under it, on its own stated grounds (see `api/approve/index.mjs`
-// and `api/lib/approve.mjs`). This is not "decision 35 never mattered" — M8 shipped exactly on its
-// strength — it is that the reason it gave stopped being true, and a write path into a manifest is
-// still treated as the bigger surface it always was: `approve` gets its own atomic-commit mechanism
-// rather than reusing the single-file one below, precisely because that surface is bigger.
+// itself widening the scope; decision 58 retired decision 35 on that basis, and decisions 59 and 61
+// are what has actually been re-decided under it since, each on its own stated grounds (see
+// `api/approve/index.mjs`/`api/lib/approve.mjs` and `api/refresh/index.mjs` respectively). This is
+// not "decision 35 never mattered" — M8 shipped exactly on its strength — it is that the reason it
+// gave stopped being true, and a write path into a manifest is still treated as the bigger surface
+// it always was: `approve` gets its own atomic-commit mechanism rather than reusing the single-file
+// one below, precisely because that surface is bigger. `refresh` is the opposite case — decision 57
+// named it explicitly as one of the two things waiting on this re-decision, and it commits nothing
+// at all (decision 37 stays completely intact: the repository is still the only source of truth,
+// this only asks the site to notice sooner).
 //
 // The first three still share the same five steps, in the same order, and the order is load-bearing:
 //
@@ -37,7 +43,7 @@
 // — no database, no cache, no queue, no pending list. The rebuild is the workflow's job, triggered
 // by the push, which is the whole reason decision 36 insists on a GitHub App.
 
-import { GitHubError, createContentsClient, createTreeClient } from './github.mjs';
+import { GitHubError, createContentsClient, createTreeClient, createWorkflowClient } from './github.mjs';
 import { RECORDS_ROOT, whyNotAWritableRecord } from './contract.mjs';
 import { RecordError, answerQuestion, answerRegisterQuestion, appendDeploymentTransition, recordAcceptance } from './records.mjs';
 import { ApproveError, addWorkstreamToConfig, planApproval } from './approve.mjs';
@@ -50,6 +56,7 @@ import {
   validateAnswerPayload,
   validateApprovePayload,
   validateDeploymentTransitionPayload,
+  validateRefreshPayload,
 } from './payload.mjs';
 
 /** The register a workstream's open questions live in (decision 40's convention). */
@@ -147,6 +154,10 @@ async function prepare(request, { env, fetchImpl, nowSeconds }, validate, makeCl
     principal: caller.principal,
     credential: credential.value,
     client: makeClient({ repo: credential.value.repo, token, fetchImpl }),
+    // Exposed alongside `client` only for `handleRefresh`, which is the one caller needing a
+    // SECOND client (a content read for `atlas.config.json`'s "workflow" field, then a dispatch)
+    // — every other handler builds exactly one client from `makeClient` and never touches this.
+    token,
   };
 }
 
@@ -579,6 +590,64 @@ export async function handleApprove(request, deps) {
       manifestPath: `docs/features/${slug}/workstream.json`,
       commit: commit.commitUrl,
     });
+  } catch (error) {
+    return fromError(error);
+  }
+}
+
+/**
+ * `POST /api/refresh` — trigger the project's own rebuild workflow (M9, decision 61).
+ *
+ * The owner's own spec, quoted because it is the whole design: "a refresh button that rebuilds the
+ * site... it keeps decision 37 completely intact: the repository stays the only source of truth,
+ * the page is still rendered from records, nothing is held anywhere. It just stops him waiting on
+ * CI to notice." Nothing here writes a byte. It reads `atlas.config.json`'s `"workflow"` field —
+ * the same file `handleApprove` already reads and writes, not a new secret, because a workflow
+ * filename is not sensitive (decisions 38, 41: Atlas is a generic multi-project generator, and each
+ * project names its own workflow the way it already names everything else about itself) — then
+ * asks GitHub to dispatch it, through the same installation token every write endpoint already
+ * holds (decision 61: no new credential, no new trust boundary).
+ *
+ * @param {{ method?: string, headers: object, body: unknown }} request
+ * @param {{ env: object, fetchImpl?: typeof fetch, nowSeconds: number }} deps
+ * @returns {Promise<{ status: number, headers: object, body: object }>}
+ */
+export async function handleRefresh(request, deps) {
+  const ready = await prepare(request, deps, validateRefreshPayload);
+  if (!ready.ok) return ready.response;
+
+  const { principal, credential, client, token } = ready;
+
+  try {
+    const config = await client.read('atlas.config.json', credential.branch);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(config.text);
+    } catch (error) {
+      return refusal({
+        status: 502,
+        error: 'unreadable-config',
+        message: `atlas.config.json is not valid JSON (${error.message}), so Atlas cannot tell which workflow to trigger.`,
+      });
+    }
+
+    const workflow = parsed?.workflow;
+    if (typeof workflow !== 'string' || workflow.trim() === '') {
+      return refusal({
+        status: 409,
+        error: 'no-workflow',
+        message:
+          `atlas.config.json has no "workflow" field, so there is nothing to trigger. Add the ` +
+          `rebuild workflow's filename (e.g. "atlas.yml") to atlas.config.json first — Atlas ` +
+          `triggers a workflow the project already has, it does not create one.`,
+      });
+    }
+
+    const workflowClient = createWorkflowClient({ repo: credential.repo, token, fetchImpl: deps.fetchImpl });
+    await workflowClient.dispatch({ workflow, ref: credential.branch });
+
+    return respond(200, { ok: true, workflow, ref: credential.branch, triggeredBy: principal.author });
   } catch (error) {
     return fromError(error);
   }

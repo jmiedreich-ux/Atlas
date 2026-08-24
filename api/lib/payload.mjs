@@ -20,6 +20,7 @@ const ANSWER_FIELDS = Object.freeze(['workstream', 'question', 'answer', 'sha', 
 const ACCEPTANCE_FIELDS = Object.freeze(['workstream', 'milestone', 'result', 'note', 'sha']);
 const DEPLOYMENT_TRANSITION_FIELDS = Object.freeze(['workstream', 'stage', 'note', 'sha']);
 const APPROVE_FIELDS = Object.freeze(['slug']);
+const REFRESH_FIELDS = Object.freeze([]);
 
 function fail(message) {
   return { ok: false, status: 400, error: 'invalid-payload', message };
@@ -273,4 +274,30 @@ export function validateApprovePayload(body) {
   }
 
   return { ok: true, value: { slug: value.slug } };
+}
+
+/**
+ * `POST /api/refresh` takes no fields (M9, decision 61) — it names nothing to write, only asks
+ * the site to rebuild from what is already on record. A missing or empty body is the ordinary
+ * case, not something to refuse; an unexpected field is refused by name, the same posture every
+ * other endpoint takes toward a field it does not read.
+ *
+ * @param {unknown} body
+ * @returns {{ ok: true, value: {} } | { ok: false, status: 400, error: 'invalid-payload', message: string }}
+ */
+export function validateRefreshPayload(body) {
+  const parsed = body === undefined || body === null || body === '' ? {} : asObject(body);
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return fail('this request carried a body that is not a JSON object. POST /api/refresh takes no fields — send {} or nothing.');
+  }
+
+  const unknown = unknownFields(parsed, REFRESH_FIELDS);
+  if (unknown.length > 0) {
+    return fail(
+      `${unknown.map((f) => `"${f}"`).join(', ')} ${unknown.length > 1 ? 'are fields' : 'is a field'} ` +
+        `Atlas does not accept here — POST /api/refresh takes no fields, there is nothing to name per request.`,
+    );
+  }
+
+  return { ok: true, value: {} };
 }

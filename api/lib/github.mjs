@@ -420,3 +420,81 @@ export function createTreeClient({ repo, token, fetchImpl = fetch, apiRoot = GIT
     },
   };
 }
+
+/**
+ * A client for triggering one repository's `workflow_dispatch` (M9, decision 61 — the refresh
+ * button). Everything else in this module commits content; this commits nothing — it asks GitHub
+ * to run a workflow the repository already has, the same request a person clicks "Run workflow"
+ * to send, using the same installation token the write endpoints already hold rather than a
+ * second credential (decision 61: no new trust boundary).
+ *
+ * @param {object} opts
+ * @param {string} opts.repo - `owner/name`, from the deployment's settings. Never from a request.
+ * @param {string} opts.token - an installation access token.
+ * @param {typeof fetch} [opts.fetchImpl]
+ * @param {string} [opts.apiRoot]
+ */
+export function createWorkflowClient({ repo, token, fetchImpl = fetch, apiRoot = GITHUB_API_ROOT }) {
+  const headers = {
+    Accept: ACCEPT,
+    Authorization: `Bearer ${token}`,
+    'X-GitHub-Api-Version': API_VERSION,
+    'User-Agent': 'atlas-write-back',
+    'Content-Type': 'application/json',
+  };
+
+  return {
+    /**
+     * Trigger `workflow` (a filename under `.github/workflows/`, e.g. `atlas.yml` — GitHub accepts
+     * either that or the workflow's numeric id, and a project names the filename in its own
+     * `atlas.config.json`, so that is what arrives here) on `ref`.
+     *
+     * GitHub answers a successful dispatch with 204 and no body — there is no run id to return,
+     * because a `workflow_dispatch` event queues a run asynchronously rather than starting one
+     * synchronously. This client does not wait for it or report on it; whether the run then
+     * succeeds is between the workflow and the repository, same as a person clicking the button in
+     * GitHub's own UI.
+     *
+     * @param {{ workflow: string, ref: string }} args
+     * @returns {Promise<void>}
+     * @throws {GitHubError} `no-such-workflow` (404 from GitHub — the filename does not name a
+     *   workflow this repository has) or `forbidden-dispatch` (403 — the installation token's App
+     *   was not granted the `actions: write` permission this call needs; a code fix cannot repair
+     *   this, the App's permissions have to be widened in GitHub's own settings).
+     */
+    async dispatch({ workflow, ref }) {
+      const url = `${apiRoot}/repos/${repo}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`;
+      let response;
+      try {
+        response = await fetchImpl(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ref }),
+        });
+      } catch (error) {
+        throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
+      }
+      if (response.status === 204) return;
+
+      const payload = await readJson(response);
+      if (response.status === 404) {
+        throw new GitHubError(
+          `there is no workflow named ${JSON.stringify(workflow)} on ${ref} — check ` +
+            `atlas.config.json's "workflow" field against .github/workflows/ in this repository.`,
+          { status: 404, code: 'no-such-workflow' },
+        );
+      }
+      if (response.status === 403) {
+        throw new GitHubError(
+          `GitHub refused to trigger ${JSON.stringify(workflow)}: the installation's GitHub App ` +
+            `does not have the "Actions: write" permission this needs. Atlas cannot grant that ` +
+            `itself — add it to the App's permissions in GitHub, then re-accept the installation.`,
+          { status: 403, code: 'forbidden-dispatch' },
+        );
+      }
+      throw new GitHubError(
+        `GitHub answered ${response.status} dispatching ${workflow}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+      );
+    },
+  };
+}
