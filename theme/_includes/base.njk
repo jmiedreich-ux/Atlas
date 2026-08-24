@@ -78,6 +78,15 @@
 <a href="/mobile/">What needs you</a>
 <a href="/library/">Library</a>
 </nav>
+{#- Decision 61: stop waiting on CI to notice a change already landed, from wherever you're
+    looking — every page carries this, not only the feature planning surface, which is why it is
+    wired here rather than through `bodyScripts` below. The `author` gate is entirely server-side
+    (`POST /api/refresh` itself refuses a reader with a named reason); this button does not hide
+    itself from one, the same posture `approve.js` already takes. -#}
+<div class="refresh-trigger" data-refresh-trigger>
+<button type="button" class="refresh-trigger-button" data-refresh-button>Refresh</button>
+<p class="refresh-trigger-status" data-refresh-trigger-status role="status" aria-live="polite"></p>
+</div>
 {#- A plain list rather than a single cycling button: the owner tried the cycling control and did
     not know what it meant without reading the label after clicking. Three named choices, one
     marked current, is legible without having to act on it first. -#}
@@ -134,8 +143,11 @@
   apply(read());
 })();
 </script>
-{#- A surface that needs behaviour of its own loads it here, after the markup it acts on. Only the
-    feature planning surface uses this; every other page is static (decision 12). -#}
+<script type="module" src="/refresh.js"></script>
+{#- A surface that needs behaviour of its own beyond the refresh button above loads it here, after
+    the markup it acts on. Only the feature planning surface uses this block; every other page's
+    only interactivity is the theme toggle and the refresh button, both already wired above
+    (decision 12: no framework runtime — this stays one small script per concern, not a bundle). -#}
 {% block bodyScripts %}{% endblock %}
 </body>
 </html>

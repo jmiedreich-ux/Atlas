@@ -23,6 +23,7 @@ import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
 import { approveBody, outcomeMessage as approveOutcomeMessage, wire as wireApprove } from '../theme/approve.js';
+import { outcomeMessage as refreshOutcomeMessage, wire as wireRefresh } from '../theme/refresh.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -2166,6 +2167,108 @@ test('approve.js: wire() re-enables the button after a refusal, so a real failur
 
   assert.equal(trigger.button.disabled, false);
   assert.match(trigger.status.textContent, /Not approved/);
+});
+
+// refresh.js — decision 61. Unlike order.js/deploy.js/approve.js, this loads on EVERY page: it is
+// wired in base.njk itself, not any one surface's `bodyScripts` block.
+
+test('refresh.js: every surface loads the refresh script, not only feature planning', () => {
+  for (const [name, html] of Object.entries(ALL_PAGES)) {
+    assert.match(html, /<script type="module" src="\/refresh\.js"><\/script>/, `${name} does not load refresh.js`);
+  }
+});
+
+test('refresh.js: the header carries exactly one refresh trigger', () => {
+  // `data-refresh-trigger` on its own, not the status line's `data-refresh-trigger-status` —
+  // matched on the attribute's own closing boundary (`"` or `>`) so the longer name's shared
+  // prefix cannot double-count it.
+  const matches = [...depthHtml.matchAll(/data-refresh-trigger(?=[">\s])/g)];
+  assert.equal(matches.length, 1);
+  assert.match(depthHtml, /<button[^>]*data-refresh-button[^>]*>Refresh<\/button>/);
+});
+
+test('refresh.js: outcomeMessage names the workflow and ref on success and never claims more', () => {
+  assert.equal(
+    refreshOutcomeMessage({ status: 200, body: { ok: true, workflow: 'atlas.yml', ref: 'master' } }),
+    'Rebuild triggered (atlas.yml on master) — reload in a minute or two to see it.',
+  );
+  assert.equal(
+    refreshOutcomeMessage({ status: 409, body: { message: 'atlas.config.json has no "workflow" field' } }),
+    'Not triggered: atlas.config.json has no "workflow" field',
+  );
+  assert.equal(refreshOutcomeMessage({ status: 502, body: null }), 'Not triggered: the server answered 502.');
+});
+
+// refresh.js's wire() — same fake-element convention as approve.js's own tests above, but ONE
+// global trigger rather than one per slug, so the fake carries no `data-slug` to read.
+
+function fakeRefreshTrigger() {
+  const status = { textContent: '' };
+  const listeners = {};
+  const button = {
+    addEventListener: (type, handler) => {
+      listeners[type] = handler;
+    },
+    disabled: false,
+    click: () => listeners.click(),
+  };
+  const querySelector = (selector) => {
+    if (selector === '[data-refresh-trigger-status]') return status;
+    if (selector === '[data-refresh-button]') return button;
+    return null;
+  };
+  return { status, button, querySelector };
+}
+
+function fakeRefreshDoc(trigger) {
+  return {
+    querySelector: (selector) => (selector === '[data-refresh-trigger]' ? trigger : null),
+  };
+}
+
+test('refresh.js: wire() does nothing when the header has no trigger — never throws on a page without one', () => {
+  assert.doesNotThrow(() => wireRefresh(fakeRefreshDoc(null), async () => ({ status: 200, json: async () => ({}) })));
+});
+
+test('refresh.js: wire() posts an empty body and reports success', async () => {
+  const trigger = fakeRefreshTrigger();
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push({ url, body: init.body });
+    return { status: 200, json: async () => ({ ok: true, workflow: 'atlas.yml', ref: 'master' }) };
+  };
+
+  wireRefresh(fakeRefreshDoc(trigger), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].url, '/api/refresh');
+  assert.equal(posted[0].body, '{}');
+  assert.match(trigger.status.textContent, /^Rebuild triggered/);
+});
+
+test('refresh.js: wire() re-enables the button on both success and refusal — a second refresh is always valid', async () => {
+  const trigger = fakeRefreshTrigger();
+  const fetchImpl = async () => ({ status: 200, json: async () => ({ ok: true, workflow: 'atlas.yml', ref: 'master' }) });
+
+  wireRefresh(fakeRefreshDoc(trigger), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(trigger.button.disabled, false);
+});
+
+test('refresh.js: wire() surfaces the real refusal message from the server', async () => {
+  const trigger = fakeRefreshTrigger();
+  const fetchImpl = async () => ({
+    status: 403,
+    json: async () => ({ message: 'writing needs the "author" role' }),
+  });
+
+  wireRefresh(fakeRefreshDoc(trigger), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(trigger.button.disabled, false);
+  assert.equal(trigger.status.textContent, 'Not triggered: writing needs the "author" role');
 });
 
 // --- the document pages ---------------------------------------------------------------------------

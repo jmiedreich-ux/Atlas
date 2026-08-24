@@ -452,6 +452,46 @@ th.num {
   outline-offset: 2px;
 }
 
+/* Sits between the surface nav and the theme list — a header control, not a row's own action like
+ * .approve-trigger, so it carries no text-align and stacks its status line beneath it instead. */
+.refresh-trigger {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+}
+
+/* Same flat, no-box convention every other trigger button in this theme already uses. */
+.refresh-trigger-button {
+  background: none;
+  border: none;
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.refresh-trigger-button:hover:not(:disabled) {
+  color: var(--sky-text-primary);
+  text-decoration: underline;
+}
+
+.refresh-trigger-button:focus-visible {
+  outline: 2px solid var(--sky-focus-color);
+  outline-offset: 2px;
+}
+
+.refresh-trigger-button:disabled {
+  color: var(--sky-text-muted);
+  cursor: not-allowed;
+}
+
+.refresh-trigger-status {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin: 0;
+}
+
 .site-main {
   padding: var(--sky-space-5) var(--sky-space-4);
 }
