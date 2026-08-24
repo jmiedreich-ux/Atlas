@@ -20,7 +20,7 @@ import { computeLadder, spineDetail } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
-import { transitionBody, outcomeMessage } from '../theme/deploy.js';
+import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -1886,6 +1886,99 @@ test('deploy.js: outcomeMessage never claims a deployment happened, success or f
       'no outcome message may claim a real deployment happened',
     );
   }
+});
+
+// deploy.js's wire() — the DOM-and-network half. Unlike theme/order.js's own unexported wire()
+// (no browser in this test environment, per that file's header), this one is exported specifically
+// because it calls only a small, fixed set of DOM methods (see deploy.js's own header on the
+// export), which a hand-built fake element can implement without a real browser. The fake below
+// implements exactly that set and nothing more.
+
+function fakeTriggerElement({ sha, buttons: buttonSpecs }) {
+  const status = { textContent: '' };
+  const buttons = buttonSpecs.map((attrs) => {
+    const listeners = {};
+    return {
+      getAttribute: (name) => (name in attrs ? attrs[name] : null),
+      addEventListener: (type, handler) => {
+        listeners[type] = handler;
+      },
+      disabled: false,
+      // Not part of the real DOM interface wire() reads — a test-only hook to fire the handler
+      // wire() registered, the same role a real click event plays.
+      click: () => listeners.click(),
+    };
+  });
+  return {
+    getAttribute: (name) => (name === 'data-sha' ? (sha ?? null) : null),
+    querySelector: (selector) => (selector === '[data-stage-trigger-status]' ? status : null),
+    querySelectorAll: (selector) => (selector === '[data-transition-to]' ? buttons : []),
+    status,
+    buttons,
+  };
+}
+
+function fakeDoc(triggers) {
+  return {
+    querySelectorAll: (selector) => (selector === '[data-stage-trigger]' ? triggers : []),
+  };
+}
+
+test('deploy.js: wire() sends the SHA the previous successful transition returned, not the stale data-sha value (M8 task 7 round 2)', async () => {
+  const buildTimeSha = 'a'.repeat(40);
+  const newSha = 'b'.repeat(40);
+  const trigger = fakeTriggerElement({
+    sha: buildTimeSha,
+    buttons: [
+      { 'data-transition-to': 'development', 'data-slug': 'alkali' },
+      { 'data-transition-to': 'staging', 'data-slug': 'alkali' },
+    ],
+  });
+
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push(JSON.parse(init.body));
+    return {
+      status: 200,
+      json: async () => ({ ok: true, sha: posted.length === 1 ? newSha : 'c'.repeat(40) }),
+    };
+  };
+
+  wire(fakeDoc([trigger]), fetchImpl);
+
+  await trigger.buttons[0].click(); // Development, using the build-time data-sha
+  await trigger.buttons[1].click(); // Staging, in the same page load
+
+  assert.equal(posted.length, 2);
+  assert.equal(posted[0].sha, buildTimeSha, 'the first POST in a page load sends the build-time data-sha');
+  assert.equal(
+    posted[1].sha,
+    newSha,
+    'the second POST sends the SHA the first response returned, not the stale build-time value',
+  );
+  assert.notEqual(posted[1].sha, buildTimeSha);
+  assert.equal(trigger.status.textContent, 'Recorded — the page will reflect this on the next rebuild.');
+});
+
+test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so a retry still sends what the page rendered', async () => {
+  const buildTimeSha = 'a'.repeat(40);
+  const trigger = fakeTriggerElement({
+    sha: buildTimeSha,
+    buttons: [{ 'data-transition-to': 'development', 'data-slug': 'alkali' }],
+  });
+
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push(JSON.parse(init.body));
+    return { status: 409, json: async () => ({ message: 'has changed since the page you are looking at was built' }) };
+  };
+
+  wire(fakeDoc([trigger]), fetchImpl);
+
+  await trigger.buttons[0].click();
+  await trigger.buttons[0].click();
+
+  assert.deepEqual(posted.map((p) => p.sha), [buildTimeSha, buildTimeSha]);
 });
 
 // --- the document pages ---------------------------------------------------------------------------

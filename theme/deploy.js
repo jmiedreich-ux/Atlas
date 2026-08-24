@@ -34,11 +34,26 @@
 //
 // What this SHA still protects against, and what it never did: `api/lib/handlers.mjs`'s
 // `staleAgainstCaller` check compares the SHA sent here against the log file's SHA at write time
-// and refuses the write if they differ — the narrow race where somebody else's write lands between
-// this page being rendered and this click. It does not, and never did (with or without the old
-// GET), guarantee the page reflects a change that happened after the page was built; that would
-// need a live re-read, which is what the removed GET was reaching for and never actually achieved
-// against a private repository.
+// and refuses the write if they differ. In that function's own vocabulary (`api/lib/handlers.mjs`'s
+// comment on `staleAgainstCaller`), this is the WIDE guarantee — "the page was built, somebody else
+// answered, and this caller is submitting against what they saw" — not the narrow one (Atlas's own
+// read-then-write race between its own read of the log and its own write, which the SHA-on-the-PUT
+// covers server-side regardless of what this file sends). It does not, and never did (with or
+// without the old GET), guarantee the page reflects a change that happened after the page was
+// built; that would need a live re-read, which is what the removed GET was reaching for and never
+// actually achieved against a private repository.
+//
+// THE SHA IS HELD IN MEMORY, NOT RE-READ FROM THE PAGE (M8 task 7 round 2). The three buttons in
+// one `.stage-trigger` group started out sharing a single `data-sha` value for the whole page load.
+// But the intended workflow is exactly three clicks against the same group in one page load
+// (Development, then Staging, then Release) — and a successful POST returns the log's new blob SHA
+// (`sha: commit.sha` in `handleDeploymentTransition`'s 200 body). Resending the original,
+// now-superseded `data-sha` on the next click would be stale against what this caller itself just
+// wrote, and the server's refusal would correctly 409 it — its "reload and try again" message can't
+// actually help, since `data-sha` is static HTML until the next rebuild. So the SHA below is
+// reassigned from each successful response, and the next click in the same group sends the current
+// value. A 409 from someone *else's* write in between still needs a reload — that guarantee is
+// real and unchanged.
 
 /**
  * The body `POST /api/deployment-transition` (Task 5) accepts, and nothing else —
@@ -74,20 +89,26 @@ export function outcomeMessage({ status, body }) {
 
 // --- the page ------------------------------------------------------------------------------------
 //
-// Everything below touches the DOM and the network and runs only in a browser. Guarded the same
-// way `theme/order.js` guards its own wiring (see its header), so importing this module in the
-// test runner exercises the two pure functions above without going near a document, or a network,
-// that is not there.
+// `wire` touches the DOM and the network, but only calls the small handful of DOM methods used
+// below — `querySelectorAll`, `querySelector`, `getAttribute`, `addEventListener`, and setting
+// `.disabled`/`.textContent` — so, unlike `theme/order.js`'s own unexported `wire` (no browser in
+// this test environment, per its header), this one is exported and exercised in
+// `tests/theme.test.mjs` against hand-built fake elements that implement just that interface, with
+// `fetchImpl` swapped for a mock server. The auto-wiring call at the bottom of this file is still
+// guarded by `typeof document !== 'undefined'`, so importing this module in the test runner never
+// touches a real document or a real network on its own.
 
-function wire(doc, fetchImpl) {
+export function wire(doc, fetchImpl) {
   const triggers = doc.querySelectorAll('[data-stage-trigger]');
 
   triggers.forEach((trigger) => {
-    // The build-time blob SHA (`stream.deploymentLogSha`, `depth.njk`'s `data-sha`). Empty string
-    // when the workstream has no log yet — `getAttribute` never returns `null` for an attribute
-    // that is present but rendered empty, so this is normalised to `null` here, the same value
-    // `transitionBody` already treats as "no SHA to send".
-    const sha = trigger.getAttribute('data-sha') || null;
+    // The blob SHA this group's next POST will send. Seeded once from the build-time value
+    // (`stream.deploymentLogSha`, `depth.njk`'s `data-sha`) — empty string when the workstream has
+    // no log yet, normalised to `null` here, the same value `transitionBody` already treats as "no
+    // SHA to send" — then reassigned after every successful transition (see the header comment's
+    // "SHA IS HELD IN MEMORY" section) so a second click in the same page load sends what the first
+    // click's response actually returned, not the stale value the page was built with.
+    let sha = trigger.getAttribute('data-sha') || null;
     const status = trigger.querySelector('[data-stage-trigger-status]');
     const buttons = [...trigger.querySelectorAll('[data-transition-to]')];
 
@@ -110,6 +131,9 @@ function wire(doc, fetchImpl) {
           });
           const body = await response.json().catch(() => null);
           outcome = { status: response.status, body };
+          if (outcome.status >= 200 && outcome.status < 300 && body?.ok && body?.sha) {
+            sha = body.sha;
+          }
         } catch (err) {
           outcome = { status: 0, body: { message: err.message } };
         }

@@ -35,6 +35,13 @@
   instead of fetching a SHA from GitHub client-side at click time: every real Atlas project lives
   in a private repository (decision 7), so an unauthenticated client-side GET to GitHub's contents
   API always 404s there — the build-time value is the one that actually works.
+
+  `data-log`/`data-repo` on the same wrapper are left over from the old two-step GET-then-POST
+  design and are no longer read by `theme/deploy.js` (the server derives the log path from the
+  manifest itself). Kept deliberately rather than stripped: they are still true, harmless metadata
+  about which log and repo a row's buttons belong to, and a future caller (a debugging script, a
+  future write-back UI) may want them without re-deriving from the manifest. Remove them if that
+  stops being worth the two attributes.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
