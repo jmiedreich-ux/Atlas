@@ -2558,6 +2558,61 @@ test('action-modal.js: a second open resets the previous run\'s classes and mess
   assert.equal(modal.message.className, 'action-modal-message');
 });
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+test('action-modal.js: a success outcome auto-closes itself after the given delay', async () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  const handle = openActionModal(doc, 'Refreshing…', { autoCloseMs: 5 });
+  handle.resolve({ ok: true, message: 'Rebuild deployed.' });
+
+  assert.equal(modal.backdrop.hidden, false, 'still visible immediately after resolving — the point is to let it be read');
+  await sleep(20);
+  assert.equal(modal.backdrop.hidden, true, 'auto-closed once the delay elapsed');
+});
+
+test('action-modal.js: a failure outcome never auto-closes — it has to be read and dismissed by hand', async () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  const handle = openActionModal(doc, 'Refreshing…', { autoCloseMs: 5 });
+  handle.resolve({ ok: false, message: 'Not triggered: the installation does not have Actions: write.' });
+
+  await sleep(20);
+  assert.equal(modal.backdrop.hidden, false, 'a failure the visitor has not dismissed must still be on screen');
+});
+
+test('action-modal.js: opening a new action cancels a still-pending auto-close from the last one, so it cannot close the new run out from under a visitor', async () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  openActionModal(doc, 'Refreshing…', { autoCloseMs: 5 }).resolve({ ok: true, message: 'Rebuild deployed.' });
+  // Reopened before the 5ms auto-close from the FIRST action has fired — this second open must
+  // cancel that pending timer, not just overwrite the visible state, or it would close a THIRD,
+  // still-later action's modal out from under whoever is watching it.
+  const second = openActionModal(doc, 'Approving reef…');
+
+  await sleep(20);
+  assert.equal(modal.backdrop.hidden, false, 'the second action is still running and must still be visible');
+  assert.equal(modal.title.textContent, 'Approving reef…');
+  assert.notEqual(second, null);
+});
+
+test('action-modal.js: closing manually cancels the pending auto-close, so it does not fire again later on whatever the visitor has since opened', async () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  openActionModal(doc, 'Refreshing…', { autoCloseMs: 10 }).resolve({ ok: true, message: 'Rebuild deployed.' });
+  wireActionModal(doc);
+  modal.closeListeners.click();
+  assert.equal(modal.backdrop.hidden, true, 'closed immediately by hand');
+
+  // If the cancelled timer fired anyway, it would call close() again on whatever is open by
+  // then — reopen here so a stray fire would be visible as an unwanted close.
+  openActionModal(doc, 'Refreshing…');
+  await sleep(20);
+  assert.equal(modal.backdrop.hidden, false, 'the cancelled timer must not have closed this later, unrelated open');
+});
+
 test('action-modal.js: wire() closes on the close button', () => {
   const { doc, modal } = fakeActionModalDoc();
   openActionModal(doc, 'Refreshing…');
