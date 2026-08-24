@@ -2370,6 +2370,17 @@ test('pollMessage: names the run once one is known, stays generic before that', 
   assert.equal(pollMessage(null), 'Building…');
 });
 
+test('pollMessage: names the real step once GitHub reports one', () => {
+  assert.equal(
+    pollMessage({ state: 'running', run: 42, step: { name: 'Build the site', number: 2, of: 5 } }),
+    'Build the site (2 of 5)…',
+  );
+});
+
+test('pollMessage: a running state with no step yet falls back to the run-number line, never a guessed step', () => {
+  assert.equal(pollMessage({ state: 'running', run: 42, step: null }), 'Building (run #42)…');
+});
+
 /**
  * A real `openActionModal` handle backed by fake DOM parts, the same object `pollRunStatus`
  * actually receives from `theme/refresh.js`'s own `wire()` — not the raw parts, which have no
