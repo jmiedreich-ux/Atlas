@@ -1484,7 +1484,10 @@ test('mobile: the track fills exactly the milestones that are finished, never th
   // And the chart's own answer, so the two are read side by side rather than one at a time.
   const [column] = computeLadder([gapped]).columns;
   assert.equal(column.barTo, 'depth-2', 'the bar reaches the real edge of finished work');
-  assert.equal(column.headAt, 'depth-3');
+  // M4.2: M1 is `next` (open, unfinished) and sits BEHIND the bar (M2 is done ahead of it) — the
+  // exact gap this milestone's own fix exists to point the head at honestly, rather than past the
+  // bar to M3, which is merely parked and not what is actually in flight.
+  assert.equal(column.headAt, 'depth-1');
   assert.equal(column.completedCount, 1);
 });
 

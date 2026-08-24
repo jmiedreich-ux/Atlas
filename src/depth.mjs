@@ -37,6 +37,16 @@ function finishedDepth(milestones) {
   return milestones.reduce((deepest, m) => (m.status === 'done' && m.depth > deepest ? m.depth : deepest), 0);
 }
 
+// The mirror of `finishedDepth`: the shallowest depth among milestones that are neither `done`
+// nor `parked` — the earliest thing genuinely still open. `null` when nothing is open (everything
+// on record is finished or was worked around), which is the existing, correct case this function
+// does not change.
+function earliestOpenDepth(milestones) {
+  const open = milestones.filter((m) => m.status !== 'done' && m.status !== 'parked');
+  if (open.length === 0) return null;
+  return open.reduce((shallowest, m) => (m.depth < shallowest ? m.depth : shallowest), Infinity);
+}
+
 // The milestones the work went round: on record, behind the edge of finished work, and not
 // finished themselves. Positional, like every other rule on this page — the status is carried as
 // the REASON to print beside the marker, never as the test for whether to draw one.
@@ -101,7 +111,15 @@ export function computeLadder(workstreams) {
     // right.
     const completedDepth = finishedDepth(milestones);
     const barRows = preMilestoneCoveredCount(stage) + completedDepth;
-    const headPosition = barRows + 1;
+
+    // A gap: something shallower than the deepest DONE milestone is neither done nor parked — it
+    // was leapfrogged, not worked around (SOP 2b's own case). The head points there instead of
+    // one past the deepest done milestone, because that open milestone — not an imagined "next"
+    // depth with nothing recorded — is the honest answer to "what's actually next."
+    const openDepth = earliestOpenDepth(milestones);
+    const gapped = openDepth !== null && openDepth <= completedDepth;
+
+    const headPosition = gapped ? openDepth + preMilestoneCoveredCount(stage) : barRows + 1;
 
     const barTo = barRows === 0 ? null : rowIdForSequencePosition(barRows);
     const headAt = rowIdForSequencePosition(headPosition);
@@ -168,7 +186,7 @@ export function computeLadder(workstreams) {
       //
       // The milestones the work went round, each carrying the reason and the issue number the
       // page prints beside its marker. Empty for every column with no gap in it.
-      skipped: skippedBehind(milestones, completedDepth),
+      skipped: skippedBehind(milestones, completedDepth).filter((s) => !(gapped && s.depth === openDepth)),
 
       // Where the faint reach ends: the deepest milestone on record, when that is past the bar.
       // `null` means there is nothing recorded beyond where the work has got, and #780 says such
