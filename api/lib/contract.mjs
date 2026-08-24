@@ -170,3 +170,38 @@ export function whyNotADirectoryName(entry) {
   if (entry.split('').some((ch) => ch.codePointAt(0) < 0x20)) return 'contains a control character';
   return '';
 }
+
+/**
+ * The slug a loose file directly under `docs/design/proposed/` groups under, or `null` if it
+ * cannot name one.
+ *
+ * A directory-shaped proposal (`docs/design/proposed/<slug>/`) was `approve`'s only shape until
+ * now (decision 59); a real consuming project's proposals are almost never that \u2014 one `.md`
+ * file, sometimes with sibling images or an HTML wireframe sharing its name, is the ordinary case.
+ * Two files group together when this returns the same value for both:
+ * `display-stale-signals.md`, `display-stale-signals.html` and `display-stale-signals-00.png` \u2026
+ * `-06.png` all stem to `display-stale-signals` (nine files, one proposal); a file with no
+ * matching sibling groups alone.
+ *
+ * Strips exactly one extension, then exactly one trailing `-` followed by one or two ASCII digits.
+ * Deliberately narrow: `2024-report.md` stems to `2024-report` \u2014 the pattern is a trailing
+ * `-NN`, and a four-digit run at the START of a name is not that \u2014 and a filename with two
+ * numeric suffixes (`shot-01-02.png`) only loses the last one, because a doubled pattern like that
+ * reads as part of the name, not an index.
+ *
+ * `README.md` is never a proposal \u2014 it is the index this directory's own SOP requires (a
+ * consuming project's `docs/MILESTONE_EXECUTION.md`, step 2a) \u2014 so it is excluded by name
+ * here, once, rather than left for every caller to remember.
+ *
+ * @param {string} filename - a basename, no directory component.
+ * @returns {string | null}
+ */
+export function proposedFileStem(filename) {
+  if (typeof filename !== 'string' || filename === '') return null;
+  if (filename.toLowerCase() === 'readme.md') return null;
+  const withoutExt = filename.replace(/\.[^./]+$/, '');
+  if (withoutExt === '') return null;
+  const stem = withoutExt.replace(/-\d{1,2}$/, '');
+  if (stem === '' || whyNotADirectoryName(stem)) return null;
+  return stem;
+}

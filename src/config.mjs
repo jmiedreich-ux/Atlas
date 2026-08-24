@@ -8,6 +8,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 import { validateConfig, validateWorkstream } from './schema.mjs';
+import { proposedFileStem } from '../api/lib/contract.mjs';
 
 const CONFIG_FILENAME = 'atlas.config.json';
 const WORKSTREAMS_DIRNAME = path.join('docs', 'features');
@@ -131,22 +132,30 @@ export function unnamedFeatureDirs(config) {
 }
 
 /**
- * Every slug directory under `docs/design/proposed/` that could be approved — a directory holding
- * at least one file, full stop. Whether `docs/features/<slug>/` already has a manifest does NOT
- * exclude a slug here any more: a real consuming project can have a feature with real,
- * already-tracked content whose design is still sitting in `proposed/` — excluding those because a
- * manifest exists elsewhere hid the exact case `approve` (`api/lib/approve.mjs`'s `planApproval`)
- * exists to handle. This list is advisory, not authoritative: it can go stale between builds (a
- * slug approved a minute ago still shows here until the next rebuild),
- * which is fine, because `planApproval` re-checks the live preconditions itself at write time and
- * refuses cleanly if there is truly nothing left to move.
+ * Every proposed design that could be approved — a slug directory holding at least one file, OR a
+ * loose-file group (`proposedFileStem`, `api/lib/contract.mjs`): a real consuming project's
+ * proposals are almost never their own directory (the ordinary shape is one `.md` file, sometimes
+ * with sibling images or an HTML wireframe sharing its name), so both shapes are listed here, the
+ * same way `approve` (`api/lib/approve.mjs`'s `planApproval`) accepts both when it actually moves
+ * one.
  *
- * A loose file directly in `docs/design/proposed/` (no slug directory of its own) is never
- * approvable through this path — the same restriction the CLI has always had — so it is not listed
- * here either. This is a read used only to render the Feature Planning page's Upcoming Features
- * section (M9, decision 59); it never fails the build, the same posture `unnamedFeatureDirs` takes,
- * because a design still under review is the ordinary state of a project using this generator, not
- * a defect in it.
+ * Whether `docs/features/<slug>/` already has a manifest does NOT exclude a slug here: a real
+ * consuming project can have a feature with real, already-tracked content whose design is still
+ * sitting in `proposed/` — excluding those because a manifest exists elsewhere hid the exact case
+ * `planApproval` exists to handle. This list is advisory, not authoritative: it can go stale
+ * between builds (a slug approved a minute ago still shows here until the next rebuild), which is
+ * fine, because `planApproval` re-checks the live preconditions itself at write time and refuses
+ * cleanly if there is truly nothing left to move.
+ *
+ * A slug matching both a directory and a loose-file group at once is a real ambiguity this
+ * function does not try to resolve — it is listed once (a `Set`, not two entries), and
+ * `planApproval` is the one place that has to pick, so it is also the one place documented to
+ * refuse rather than guess.
+ *
+ * This is a read used only to render the Feature Planning page's Upcoming Features section (M9,
+ * decision 59); it never fails the build, the same posture `unnamedFeatureDirs` takes, because a
+ * design still under review is the ordinary state of a project using this generator, not a defect
+ * in it.
  *
  * @param {ReturnType<typeof loadConfig>} config
  * @returns {string[]} slugs, sorted, so two builds of one project report identically.
@@ -161,11 +170,17 @@ export function proposedDesignDirs(config) {
     return [];
   }
 
-  return entries
+  const dirSlugs = entries
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
     .map((entry) => entry.name)
-    .filter((slug) => readdirSync(path.join(proposedRoot, slug)).length > 0)
-    .sort();
+    .filter((slug) => readdirSync(path.join(proposedRoot, slug)).length > 0);
+
+  const looseSlugs = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => proposedFileStem(entry.name))
+    .filter((stem) => stem !== null);
+
+  return [...new Set([...dirSlugs, ...looseSlugs])].sort();
 }
 
 /**

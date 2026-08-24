@@ -2239,6 +2239,53 @@ test('build: a proposed design with only a copied HTML document still gets an Up
   );
 });
 
+test('build: a loose proposed file with no slug directory is listed and links to itself', async () => {
+  // The ordinary shape a real proposal takes: one .md file directly under docs/design/proposed/,
+  // never organized into its own directory.
+  const projectRoot = fixtureCopy('proposed-design-loose-file');
+  const proposedRoot = path.join(projectRoot, 'docs', 'design', 'proposed');
+  mkdirSync(proposedRoot, { recursive: true });
+  writeFileSync(path.join(proposedRoot, 'observability-and-performance-telemetry.md'), '# Observability\n');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+
+  assert.deepEqual(
+    site.proposedDesigns.find((entry) => entry.slug === 'observability-and-performance-telemetry'),
+    {
+      slug: 'observability-and-performance-telemetry',
+      url: '/docs/design/proposed/observability-and-performance-telemetry/',
+    },
+  );
+});
+
+test('build: sibling loose proposed files sharing a filename stem list and link as one slug', async () => {
+  const projectRoot = fixtureCopy('proposed-design-loose-group');
+  const proposedRoot = path.join(projectRoot, 'docs', 'design', 'proposed');
+  mkdirSync(proposedRoot, { recursive: true });
+  writeFileSync(path.join(proposedRoot, 'display-stale-signals.md'), '# Stale signals\n');
+  writeFileSync(path.join(proposedRoot, 'display-stale-signals-00.png'), 'not a real png, fine for this test');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+
+  const entries = site.proposedDesigns.filter((entry) => entry.slug === 'display-stale-signals');
+  assert.equal(entries.length, 1, 'nine sibling files should still be exactly one Upcoming Features row');
+  assert.equal(entries[0].url, '/docs/design/proposed/display-stale-signals/', 'links to the rendered .md, not the image');
+});
+
+test('build: README.md directly under docs/design/proposed/ never becomes an Upcoming Features row', async () => {
+  const projectRoot = fixtureCopy('proposed-design-readme-only');
+  const proposedRoot = path.join(projectRoot, 'docs', 'design', 'proposed');
+  mkdirSync(proposedRoot, { recursive: true });
+  writeFileSync(path.join(proposedRoot, 'README.md'), '# Proposed design references\n');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+
+  assert.ok(
+    !site.proposedDesigns.some((entry) => entry.slug.toLowerCase() === 'readme'),
+    'the proposed/ directory\'s own index must never render as a proposal',
+  );
+});
+
 // --- a workstream's design references, linked when resolvable (decision 21, narrowed by the
 // design/tracking merge) ------------------------------------------------------------------------
 

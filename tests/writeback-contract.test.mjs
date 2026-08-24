@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import {
   ACCEPTANCE_RESULTS,
   DEPLOYMENT_STAGES,
+  proposedFileStem,
   whyNotADirectoryName,
   whyNotAWritableRecord,
 } from '../api/lib/contract.mjs';
@@ -56,6 +57,49 @@ test('contract: a config carrying a path-shaped workstream still fails validatio
   const result = schema.validateConfig({ project: 'P', repo: 'o/n', workstreams: ['../outside'] });
   assert.equal(result.ok, false);
   assert.match(result.errors[0].message, /decision 40/);
+});
+
+// --- proposedFileStem, the loose-file grouping rule -------------------------------------------
+
+test('proposedFileStem: a real proposal\'s sibling files all stem to the same slug', () => {
+  const stems = [
+    'display-stale-signals.md',
+    'display-stale-signals.html',
+    'display-stale-signals.png',
+    'display-stale-signals-00.png',
+    'display-stale-signals-06.png',
+  ].map(proposedFileStem);
+  assert.deepEqual(new Set(stems), new Set(['display-stale-signals']));
+});
+
+test('proposedFileStem: a file with no numeric suffix stems to itself, alone', () => {
+  assert.equal(
+    proposedFileStem('observability-and-performance-telemetry.md'),
+    'observability-and-performance-telemetry',
+  );
+});
+
+test('proposedFileStem: a leading four-digit run is not the trailing -NN pattern', () => {
+  assert.equal(proposedFileStem('2024-report.md'), '2024-report');
+});
+
+test('proposedFileStem: only the LAST of two numeric suffixes is stripped', () => {
+  assert.equal(proposedFileStem('shot-01-02.png'), 'shot-01');
+});
+
+test('proposedFileStem: README.md is never a proposal', () => {
+  assert.equal(proposedFileStem('README.md'), null);
+  assert.equal(proposedFileStem('readme.md'), null, 'case-insensitively');
+});
+
+test('proposedFileStem: an unsafe stem (escaping docs/features/) is refused, not guessed at', () => {
+  assert.equal(proposedFileStem('../outside.md'), null);
+  assert.equal(proposedFileStem('.hidden.md'), null);
+});
+
+test('proposedFileStem: not a string, or empty, returns null rather than throwing', () => {
+  assert.equal(proposedFileStem(''), null);
+  assert.equal(proposedFileStem(undefined), null);
 });
 
 // --- what may be written to, tested directly ------------------------------------------------------

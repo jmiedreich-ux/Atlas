@@ -71,6 +71,7 @@ const RECORD_ERROR_STATUS = {
 
 const APPROVE_ERROR_STATUS = {
   'no-such-proposal': 404,
+  'ambiguous-proposal': 409,
   'name-collision': 409,
   'no-config': 502,
   'invalid-config': 502,

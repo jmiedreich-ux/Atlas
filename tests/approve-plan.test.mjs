@@ -55,10 +55,46 @@ test('planApproval: refuses a slug with nothing under proposed/', () => {
   );
 });
 
-test('planApproval: a loose file with no slug directory is never approvable', () => {
+test('planApproval: a loose file with no slug directory is approvable — the ordinary shape a real proposal takes', () => {
+  const result = planApproval({ entries: BASE_ENTRIES, slug: 'some-loose-file' });
+  assert.deepEqual(result.moves.map((m) => m.from), ['docs/design/proposed/some-loose-file.md']);
+  assert.equal(result.moves[0].to, 'docs/features/some-loose-file/some-loose-file.md');
+});
+
+test('planApproval: groups sibling loose files that share a filename stem into one move', () => {
+  const entries = [
+    ...BASE_ENTRIES,
+    blob('docs/design/proposed/display-stale-signals.md'),
+    blob('docs/design/proposed/display-stale-signals.html'),
+    blob('docs/design/proposed/display-stale-signals-00.png'),
+    blob('docs/design/proposed/display-stale-signals-06.png'),
+  ];
+  const result = planApproval({ entries, slug: 'display-stale-signals' });
+  assert.deepEqual(
+    result.moves.map((m) => m.from).sort(),
+    [
+      'docs/design/proposed/display-stale-signals-00.png',
+      'docs/design/proposed/display-stale-signals-06.png',
+      'docs/design/proposed/display-stale-signals.html',
+      'docs/design/proposed/display-stale-signals.md',
+    ],
+  );
+  assert.ok(result.moves.every((m) => m.to.startsWith('docs/features/display-stale-signals/')));
+});
+
+test('planApproval: README.md directly under proposed/ is never a loose-file proposal', () => {
+  const entries = [...BASE_ENTRIES, blob('docs/design/proposed/README.md')];
   assert.throws(
-    () => planApproval({ entries: BASE_ENTRIES, slug: 'some-loose-file' }),
+    () => planApproval({ entries, slug: 'readme' }),
     (error) => error instanceof ApproveError && error.code === 'no-such-proposal',
+  );
+});
+
+test('planApproval: refuses when a slug names both a directory and a loose-file group', () => {
+  const entries = [...BASE_ENTRIES, blob('docs/design/proposed/keystone.md')];
+  assert.throws(
+    () => planApproval({ entries, slug: 'keystone' }),
+    (error) => error instanceof ApproveError && error.code === 'ambiguous-proposal',
   );
 });
 

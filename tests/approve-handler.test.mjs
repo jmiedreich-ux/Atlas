@@ -188,7 +188,9 @@ function repoWithProposal(extraFiles = {}) {
     'atlas.config.json': CONFIG,
     [`docs/design/proposed/${SLUG}/decisions.md`]: '# Keystone decisions\n',
     [`docs/design/proposed/${SLUG}/decisions.html`]: '<h1>Keystone decisions</h1>\n',
-    'docs/design/proposed/some-other-file.md': 'not in a slug folder, never approvable\n',
+    // Not in a slug folder — a separate loose-file proposal, "some-other-file", left alone by
+    // every test targeting SLUG. Its own approvability is exercised below.
+    'docs/design/proposed/some-other-file.md': 'a proposal that never got its own directory\n',
     ...extraFiles,
   });
 }
@@ -286,6 +288,20 @@ test('approve: a slug with nothing under proposed/ is refused by name', async ()
   const response = await handleApprove(post(AUTHOR, { slug: 'no-such-slug' }), deps(github));
   assert.equal(response.status, 404);
   assert.equal(response.body.error, 'no-such-proposal');
+});
+
+test('approve: a loose file with no slug directory of its own moves and scaffolds end to end', async () => {
+  // The ordinary shape a real proposal takes — confirmed against a real project's proposed/, not
+  // the exception `checkPreconditions` was originally written around.
+  const github = repoWithProposal();
+  const response = await handleApprove(post(AUTHOR, { slug: 'some-other-file' }), deps(github));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.featurePath, 'docs/features/some-other-file/');
+  const files = github.currentFiles();
+  assert.ok(!files.has('docs/design/proposed/some-other-file.md'), 'the loose file was not moved out');
+  assert.ok(files.has('docs/features/some-other-file/some-other-file.md'), 'the loose file never landed');
+  assert.ok(files.has('docs/features/some-other-file/workstream.json'), 'no manifest was scaffolded');
 });
 
 test('approve: a slug whose destination already has a colliding file is refused rather than overwritten', async () => {
