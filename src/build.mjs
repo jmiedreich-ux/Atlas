@@ -69,7 +69,18 @@ const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
 // ever copies a file out of `theme/` into a build's output — Eleventy's input directory is
 // `theme/_includes` only (`.eleventy.js`), so a file sitting beside it is invisible to Eleventy
 // entirely and has to be named here or it 404s on every real build.
-const THEME_FILES = Object.freeze(['tokens.css', 'order.js', 'deploy.js']);
+//
+// `approve.js` (M9, decision 59) was added to `theme/` and linked from `depth.njk`'s own
+// `bodyScripts` block without ever being added here — the exact 404 this comment already warned
+// about, live since the milestone shipped: the Approve button rendered, but its script never
+// loaded, so no click handler was ever attached. Fixed here, not separately, since it is the same
+// missing-from-this-list bug `refresh.js` (M9, decision 61) would otherwise repeat.
+//
+// `refresh.js` (decision 61) is linked unconditionally from `base.njk` itself, not from a
+// per-surface `bodyScripts` block — every page carries the refresh button, not only feature
+// planning — but it is copied here the same way regardless: this list is about what a build's
+// output needs to contain, not which page links to it.
+const THEME_FILES = Object.freeze(['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js']);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';

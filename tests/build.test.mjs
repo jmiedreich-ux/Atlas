@@ -261,6 +261,12 @@ const EXPECTED_FILES = [
   'library/index.html',
   'mobile/index.html',
   'order.js',
+  // M9, decisions 59 and 61: the Approve button (feature planning page only) and the refresh
+  // button (every page, from base.njk) — both copied the same way, both belong in THEME_FILES.
+  // approve.js was missing from that list from the milestone it shipped in until this test caught
+  // it — see THEME_FILES's own comment in src/build.mjs.
+  'approve.js',
+  'refresh.js',
   // M5 Task 4: the registers index, generated whenever any workstream has a register — beacon
   // does, in this fixture.
   'registers/index.html',
@@ -311,6 +317,8 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
     'tokens.css',
     'order.js',
     'deploy.js',
+    'approve.js',
+    'refresh.js',
     'state.json',
     'staticwebapp.config.json',
   ]);
@@ -1031,13 +1039,21 @@ test('README: the files it says a build writes are the files a build writes', ()
   // because a number in prose beside a list is exactly what drifts when the list grows.
   const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
 
-  const generated = ['state.json', 'tokens.css', 'order.js', 'deploy.js', 'staticwebapp.config.json'];
+  const generated = [
+    'state.json',
+    'tokens.css',
+    'order.js',
+    'deploy.js',
+    'approve.js',
+    'refresh.js',
+    'staticwebapp.config.json',
+  ];
   const written = listFiles(OUT).filter(
     (file) => !file.endsWith('.html') && !state.assets.some((asset) => asset.path === file),
   );
   assert.deepEqual(written.sort(), [...generated].sort(), 'the build writes a different set than this test knows');
 
-  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six'];
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'];
   const claimed = /every build writes (\w+) files of its own/.exec(readme);
   assert.ok(claimed, 'the README no longer says how many files a build writes');
   assert.equal(
@@ -1079,7 +1095,7 @@ test('build: the site is gated by default — a project that configures nothing 
 test("build: the theme's own files are served where the layouts link to them", () => {
   // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
   // `njk` and nothing else, so neither can be picked up as a page of its own.
-  for (const file of ['tokens.css', 'order.js', 'deploy.js']) {
+  for (const file of ['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js']) {
     assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
     assert.equal(
       sha256(path.join(OUT, file)),
@@ -1091,6 +1107,8 @@ test("build: the theme's own files are served where the layouts link to them", (
   assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
   // M8 task 7: the Development/Staging/Release trigger buttons' own script.
   assert.match(read('index.html'), /<script type="module" src="\/deploy\.js"><\/script>/);
+  // M9, decision 59: the Approve button's own script.
+  assert.match(read('index.html'), /<script type="module" src="\/approve\.js"><\/script>/);
 
   // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
   // up behaviour it has no use for.
@@ -1098,6 +1116,18 @@ test("build: the theme's own files are served where the layouts link to them", (
   assert.ok(!read('library/index.html').includes('order.js'), 'the records index loads the ordering script');
   assert.ok(!read('mobile/index.html').includes('deploy.js'), 'the phone view loads the trigger script');
   assert.ok(!read('library/index.html').includes('deploy.js'), 'the records index loads the trigger script');
+  assert.ok(!read('mobile/index.html').includes('approve.js'), 'the phone view loads the approve script');
+  assert.ok(!read('library/index.html').includes('approve.js'), 'the records index loads the approve script');
+
+  // M9, decision 61: unlike every script above, the refresh button is not one surface's concern —
+  // base.njk links it unconditionally, so every page carries it.
+  for (const page of ['index.html', 'mobile/index.html', 'library/index.html']) {
+    assert.match(
+      read(page),
+      /<script type="module" src="\/refresh\.js"><\/script>/,
+      `${page} does not load the refresh script`,
+    );
+  }
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {
