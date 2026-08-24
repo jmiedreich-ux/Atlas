@@ -972,7 +972,7 @@ h3 {
   font-size: 0.8rem;
 }
 
-.card-gate {
+.card-status {
   border-top: 1px solid var(--sky-color-border);
   color: var(--sky-text-secondary);
   font-size: 0.9rem;
@@ -980,10 +980,10 @@ h3 {
   padding-top: var(--sky-space-3);
 }
 
-/* `.meta-label` appears on the plain card AND inside the gate callout and the contents box, both
+/* `.meta-label` appears on the plain card AND inside the next callout and the contents box, both
  * of which are tinted, where the muted ink computes 4.26 and 4.43. One colour for both, and it is
  * the one that clears AA on the tinted ground. */
-.card-gate-label,
+.card-status-label,
 .meta-label {
   color: var(--sky-text-secondary);
   display: block;
@@ -1059,7 +1059,7 @@ h3 {
   padding-left: var(--sky-space-5);
 }
 
-.gate-callout {
+.next-callout {
   background: var(--sky-color-warning-surface);
   border-radius: var(--sky-radius-md);
   color: var(--sky-warning-text);

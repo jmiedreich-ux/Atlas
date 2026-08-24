@@ -5,7 +5,7 @@
   the design doc for this rebuild is explicit that the milestone is the axis here, not a calendar.
 
   Data this layout expects — `workstreams`, in the order the config declares, each:
-    slug, manifest { codename, stage, gate, milestones: [{ id, label, depth, title, status, tasks }] }
+    slug, manifest { codename, stage, next, milestones: [{ id, label, depth, title, status, tasks }] }
     displayedStage — src/build.mjs's assembleSite: the manifest's own `stage`, overridden by a
                      deployment log's latest entry when the workstream has one (M8 task 6). The
                      chip renders THIS, never `manifest.stage` directly.
@@ -83,8 +83,8 @@
 {%- endif %}
 {%- if stream.column.tipLabel %}
 <span class="feature-next">Next: {{ stream.column.tipLabel }}</span>
-{%- elif stream.manifest.gate %}
-<span class="feature-next">{{ stream.manifest.gate }}</span>
+{%- elif stream.manifest.next %}
+<span class="feature-next">{{ stream.manifest.next }}</span>
 {%- endif %}
 {{ ui.chip('triage', stream.triage) }}
 </div>

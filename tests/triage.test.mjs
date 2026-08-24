@@ -39,7 +39,7 @@ function unvalidatedManifest({ stage, statuses = [] }) {
     what: 'A workstream invented for this test',
     stage,
     position: 'Invented for this test',
-    gate: 'Invented for this test',
+    next: 'Invented for this test',
     label: 'workstream:invented',
     design: [],
     milestones: statuses.map((status, i) => ({

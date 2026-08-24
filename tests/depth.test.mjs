@@ -51,7 +51,7 @@ function manifest(overrides = {}) {
     what: 'A workstream invented for this test',
     stage: 'planned',
     position: 'Designed, not approved',
-    gate: 'Owner sign-off before build',
+    next: 'Owner sign-off before build',
     label: 'workstream:nova',
     design: [{ name: 'nova/Overview v1', where: 'design-project' }],
     milestones: [],
@@ -216,9 +216,9 @@ test('computeLadder: a workstream with nothing at all produces no bar', () => {
 
 // --- decision 25: every column carries a note --------------------------------------------------
 
-test('computeLadder: every column carries the manifest\'s gate as its note', () => {
+test('computeLadder: every column carries the manifest\'s next as its note', () => {
   const { columns } = computeLadder([
-    entry('nova', { gate: 'Owner sign-off before the next step' }),
+    entry('nova', { next: 'Owner sign-off before the next step' }),
   ]);
   assert.equal(columns[0].note, 'Owner sign-off before the next step');
 });
@@ -363,7 +363,7 @@ test('computeLadder: the tip is null exactly when no milestone is on record for 
     manifest: {
       codename,
       stage,
-      gate: `Nothing gates ${codename} but this test`,
+      next: `Nothing but this test for ${codename}`,
       milestones: statuses.map((status, i) => ({
         id: `M${i + 1}`,
         label: `M${i + 1}`,
@@ -505,6 +505,65 @@ test('computeLadder: nothing behind the bar is skipped unless the work really di
 
   assert.equal(column.barTo, 'depth-2');
   assert.deepEqual(column.skipped, [], 'a milestone BELOW the bar is not skipped, it is simply ahead');
+});
+
+test('computeLadder: an open milestone behind an out-of-order done one becomes the head, not a skip marker', () => {
+  const [column] = computeLadder([
+    entry('gapped', {
+      codename: 'Gapped',
+      stage: 'development',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'unplanned' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'done' }),
+      ],
+    }),
+  ]).columns;
+
+  assert.equal(column.tipLabel, 'M2', 'the head should point at the open milestone, not fall back to null');
+  assert.equal(
+    column.headAt,
+    'depth-2',
+    "the head row should be M2's own depth, not one past the deepest done milestone",
+  );
+  assert.deepEqual(
+    column.skipped.map((s) => s.id),
+    [],
+    'M2 is the head target now, not a skip marker — skippedBehind must exclude it',
+  );
+});
+
+test('computeLadder: a genuinely parked milestone still renders as a skip marker, unaffected by the gap fix', () => {
+  const [column] = computeLadder([
+    entry('parked', {
+      codename: 'Parked',
+      stage: 'development',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'parked' }),
+        milestone({ id: 'M3', label: 'M3', depth: 3, status: 'done' }),
+      ],
+    }),
+  ]).columns;
+
+  assert.equal(column.tipLabel, null, "nothing open behind the edge — the original null-fallback case, unchanged");
+  assert.deepEqual(column.skipped.map((s) => s.id), ['M2'], 'a parked milestone is still a skip marker');
+});
+
+test('computeLadder: no gap, no change — a workstream that completes in order renders exactly as before', () => {
+  const [column] = computeLadder([
+    entry('ordinary', {
+      codename: 'Ordinary',
+      stage: 'development',
+      milestones: [
+        milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
+        milestone({ id: 'M2', label: 'M2', depth: 2, status: 'next' }),
+      ],
+    }),
+  ]).columns;
+
+  assert.equal(column.tipLabel, 'M2');
+  assert.equal(column.headAt, 'depth-2');
 });
 
 test('computeLadder: completion is every finished milestone, in the order the manifest lists', () => {

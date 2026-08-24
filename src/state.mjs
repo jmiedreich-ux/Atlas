@@ -28,9 +28,9 @@
 //     ladder row it is the row's caption ("3", or "Designing").
 //   * `depth` is two shapes. On a milestone it is an integer — decision 20's position on the
 //     shared ladder. On a workstream it is an object: where its column's bar and head landed.
-//   * `gate` and `depth.note` are the SAME string, emitted twice under two names. `gate` is the
+//   * `next` and `depth.note` are the SAME string, emitted twice under two names. `next` is the
 //     manifest's own field; `note` is what the chart prints at the column's tip, and the chart
-//     prints the gate. A consumer should read `gate`.
+//     prints `next`. A consumer should read `next`.
 
 // The shape of this document. Bumped only when a change would break a reader that understood the
 // previous version — a new optional key does not.
@@ -86,7 +86,7 @@ export function buildState(site) {
       what: stream.manifest.what,
       stage: stream.displayedStage,
       position: stream.manifest.position,
-      gate: stream.manifest.gate,
+      next: stream.manifest.next,
       label: stream.manifest.label,
       // Decision 27's state, from the same call the phone view rendered from.
       triage: stream.triage,

@@ -32,7 +32,7 @@
 
 {% block content %}
 <h1>What needs you</h1>
-<p class="lede">Grouped by what's blocking, not by feature. Every card ends on the gate that is holding it.</p>
+<p class="lede">Grouped by what's blocking, not by feature. Every card ends on what's next for it.</p>
 
 {%- set sectionCounts = triaged | groupby("triage") %}
 {%- set currentState = "" %}
@@ -73,7 +73,7 @@
     four milestones, all done and nothing beyond, while the desk chart correctly drew no balloon
     for it. The two surfaces read this one field now, so they cannot say different things. -#}
 {% if stream.column.tipLabel %}<p class="card-next">Next: {{ stream.column.tipLabel }}</p>{% endif %}
-<p class="card-gate"><span class="card-gate-label">Gate</span>{{ stream.manifest.gate }}</p>
+<p class="card-status"><span class="card-status-label">Status</span>{{ stream.manifest.next }}</p>
 </article>
 </li>
 {%- if loop.last %}</ul>{% endif %}

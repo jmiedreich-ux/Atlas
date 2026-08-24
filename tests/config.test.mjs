@@ -45,7 +45,7 @@ function invalidManifest(overrides = {}) {
     what: 'A sample workstream used only to exercise config loading',
     stage: 'planned',
     position: 'Designed, not approved',
-    gate: 'Owner sign-off before build',
+    next: 'Owner sign-off before build',
     label: 'workstream:nova',
     design: [{ name: 'nova/Overview v1', where: 'design-project' }],
     milestones: [],

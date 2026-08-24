@@ -113,7 +113,7 @@ projects them, so the site and this file cannot disagree.
   "repo": "owner/name",
   "surfaces": [ { "id": "depth", "url": "/" }, { "id": "triage", "url": "/mobile/" } ],
   "workstreams": [ {
-    "slug": "…", "codename": "…", "stage": "…", "position": "…", "gate": "…",
+    "slug": "…", "codename": "…", "stage": "…", "position": "…", "next": "…",
     "triage": "awaiting-decision",    // decision 27's state, from the same call the phone view used
     "dir": "docs/features/…",         // every path is repository-relative, never absolute
     "manifestPath": "docs/features/…/workstream.json",
@@ -177,7 +177,7 @@ fixed convention, at its own root:
     "what": "A six-milestone workstream ...",
     "stage": "development",
     "position": "Three milestones shipped, fourth in flight",
-    "gate": "Owner sign-off on the M4 demo before M5 starts",
+    "next": "Owner sign-off on the M4 demo before M5 starts",
     "label": "workstream:beacon",
     "design": [{ "name": "lighthouse/Beacon Overview v1", "where": "design-project" }],
     "milestones": [

@@ -99,7 +99,7 @@ test('state: every workstream carries the position fields the manifest is the au
     const entry = state.workstreams.find((w) => w.slug === stream.slug);
     assert.ok(entry, `state.json has no entry for ${stream.slug}`);
 
-    for (const field of ['codename', 'what', 'stage', 'position', 'gate', 'label']) {
+    for (const field of ['codename', 'what', 'stage', 'position', 'next', 'label']) {
       assert.equal(entry[field], stream.manifest[field], `${stream.slug}.${field} disagrees with the manifest`);
     }
     assert.deepEqual(entry.design, stream.manifest.design);
@@ -107,7 +107,7 @@ test('state: every workstream carries the position fields the manifest is the au
     // And every one of those values reached the page too.
     const page = read(`workstream/${stream.slug}/index.html`);
     assert.ok(page.includes(entry.codename), `${stream.slug}: the page and state disagree about the codename`);
-    assert.ok(page.includes(entry.gate), `${stream.slug}: the page and state disagree about the gate`);
+    assert.ok(page.includes(entry.next), `${stream.slug}: the page and state disagree about next`);
     assert.ok(page.includes(entry.position), `${stream.slug}: the page and state disagree about the position`);
   }
 });
@@ -303,15 +303,15 @@ test('state: every ladder column names a real row', () => {
       column.barTo === null || state.ladder.rows.some((row) => row.id === column.barTo),
       `${column.codename}: barTo "${column.barTo}" names no row on the ladder`,
     );
-    // Decision 25's note is the workstream's gate. M2.1 moved where it is said on this surface:
-    // #780 replaced the tip note with a balloon whose text is the next milestone's TITLE, and the
-    // gate only where the feature is still in the stages. It is unchanged on the phone view, which
-    // ends every card on it, and on the feature's own page.
+    // Decision 25's note is the workstream's `next` field (M4.2: renamed from `gate`). M2.1 moved
+    // where it is said on this surface: #780 replaced the tip note with a balloon whose text is
+    // the next milestone's TITLE, and `next` only where the feature is still in the stages. It is
+    // unchanged on the phone view, which ends every card on it, and on the feature's own page.
     assert.ok(
       read(`workstream/${state.workstreams[i].slug}/index.html`).includes(column.note),
-      `${column.codename}: the gate in state never reached its own page`,
+      `${column.codename}: next in state never reached its own page`,
     );
-    assert.ok(read('mobile/index.html').includes(column.note), `${column.codename}: the gate never reached the phone`);
+    assert.ok(read('mobile/index.html').includes(column.note), `${column.codename}: next never reached the phone`);
   });
 });
 

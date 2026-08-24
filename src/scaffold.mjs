@@ -99,7 +99,7 @@ export function scaffoldWorkstream({ projectRoot, slug }) {
     what: PLACEHOLDER(`what is ${codename}, in one sentence — see docs/design/approved/${slug}/`),
     stage: 'designing',
     position: PLACEHOLDER('where this stands right now'),
-    gate: PLACEHOLDER('what is actually blocking work from starting, in one sentence'),
+    next: PLACEHOLDER('what is actually blocking work from starting, in one sentence'),
     label: `workstream:${slug}`,
     design: [{ name: `${slug}/approved design`, where: `docs/design/approved/${slug}/` }],
     milestones: [

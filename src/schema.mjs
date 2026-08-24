@@ -63,6 +63,23 @@ function requireString(obj, key, path, errors) {
   return true;
 }
 
+const CONCISE_FIELD_LIMIT = 240;
+
+// `position` and `next` are read at a glance, not read as prose — a field that drifts into a
+// paragraph is the authoring mistake this caps, structurally, rather than leaving it to review.
+function requireConciseString(obj, key, path, errors) {
+  if (!requireString(obj, key, path, errors)) return;
+  const value = obj[key];
+  if (value.length > CONCISE_FIELD_LIMIT) {
+    errors.push({
+      path: joinPath(path, key),
+      message:
+        `"${key}" must be ${CONCISE_FIELD_LIMIT} characters or fewer (got ${value.length}) — ` +
+        `state where things stand, not how they got there`,
+    });
+  }
+}
+
 function requireEnum(obj, key, allowed, path, errors) {
   const value = obj[key];
   if (typeof value !== 'string' || !allowed.includes(value)) {
@@ -220,8 +237,8 @@ export function validateWorkstream(obj) {
   requireString(obj, 'codename', '', errors);
   requireString(obj, 'what', '', errors);
   requireEnum(obj, 'stage', WORKSTREAM_STAGES, '', errors);
-  requireString(obj, 'position', '', errors);
-  requireString(obj, 'gate', '', errors);
+  requireConciseString(obj, 'position', '', errors);
+  requireConciseString(obj, 'next', '', errors);
   requireString(obj, 'label', '', errors);
 
   // Decision 14-style nullable string, same rule `acceptance.record` uses below — but genuinely
