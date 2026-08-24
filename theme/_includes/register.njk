@@ -1,0 +1,74 @@
+{#- Atlas — a question register's own page (M5, decision 51).
+
+  Task 2's generated document (`src/register.mjs`'s `renderRegisterMarkdown`) already renders
+  through the plain `document.njk` template like any other Markdown record — that would be enough
+  if a register were only ever read top to bottom. It is not: the write-ins are the answers the
+  register's own questions failed to anticipate, and a reader who cannot see how many there are or
+  read them together has to scroll a document that may run to hundreds of questions looking for
+  them. This template exists for that one difference — real layout over the structured question
+  data, not a heading grep over rendered markdown.
+
+  Data this layout expects:
+    doc      — { title, path } — same shape document.njk expects
+    register — { slug, title, questions: [{ id, question, why, options, recommended, severity,
+               chosen: { kind, value }, citations, anchorId }] } — `anchorId` is computed by
+               `src/build.mjs` from the SAME `headingAnchors` call the generated document's own
+               contents list would use, not a separately invented slug — a real heading like
+               "Q1 · BLOCKING" slugifies to `q1-blocking`, severity included, never the clean `#q1`
+               a hand-rolled scheme would guess at.
+    project, repo, title — see base.njk
+-#}
+{% extends "base.njk" %}
+{% import "base.njk" as ui %}
+
+{% block bodyClass %}page page-register{% endblock %}
+
+{% block content %}
+<p class="breadcrumb"><a href="/">Feature planning</a> · <a href="/library/">Library</a></p>
+<p class="lede">Generated from <code>{{ doc.path }}</code>. A hand edit to this page is lost on the next build — the record is <code>{{ doc.path }}</code> itself, not this rendering of it.</p>
+
+<h1>{{ register.title }}</h1>
+
+{#- `selectattr` with a dotted path ("chosen.kind") silently matches nothing in this project's
+    pinned Nunjucks version rather than erroring — the same limitation M8's execution independently
+    found. A plain loop, not the filter, is what actually works here. -#}
+{%- set writtenIn = [] %}
+{%- for q in register.questions %}
+{%- if q.chosen.kind == 'written-in' %}
+{%- set writtenIn = (writtenIn.push(q), writtenIn) %}
+{%- endif %}
+{%- endfor %}
+{%- if writtenIn | length %}
+<section class="written-in-answers">
+<span class="meta-label">Written in — {{ writtenIn | length }}</span>
+<p class="lede">Answers this register's own options did not offer.</p>
+<ul>
+{%- for q in writtenIn %}
+<li><a href="#{{ q.anchorId }}">{{ q.id }} · {{ q.question }}</a></li>
+{%- endfor %}
+</ul>
+</section>
+{%- endif %}
+
+<ol class="register-questions">
+{%- for q in register.questions %}
+<li id="{{ q.anchorId }}" class="register-question">
+<div class="register-question-head">
+<span class="register-question-id">{{ q.id }}</span>
+{{ ui.chip('severity', q.severity) }}
+</div>
+<p class="register-question-text">{{ q.question }}</p>
+<p class="register-question-why">{{ q.why }}</p>
+<p class="register-recommended"><em>Recommended:</em> {{ q.recommended }}</p>
+{%- if q.chosen.kind == 'deferred' %}
+<p class="register-status">Deferred</p>
+{%- else %}
+<p class="register-answer"><em>Answer:</em> {{ q.chosen.value }}{% if q.chosen.kind == 'written-in' %} <span class="register-written-in-tag">(written in)</span>{% endif %}</p>
+{%- endif %}
+{%- if q.citations | length %}
+<p class="register-citations"><sub>{{ q.citations | join('; ') }}</sub></p>
+{%- endif %}
+</li>
+{%- endfor %}
+</ol>
+{% endblock %}

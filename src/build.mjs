@@ -258,7 +258,18 @@ function collectDocuments(projectRoot, slugs = []) {
     const register = loadRegister(projectRoot, slug);
     if (register === null) continue;
     const virtualPath = path.posix.join(DOCS_DIRNAME, 'features', slug, 'register.md');
-    documents.push(documentFromMarkdown(null, virtualPath, renderRegisterMarkdown(register)));
+    const doc = documentFromMarkdown(null, virtualPath, renderRegisterMarkdown(register));
+    // The write-ins section (Task 3, register.njk) links down to each question's full entry.
+    // `headingAnchors` already computed the real id markdown-it assigned each `### Q<n> ·
+    // <severity>` heading (NOT the clean `#q1` an earlier draft of this plan assumed — a real
+    // heading like "Q1 · BLOCKING" slugifies to `q1-blocking`, severity included) — reused here by
+    // position (the H1 title is anchors[0], then one heading per question in register order)
+    // rather than re-deriving a second slug algorithm that could drift from markdown-it's own.
+    doc.register = {
+      ...register,
+      questions: register.questions.map((q, i) => ({ ...q, anchorId: doc.anchors[i + 1]?.id })),
+    };
+    documents.push(doc);
   }
 
   return documents;
@@ -661,6 +672,23 @@ function planPages(site) {
   });
 
   for (const doc of site.documents) {
+    // A register (M5) renders through its own purpose-built template — "surfaced as a group"
+    // needs real layout over the structured question data, not a heading grep over rendered
+    // markdown, which is what every other document gets.
+    if (doc.register) {
+      pages.push({
+        name: `document-${doc.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
+        extend: 'register.njk',
+        data: {
+          ...shell,
+          permalink: doc.permalink,
+          title: doc.title,
+          doc: { title: doc.title, path: doc.path },
+          register: doc.register,
+        },
+      });
+      continue;
+    }
     pages.push({
       name: `document-${doc.path.replace(/[^a-zA-Z0-9]+/g, '-')}`,
       extend: 'document.njk',
