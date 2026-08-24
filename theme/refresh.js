@@ -58,7 +58,14 @@ export function outcomeMessage({ status, body }) {
  */
 export function pollMessage(status) {
   if (status?.state === 'pending') return 'Dispatched — waiting for GitHub to start the run…';
-  if (status?.state === 'running') return `Building (run #${status.run})…`;
+  if (status?.state === 'running') {
+    // `step` is a real, named step from the run's own jobs (`GET /api/refresh-status`, backed by
+    // `getRunStep`) — surfaced when GitHub has reported one, never invented when it has not (a run
+    // between "queued" and its first step starting has no current step yet, and that gap is shown
+    // honestly as a plain "running" line rather than guessed at).
+    if (status.step?.name) return `${status.step.name} (${status.step.number} of ${status.step.of})…`;
+    return `Building (run #${status.run})…`;
+  }
   return 'Building…';
 }
 

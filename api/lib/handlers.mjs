@@ -751,7 +751,12 @@ export async function handleRefreshStatus(request, deps) {
     }
 
     if (run.status !== 'completed') {
-      return respond(200, { ok: true, state: 'running', run: run.id, url: run.url });
+      // One extra call, only while the run is still going — a finished run has nothing left to
+      // watch step-by-step, so `state: 'done'` below never asks for this. `getRunStep` degrades to
+      // `null` on its own (no jobs reported yet, or a workflow shape it cannot make sense of); a
+      // `null` step is a real, honest answer, not an error, so it is passed straight through.
+      const step = await workflowClient.getRunStep({ runId: run.id });
+      return respond(200, { ok: true, state: 'running', run: run.id, url: run.url, step });
     }
     return respond(200, {
       ok: true,

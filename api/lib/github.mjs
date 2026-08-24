@@ -562,5 +562,52 @@ export function createWorkflowClient({ repo, token, fetchImpl = fetch, apiRoot =
       }
       return { id: payload.id, status: payload.status, conclusion: payload.conclusion, url: payload.html_url };
     },
+
+    /**
+     * The step a run is currently on, or the last one it completed — one GitHub call, not one per
+     * step, because the jobs endpoint already returns every job's whole `steps` array at once.
+     *
+     * Atlas is a generic multi-project generator (decisions 38, 41): it has no idea in advance how
+     * many jobs a consuming project's workflow has or what its steps are called, so this reads
+     * both from GitHub rather than assuming either. Every job's steps are flattened into one
+     * ordered list, in job order then step order — the ordinary case is one job (a project's own
+     * `atlas.yml` has exactly one), and flattening degrades a multi-job workflow to "one long list
+     * of steps" rather than crashing on a shape this endpoint was not written against.
+     *
+     * The "current" step is the first one still `in_progress`; if none is (the run just started,
+     * between "queued" and its first step reporting progress, or it already finished), the last
+     * `completed` one stands in — an honest "here is what has happened so far" rather than a gap.
+     * `null` when there are no steps to report at all (a run with no jobs yet).
+     *
+     * @param {{ runId: number }} args
+     * @returns {Promise<{ name: string, number: number, of: number } | null>}
+     */
+    async getRunStep({ runId }) {
+      const url = `${apiRoot}/repos/${repo}/actions/runs/${encodeURIComponent(runId)}/jobs`;
+      let response;
+      try {
+        response = await fetchImpl(url, { headers });
+      } catch (error) {
+        throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
+      }
+      const payload = await readJson(response);
+      if (response.status === 404) {
+        throw new GitHubError(`there is no run ${runId} on this repository.`, { status: 404, code: 'no-such-run' });
+      }
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} reading run ${runId}'s jobs${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+
+      const steps = (payload?.jobs ?? []).flatMap((job) => job.steps ?? []);
+      if (steps.length === 0) return null;
+
+      const current = steps.find((step) => step.status === 'in_progress');
+      const chosen = current ?? [...steps].reverse().find((step) => step.status === 'completed');
+      if (!chosen) return null;
+
+      return { name: chosen.name, number: chosen.number, of: steps.length };
+    },
   };
 }

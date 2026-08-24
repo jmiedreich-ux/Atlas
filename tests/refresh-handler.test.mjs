@@ -217,16 +217,22 @@ test('an unrecognised GitHub failure is reported without a stack trace', async (
 // which `handleRefreshStatus` ever calls — it only ever lists or reads runs.
 
 /**
- * @param {{ runs?: object[], runById?: Record<number, object> }} [opts] - `runs`: what the
- *   runs-listing endpoint answers, newest first, same shape `findRun` reads. `runById`: what
- *   `getRun` answers for a specific id, keyed by that id.
+ * @param {{ runs?: object[], runById?: Record<number, object>, jobsById?: Record<number, object[]> }} [opts]
+ *   `runs`: what the runs-listing endpoint answers, newest first, same shape `findRun` reads.
+ *   `runById`: what `getRun` answers for a specific id, keyed by that id. `jobsById`: the `jobs`
+ *   array `getRunStep` reads (each job's own `steps`), keyed by run id — absent means "no jobs
+ *   reported yet", the ordinary state for a run that has not started running its job.
  */
-function statusStub({ runs = [], runById = {} } = {}) {
+function statusStub({ runs = [], runById = {}, jobsById = {} } = {}) {
   const calls = [];
   const impl = async (url) => {
     calls.push(url);
     if (url.includes('/access_tokens')) {
       return reply(201, { token: 'ghs_installation', expires_at: 'later' });
+    }
+    if (url.includes('/jobs')) {
+      const id = Number(/\/actions\/runs\/(\d+)\/jobs/.exec(url)?.[1]);
+      return reply(200, { jobs: jobsById[id] ?? [] });
     }
     if (url.includes('/actions/runs/')) {
       const id = Number(/\/actions\/runs\/(\d+)/.exec(url)?.[1]);
@@ -340,4 +346,72 @@ test('a run id naming nothing this repository has maps to a clear 404, not a sta
   const response = await handleRefreshStatus(get(AUTHOR, { run: '999' }), deps(github));
   assert.equal(response.status, 404);
   assert.equal(response.body.error, 'no-such-run');
+});
+
+// --- step reporting, once a run is going (M9 follow-up: "can the modal also display the steps") --
+
+test('a running run reports the step actually in progress, not the last one done', async () => {
+  const github = statusStub({
+    runById: { 42: ghRun({ id: 42, status: 'in_progress' }) },
+    jobsById: {
+      42: [
+        {
+          steps: [
+            { name: 'Check out the project', number: 1, status: 'completed' },
+            { name: 'Build the site', number: 2, status: 'in_progress' },
+            { name: 'Publish the site', number: 3, status: 'queued' },
+          ],
+        },
+      ],
+    },
+  });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.step, { name: 'Build the site', number: 2, of: 3 });
+});
+
+test('no step in_progress yet falls back to the last one completed, not a guess', async () => {
+  const github = statusStub({
+    runById: { 42: ghRun({ id: 42, status: 'in_progress' }) },
+    jobsById: {
+      42: [
+        {
+          steps: [
+            { name: 'Check out the project', number: 1, status: 'completed' },
+            { name: 'Build the site', number: 2, status: 'queued' },
+          ],
+        },
+      ],
+    },
+  });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.deepEqual(response.body.step, { name: 'Check out the project', number: 1, of: 2 });
+});
+
+test('no jobs reported yet reports a null step, not a fabricated one', async () => {
+  const github = statusStub({ runById: { 42: ghRun({ id: 42, status: 'in_progress' }) }, jobsById: {} });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.equal(response.body.step, null);
+});
+
+test('multiple jobs flatten into one ordered step list rather than reporting only the first job', async () => {
+  const github = statusStub({
+    runById: { 42: ghRun({ id: 42, status: 'in_progress' }) },
+    jobsById: {
+      42: [
+        { steps: [{ name: 'Setup', number: 1, status: 'completed' }] },
+        { steps: [{ name: 'Deploy', number: 1, status: 'in_progress' }] },
+      ],
+    },
+  });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.deepEqual(response.body.step, { name: 'Deploy', number: 1, of: 2 });
+});
+
+test('a finished run is never asked for its step — it has nothing left to watch', async () => {
+  const github = statusStub({ runById: { 42: ghRun({ id: 42, status: 'completed', conclusion: 'success' }) } });
+  const response = await handleRefreshStatus(get(AUTHOR, { run: '42' }), deps(github));
+  assert.equal(response.body.state, 'done');
+  assert.ok(!('step' in response.body), 'a completed run reported a step field it never needed');
+  assert.ok(!github.calls.some((url) => url.includes('/jobs')), 'a completed run still called the jobs endpoint');
 });
