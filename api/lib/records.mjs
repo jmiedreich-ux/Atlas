@@ -279,3 +279,56 @@ export function recordAcceptance(text, { result, note, author }) {
 
   return recompose({ ...file, lines });
 }
+
+/**
+ * Append a deployment transition to a JSON log.
+ *
+ * A deployment log is a flat JSON array of transition objects. This function parses the current
+ * content, appends one new entry with `stage` and optional `note`, and returns the stringified
+ * result with 2-space indentation and a trailing newline.
+ *
+ * Following the repository's convention, absent optional fields (like `note` when
+ * undefined/null/empty) are omitted from the JSON object rather than set to null.
+ *
+ * @param {string} text - the current file content ('' or '[]' for a new log).
+ * @param {object} opts
+ * @param {string} opts.stage - the deployment stage.
+ * @param {string} [opts.note] - optional note; omitted from output if undefined, null, or empty.
+ * @returns {string} the new JSON text with one more entry appended, with trailing newline.
+ * @throws {RecordError} `unreadable-deployment-log` if `text` is non-blank and is not valid JSON.
+ *   An empty or whitespace-only `text` is a legitimate starting state — a log that has never been
+ *   written yet — and is treated as `[]`, not as corruption.
+ */
+export function appendDeploymentTransition(text, { stage, note }) {
+  // A blank file is a log that has never been written yet, which is fine. Anything else that
+  // fails to parse is a log that WAS written and is now malformed — by a manual edit, a merge
+  // conflict, truncation, whatever — and every other record function here raises on a state like
+  // that (`assertWritable`, via `answerQuestion` and `recordAcceptance`) rather than guessing.
+  // Silently resetting to `[]` here would discard every prior transition with no error at all: the
+  // write would still succeed, just against a log the caller never asked to truncate.
+  let arr;
+  if (text.trim() === '') {
+    arr = [];
+  } else {
+    try {
+      arr = JSON.parse(text);
+    } catch (error) {
+      throw new RecordError(
+        `the deployment log is not valid JSON (${error.message}), so Atlas will not append to it ` +
+          `by silently discarding what is already there. Fix the file, or clear it to an empty ` +
+          `array, and try again.`,
+        'unreadable-deployment-log',
+      );
+    }
+  }
+
+  // Build the new entry, omitting `note` if it's absent/empty
+  const entry = { stage };
+  if (note !== undefined && note !== null && String(note).trim() !== '') {
+    entry.note = note;
+  }
+
+  // Append and stringify with 2-space indent and trailing newline
+  arr.push(entry);
+  return JSON.stringify(arr, null, 2) + '\n';
+}

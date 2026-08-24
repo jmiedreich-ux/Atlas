@@ -20,6 +20,7 @@ import { computeLadder, spineDetail } from '../src/depth.mjs';
 import { renderMarkdown, headingAnchors } from '../src/markdown.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
+import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -102,7 +103,10 @@ function entry(codename, overrides = {}) {
     manifest: validated({
       codename,
       what: `${codename}, a workstream invented for this test`,
-      stage: 'shipping',
+      // Not 'shipping' — Task 2 (M8) retired it from WORKSTREAM_STAGES. 'development' is the
+      // conservative floor of the three real deployment stages that replaced it, same convention
+      // Task 9's real-manifest migration uses.
+      stage: 'development',
       position: 'Invented for this test',
       gate: `Nothing gates ${codename} but this test`,
       label: `workstream:${slug}`,
@@ -116,25 +120,46 @@ function entry(codename, overrides = {}) {
 // The shape src/build.mjs hands the layouts, matching Task 4's wiring exactly: each workstream
 // carrying its own ladder column and triage state, its milestones already enriched with `tasks`
 // on the manifest and a sibling `spineDetail` array.
+//
+// M8 task 6 added two more fields to that shape — `displayedStage`/`deploymentHistory`, computed
+// in the real build by `src/build.mjs`'s `readDeploymentLog` from a file `stream.manifest.
+// deploymentLog` names. This test double has no filesystem to read a real log from, so a fixture
+// attaches `deploymentHistory` directly on the entry it hands to `assemble` — a SIBLING of
+// `manifest`, never inside it, the same way the real `stream` carries it (the field actually on
+// the manifest is `deploymentLog`, a path, not the parsed array). `displayedStage` is then
+// computed here exactly the way `readDeploymentLog` computes it: the latest entry's `stage`, or
+// the manifest's own `stage` when there is no history yet.
+//
+// M8 task 7's fix round added a third field the same way — `deploymentLogSha`, the log file's own
+// git blob SHA computed at build time (`src/build.mjs`'s `gitBlobSha`), `null` when there is no
+// log yet. A fixture attaches it directly on the entry, same convention as `deploymentHistory`.
 function assemble(entries) {
   const ladder = computeLadder(entries);
   const triaged = orderByTriage(entries.map((stream, index) => ({ ...stream, column: ladder.columns[index] })));
   const triageBySlug = new Map(triaged.map((s) => [s.slug, s.triage]));
 
-  return entries.map((stream, index) => ({
-    ...stream,
-    url: workstreamUrl(stream.slug),
-    column: ladder.columns[index],
-    triage: triageBySlug.get(stream.slug),
-    milestones: stream.manifest.milestones.map((entry) => ({
-      manifest: { ...entry, tasks: entry.tasks ?? [] },
-      url: milestoneUrl(stream.slug, entry.id),
-      planUrl: null,
-      recordUrl: null,
-      hrefBase: `docs/features/${stream.slug}`,
-    })),
-    spineDetail: spineDetail(stream.manifest.milestones),
-  }));
+  return entries.map((stream, index) => {
+    const deploymentHistory = Array.isArray(stream.deploymentHistory) ? stream.deploymentHistory : [];
+    const latest = deploymentHistory.at(-1);
+
+    return {
+      ...stream,
+      url: workstreamUrl(stream.slug),
+      column: ladder.columns[index],
+      triage: triageBySlug.get(stream.slug),
+      displayedStage: latest ? latest.stage : stream.manifest.stage,
+      deploymentHistory,
+      deploymentLogSha: stream.deploymentLogSha ?? null,
+      milestones: stream.manifest.milestones.map((entry) => ({
+        manifest: { ...entry, tasks: entry.tasks ?? [] },
+        url: milestoneUrl(stream.slug, entry.id),
+        planUrl: null,
+        recordUrl: null,
+        hrefBase: `docs/features/${stream.slug}`,
+      })),
+      spineDetail: spineDetail(stream.manifest.milestones),
+    };
+  });
 }
 
 function renderDepth(entries) {
@@ -937,6 +962,14 @@ const OCCURRING_PAIRS = [
   ['.chip-designing', '.chip-designing'],
   ['.chip-next', '.chip-next'],
   ['.chip-unplanned', '.chip-unplanned'],
+  // M8 task 8: the stage-history row and trigger buttons render inside `.feature-spine`, which
+  // itself paints no background of its own — the ground under all of them is `.feature-row`'s,
+  // the same one `.feature-next` and `.disclosure` already sit on above.
+  ['.stage-node-label', '.feature-row'],
+  ['.stage-node-note', '.feature-row'],
+  ['.stage-trigger-label', '.feature-row'],
+  ['.stage-trigger-status', '.feature-row'],
+  ['.stage-trigger-button', '.feature-row'],
 ];
 
 test('tokens.css: every text-on-ground pairing the site actually renders clears WCAG AA', () => {
@@ -1287,9 +1320,9 @@ test('mobile: workstreams are ordered by what needs the owner, not alphabeticall
 test('mobile: a not-started workstream sorts last even when it sorts first alphabetically', () => {
   const entries = [
     entry('Alpha', { stage: 'not-started' }),
-    entry('Bravo', { stage: 'shipping', milestones: [milestone({ status: 'done' })] }),
-    entry('Charlie', { stage: 'shipping', milestones: [milestone({ status: 'parked' })] }),
-    entry('Delta', { stage: 'shipping', milestones: [milestone({ status: 'next' })] }),
+    entry('Bravo', { stage: 'development', milestones: [milestone({ status: 'done' })] }),
+    entry('Charlie', { stage: 'development', milestones: [milestone({ status: 'parked' })] }),
+    entry('Delta', { stage: 'development', milestones: [milestone({ status: 'next' })] }),
     entry('Echo', { stage: 'designing' }),
   ];
 
@@ -1365,7 +1398,7 @@ test('triage: a state with zero workstreams gets no section at all', () => {
     entry('Kilo', { stage: 'designing' }),
     entry('Lima', { stage: 'not-started' }),
     entry('Mike', {
-      stage: 'shipping',
+      stage: 'development',
       milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
     }),
   ];
@@ -1426,7 +1459,7 @@ test('mobile: the track fills exactly the milestones that are finished, never th
   // column reads 1 of 3 rather than 0 of 3. What the test pins is unchanged, and the shape still
   // separates the two implementations — a fill-the-first-N would light M1, not M2.
   const gapped = entry('Gapped', {
-    stage: 'shipping',
+    stage: 'development',
     milestones: [
       milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' }),
       milestone({ id: 'M2', label: 'M2', depth: 2, status: 'done' }),
@@ -1461,7 +1494,7 @@ test('mobile: a completed run fills exactly its own segments, in the order the m
   // `covered` would fill M3 here — the one that is not complete — and leave M2 empty. That is the
   // same class of bug as counting every done milestone, one step further along.
   const run = entry('Run', {
-    stage: 'shipping',
+    stage: 'development',
     milestones: [
       milestone({ id: 'M3', label: 'M3', depth: 3, status: 'next' }),
       milestone({ id: 'M1', label: 'M1', depth: 1, status: 'done' }),
@@ -1561,11 +1594,11 @@ test('chips: every triage state renders its own human label, decision 27\'s head
     designing: entry('Bravo', { stage: 'designing' }),
     'awaiting-decision': entry('Charlie', { stage: 'planned' }),
     moving: entry('Delta', {
-      stage: 'shipping',
+      stage: 'development',
       milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
     }),
     blocked: entry('Echo', {
-      stage: 'shipping',
+      stage: 'development',
       milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'parked' })],
     }),
   };
@@ -1607,11 +1640,13 @@ test('chips: every value in the closed vocabularies renders its own human label'
     'not-started': 'Not started',
     designing: 'Designing',
     planned: 'Planned',
-    shipping: 'Shipping',
+    development: 'Development',
+    staging: 'Staging',
+    release: 'Release',
   };
 
   const everyStatus = entry('Vector', {
-    stage: 'shipping',
+    stage: 'development',
     milestones: MILESTONE_STATUSES.map((status, i) =>
       milestone({ id: `M${i + 1}`, label: `M${i + 1}`, depth: i + 1, status, plan: `m${i + 1}-plan.md` }),
     ),
@@ -1636,10 +1671,322 @@ test('chips: every value in the closed vocabularies renders its own human label'
   }
 
   // And the two spellings agree, because they read the same table rather than two copies of it.
-  const workstreamStage = /<span\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/span>/.exec(html);
-  const rowStage = /<span\b[^>]*data-stage="shipping"[^>]*>([\s\S]*?)<\/span>/.exec(stagesHtml);
+  // 'development' here, not 'shipping': `everyStatus` above is built with `stage: 'development'`
+  // (Task 2, M8, retired 'shipping' from WORKSTREAM_STAGES).
+  const workstreamStage = /<span\b[^>]*data-stage="development"[^>]*>([\s\S]*?)<\/span>/.exec(html);
+  const rowStage = /<span\b[^>]*data-stage="development"[^>]*>([\s\S]*?)<\/span>/.exec(stagesHtml);
   assert.ok(workstreamStage && rowStage, 'one of the two chip spellings did not render at all');
   assert.equal(stripTags(workstreamStage[1]), stripTags(rowStage[1]));
+});
+
+// --- M8 task 7: the deployment-transition trail and trigger buttons -----------------------------
+
+function stageNodes(html) {
+  return [...html.matchAll(/<li class="stage-node">([\s\S]*?)<\/li>/g)].map(([, inner]) => inner);
+}
+
+test('stage-history: a two-entry deploymentHistory renders both nodes, in order, each with its own label and note', () => {
+  const stream = entry('Sequoia', { stage: 'development' });
+  // Attached as a sibling of `manifest`, the same shape `assemble` (this file's own test double
+  // for `src/build.mjs`'s `assembleSite`) expects — see that function's own header comment.
+  stream.deploymentHistory = [
+    { stage: 'development', note: 'First cut, behind a flag' },
+    { stage: 'staging', note: null },
+  ];
+
+  const html = renderDepth([stream]);
+  const nodes = stageNodes(html);
+
+  assert.equal(nodes.length, 2, `expected exactly 2 .stage-node entries, got ${nodes.length}`);
+  assert.ok(
+    stripTags(nodes[0]).startsWith('Development'),
+    `the first node must read "Development": ${stripTags(nodes[0])}`,
+  );
+  assert.ok(
+    stripTags(nodes[0]).includes('First cut, behind a flag'),
+    `the first node must carry its own note: ${stripTags(nodes[0])}`,
+  );
+  assert.ok(
+    stripTags(nodes[1]).startsWith('Staging'),
+    `the second node must read "Staging": ${stripTags(nodes[1])}`,
+  );
+  assert.ok(!stripTags(nodes[1]).includes('null'), 'a null note must never render as the literal text "null"');
+});
+
+test("stage-history: an empty deploymentHistory renders exactly one node, for the workstream's own current displayedStage", () => {
+  const stream = entry('Tarn', { stage: 'planned' });
+  // No `deploymentHistory` attached at all: the pre-deployment case Step 2 exists for, so the row
+  // is never blank.
+
+  const html = renderDepth([stream]);
+  const nodes = stageNodes(html);
+
+  assert.equal(nodes.length, 1, `expected exactly 1 .stage-node when the log is empty, got ${nodes.length}`);
+  assert.ok(
+    stripTags(nodes[0]).includes('Planned'),
+    `the one node must read the workstream's own displayedStage: ${stripTags(nodes[0])}`,
+  );
+});
+
+test('stage-history: it renders beside .milestone-spine, never inside it', () => {
+  const stream = entry('Quartzite', {
+    stage: 'development',
+    milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+  });
+  stream.deploymentHistory = [{ stage: 'development', note: null }];
+
+  const html = renderDepth([stream]);
+  const spineMatch = /<ol class="milestone-spine">([\s\S]*?)<\/ol>/.exec(html);
+  assert.ok(spineMatch, 'no .milestone-spine rendered for a workstream with a milestone');
+  assert.ok(
+    !spineMatch[1].includes('stage-node') && !spineMatch[1].includes('stage-history'),
+    'the deployment trail rendered INSIDE .milestone-spine, and the spec puts it beside it',
+  );
+  assert.match(html, /<ol class="stage-history"/, 'no .stage-history rendered at all');
+});
+
+test('stage-history: it renders directly above .milestone-spine, per the design doc', () => {
+  const stream = entry('Quartzite', {
+    stage: 'development',
+    milestones: [milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next' })],
+  });
+  stream.deploymentHistory = [{ stage: 'development', note: null }];
+
+  const html = renderDepth([stream]);
+  const historyIndex = html.indexOf('<ol class="stage-history"');
+  const spineIndex = html.indexOf('<ol class="milestone-spine">');
+
+  assert.notEqual(historyIndex, -1, 'no .stage-history rendered at all');
+  assert.notEqual(spineIndex, -1, 'no .milestone-spine rendered at all');
+  assert.ok(
+    historyIndex < spineIndex,
+    '.stage-history must render directly above .milestone-spine, per the design doc\'s ' +
+      '"Where the ordered history renders"',
+  );
+});
+
+test('stage-history: it renders above the spine-empty state too, when a workstream has no milestones', () => {
+  const stream = entry('Quartzite', { stage: 'development', milestones: [] });
+  stream.deploymentHistory = [{ stage: 'development', note: null }];
+
+  const html = renderDepth([stream]);
+  const historyIndex = html.indexOf('<ol class="stage-history"');
+  const emptyIndex = html.indexOf('<p class="spine-empty">');
+
+  assert.notEqual(historyIndex, -1, 'no .stage-history rendered at all');
+  assert.notEqual(emptyIndex, -1, 'no .spine-empty rendered for a workstream with no milestones');
+  assert.ok(
+    historyIndex < emptyIndex,
+    '.stage-history must render above the spine-empty state as well, not just above a populated spine',
+  );
+});
+
+test('stage-trigger: the three buttons carry data-transition-to and data-slug, and render only when the workstream names a deploymentLog', () => {
+  const withLog = entry('Alkali', { deploymentLog: 'docs/features/alkali/deployment-log.json' });
+  const withoutLog = entry('Basalt', {});
+
+  const html = renderDepth([withLog, withoutLog]);
+  const buttons = [
+    ...html.matchAll(/<button[^>]*data-transition-to="([^"]+)"[^>]*data-slug="([^"]+)"[^>]*>([\s\S]*?)<\/button>/g),
+  ];
+
+  const alkaliButtons = buttons.filter(([, , slug]) => slug === 'alkali');
+  assert.equal(
+    alkaliButtons.length,
+    3,
+    `expected 3 trigger buttons for a workstream with a deploymentLog, got ${alkaliButtons.length}`,
+  );
+  assert.deepEqual(
+    alkaliButtons.map(([, stage]) => stage).sort(),
+    ['development', 'release', 'staging'],
+  );
+  for (const [, , , label] of alkaliButtons) {
+    assert.ok(stripTags(label).length > 0, 'a trigger button must carry a real, visible label');
+  }
+
+  const basaltButtons = buttons.filter(([, , slug]) => slug === 'basalt');
+  assert.equal(
+    basaltButtons.length,
+    0,
+    'a workstream naming no deploymentLog must render no trigger buttons — the endpoint has nowhere ' +
+      'to write for it (api/lib/handlers.mjs\'s own no-deployment-log refusal)',
+  );
+});
+
+test("order.js: the row lookup is scoped to a row's own direct children, not any nested data-slug", () => {
+  // Regression guard for a real collision this task found and fixed by hand in a real browser
+  // (no DOM here — see this file's own header): the trigger buttons above each carry `data-slug`
+  // too, nested well inside a row's own `<li data-slug="...">` (so `theme/deploy.js` can read a
+  // workstream's slug straight off whichever button was clicked). `order.js`'s row lookup used to
+  // be an unscoped `container.querySelectorAll('[data-slug]')`, which — in document order — finds
+  // a row's own trigger buttons AFTER the row itself and lets the last one win, replacing the row
+  // element the whole module reorders and expands with a `<button>` that has no
+  // `[data-row-handle]` inside it. `:scope > [data-slug]` is the fix; this pins it in source so
+  // it cannot be silently reverted.
+  assert.match(
+    ORDER_SOURCE,
+    /querySelectorAll\(':scope > \[data-slug\]'\)/,
+    "order.js's row lookup must stay scoped to :scope > [data-slug] — an unscoped [data-slug] " +
+      'query collides with the trigger buttons’ own data-slug (M8 task 7)',
+  );
+});
+
+test('stage-trigger: the wrapper carries the deploymentLog path and the repo', () => {
+  const stream = entry('Gypsum', { deploymentLog: 'docs/features/gypsum/deployment-log.json' });
+  const html = renderDepth([stream]);
+
+  assert.match(html, /data-stage-trigger[^>]*data-log="docs\/features\/gypsum\/deployment-log\.json"/);
+  assert.deepEqual(attrValues(html, 'data-repo'), [config.repo]);
+});
+
+test('stage-trigger: the wrapper carries data-sha — stream.deploymentLogSha, the build-time blob SHA theme/deploy.js reads instead of fetching one from GitHub client-side (M8 task 7 fix round)', () => {
+  const withSha = entry('Basalt', { deploymentLog: 'docs/features/basalt/deployment-log.json' });
+  withSha.deploymentLogSha = 'a'.repeat(40);
+  const withoutSha = entry('Feldspar', { deploymentLog: 'docs/features/feldspar/deployment-log.json' });
+  // No `deploymentLogSha` attached at all — the pre-deployment case: no log on disk yet, so
+  // nothing to hash. `assemble()` defaults it to `null`, the same way `readDeploymentLog` does.
+
+  const html = renderDepth([withSha, withoutSha]);
+
+  assert.deepEqual(attrValues(html, 'data-sha'), ['a'.repeat(40), '']);
+});
+
+test('deploy.js: only the feature planning page loads the trigger script, decision 12', () => {
+  assert.match(depthHtml, /<script type="module" src="\/deploy\.js"><\/script>/);
+  for (const [name, html] of Object.entries(ALL_PAGES)) {
+    if (name === 'depth.njk') continue;
+    assert.ok(!html.includes('deploy.js'), `${name} loads deploy.js, and only feature planning should`);
+  }
+});
+
+// deploy.js's own pure functions — the one-step write and the confirmation text, none of which
+// touch a document or a network (see the module's own header on that guard).
+
+test('deploy.js: transitionBody sends exactly the fields the endpoint accepts, sha null when unknown', () => {
+  assert.deepEqual(
+    JSON.parse(transitionBody({ slug: 'alkali', stage: 'staging', sha: 'abc123' })),
+    { workstream: 'alkali', stage: 'staging', sha: 'abc123' },
+  );
+  assert.deepEqual(
+    JSON.parse(transitionBody({ slug: 'alkali', stage: 'staging', sha: null })),
+    { workstream: 'alkali', stage: 'staging', sha: null },
+  );
+});
+
+test('deploy.js: outcomeMessage never claims a deployment happened, success or failure', () => {
+  assert.equal(
+    outcomeMessage({ status: 200, body: { ok: true } }),
+    'Recorded — the page will reflect this on the next rebuild.',
+  );
+  assert.equal(
+    outcomeMessage({ status: 409, body: { message: 'has changed since the page you are looking at was built' } }),
+    'Not recorded: has changed since the page you are looking at was built',
+  );
+  assert.equal(outcomeMessage({ status: 502, body: null }), 'Not recorded: the server answered 502.');
+
+  for (const outcome of [
+    { status: 200, body: { ok: true } },
+    { status: 409, body: { message: 'stale' } },
+    { status: 502, body: null },
+  ]) {
+    assert.ok(
+      !/\bdeployed\b|\bshipped\b/i.test(outcomeMessage(outcome)),
+      'no outcome message may claim a real deployment happened',
+    );
+  }
+});
+
+// deploy.js's wire() — the DOM-and-network half. Unlike theme/order.js's own unexported wire()
+// (no browser in this test environment, per that file's header), this one is exported specifically
+// because it calls only a small, fixed set of DOM methods (see deploy.js's own header on the
+// export), which a hand-built fake element can implement without a real browser. The fake below
+// implements exactly that set and nothing more.
+
+function fakeTriggerElement({ sha, buttons: buttonSpecs }) {
+  const status = { textContent: '' };
+  const buttons = buttonSpecs.map((attrs) => {
+    const listeners = {};
+    return {
+      getAttribute: (name) => (name in attrs ? attrs[name] : null),
+      addEventListener: (type, handler) => {
+        listeners[type] = handler;
+      },
+      disabled: false,
+      // Not part of the real DOM interface wire() reads — a test-only hook to fire the handler
+      // wire() registered, the same role a real click event plays.
+      click: () => listeners.click(),
+    };
+  });
+  return {
+    getAttribute: (name) => (name === 'data-sha' ? (sha ?? null) : null),
+    querySelector: (selector) => (selector === '[data-stage-trigger-status]' ? status : null),
+    querySelectorAll: (selector) => (selector === '[data-transition-to]' ? buttons : []),
+    status,
+    buttons,
+  };
+}
+
+function fakeDoc(triggers) {
+  return {
+    querySelectorAll: (selector) => (selector === '[data-stage-trigger]' ? triggers : []),
+  };
+}
+
+test('deploy.js: wire() sends the SHA the previous successful transition returned, not the stale data-sha value (M8 task 7 round 2)', async () => {
+  const buildTimeSha = 'a'.repeat(40);
+  const newSha = 'b'.repeat(40);
+  const trigger = fakeTriggerElement({
+    sha: buildTimeSha,
+    buttons: [
+      { 'data-transition-to': 'development', 'data-slug': 'alkali' },
+      { 'data-transition-to': 'staging', 'data-slug': 'alkali' },
+    ],
+  });
+
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push(JSON.parse(init.body));
+    return {
+      status: 200,
+      json: async () => ({ ok: true, sha: posted.length === 1 ? newSha : 'c'.repeat(40) }),
+    };
+  };
+
+  wire(fakeDoc([trigger]), fetchImpl);
+
+  await trigger.buttons[0].click(); // Development, using the build-time data-sha
+  await trigger.buttons[1].click(); // Staging, in the same page load
+
+  assert.equal(posted.length, 2);
+  assert.equal(posted[0].sha, buildTimeSha, 'the first POST in a page load sends the build-time data-sha');
+  assert.equal(
+    posted[1].sha,
+    newSha,
+    'the second POST sends the SHA the first response returned, not the stale build-time value',
+  );
+  assert.notEqual(posted[1].sha, buildTimeSha);
+  assert.equal(trigger.status.textContent, 'Recorded — the page will reflect this on the next rebuild.');
+});
+
+test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so a retry still sends what the page rendered', async () => {
+  const buildTimeSha = 'a'.repeat(40);
+  const trigger = fakeTriggerElement({
+    sha: buildTimeSha,
+    buttons: [{ 'data-transition-to': 'development', 'data-slug': 'alkali' }],
+  });
+
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push(JSON.parse(init.body));
+    return { status: 409, json: async () => ({ message: 'has changed since the page you are looking at was built' }) };
+  };
+
+  wire(fakeDoc([trigger]), fetchImpl);
+
+  await trigger.buttons[0].click();
+  await trigger.buttons[0].click();
+
+  assert.deepEqual(posted.map((p) => p.sha), [buildTimeSha, buildTimeSha]);
 });
 
 // --- the document pages ---------------------------------------------------------------------------

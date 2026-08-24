@@ -1,12 +1,14 @@
-// The two endpoints. Decision 35, and nothing beyond it.
+// The three endpoints. Decision 35, and nothing beyond it.
 //
 //   * `POST /api/answer` records an answer to a question in a register.
 //   * `POST /api/acceptance` records an acceptance result.
+//   * `POST /api/deployment-transition` records a deployment stage transition (M8, decision 35
+//     amended: a third writable thing, not a second one).
 //
 // Creating an issue, approving a milestone, editing a manifest and triggering work belong to the
 // project's own operations console — *"two consoles that both act is how they diverge."* A status
 // dropdown on every milestone is the obvious next thing to build here and it is deliberately
-// absent; a test asserts that this module exports exactly two handlers.
+// absent; a test asserts that this module exports exactly three handlers.
 //
 // Every write is the same five steps, in the same order, and the order is load-bearing:
 //
@@ -25,11 +27,15 @@
 
 import { GitHubError, createContentsClient } from './github.mjs';
 import { RECORDS_ROOT, whyNotAWritableRecord } from './contract.mjs';
-import { RecordError, answerQuestion, recordAcceptance } from './records.mjs';
+import { RecordError, answerQuestion, appendDeploymentTransition, recordAcceptance } from './records.mjs';
 import { authorise } from './principal.mjs';
 import { fetchInstallationToken } from './app-token.mjs';
 import { readCredential } from './credentials.mjs';
-import { validateAcceptancePayload, validateAnswerPayload } from './payload.mjs';
+import {
+  validateAcceptancePayload,
+  validateAnswerPayload,
+  validateDeploymentTransitionPayload,
+} from './payload.mjs';
 
 /** The register a workstream's open questions live in (decision 40's convention). */
 const REGISTER = 'open-questions.md';
@@ -40,6 +46,9 @@ const RECORD_ERROR_STATUS = {
   'no-such-question': 404,
   'ambiguous-question': 409,
   'invalid-payload': 400,
+  // `appendDeploymentTransition` (records.mjs) raises this rather than silently truncating a
+  // malformed log — the same posture `unreadable-manifest` below takes for a malformed manifest.
+  'unreadable-deployment-log': 502,
 };
 
 function respond(status, body) {
@@ -293,6 +302,98 @@ export async function handleAcceptance(request, deps) {
       path: record,
       milestone: milestone.id,
       result: payload.result,
+      commit: commit.commitUrl,
+      sha: commit.sha,
+    });
+  } catch (error) {
+    return fromError(error);
+  }
+}
+
+/**
+ * `POST /api/deployment-transition` — record a deployment stage transition in the log a
+ * workstream's manifest names.
+ *
+ * The path is never the caller's to choose, same as `handleAcceptance` above: the manifest's own
+ * `deploymentLog` field names it, so Atlas reads the manifest to find out where the transition
+ * goes. Unlike `handleAcceptance` there is no milestone lookup — a deployment transition is
+ * feature-level, a workstream moving to a new stage, not milestone-level.
+ *
+ * @param {{ method?: string, headers: object, body: unknown }} request
+ * @param {{ env: object, fetchImpl?: typeof fetch, nowSeconds: number }} deps
+ * @returns {Promise<{ status: number, headers: object, body: object }>}
+ */
+export async function handleDeploymentTransition(request, deps) {
+  const ready = await prepare(request, deps, validateDeploymentTransitionPayload);
+  if (!ready.ok) return ready.response;
+
+  const { payload, principal, credential, client } = ready;
+  const manifestPath = workstreamPath(payload.workstream, MANIFEST);
+
+  try {
+    const manifest = await client.read(manifestPath, credential.branch);
+
+    let parsed;
+    try {
+      parsed = JSON.parse(manifest.text);
+    } catch (error) {
+      return refusal({
+        status: 502,
+        error: 'unreadable-manifest',
+        message: `${manifestPath} is not valid JSON (${error.message}), so Atlas cannot tell where this transition goes.`,
+      });
+    }
+
+    const log = parsed?.deploymentLog;
+    if (typeof log !== 'string' || log.trim() === '') {
+      return refusal({
+        status: 409,
+        error: 'no-deployment-log',
+        message:
+          `${manifestPath} has no deploymentLog, so there is nowhere for this transition to go. ` +
+          `Add the log's repository path to the manifest first — Atlas writes into records, it ` +
+          `does not create them.`,
+      });
+    }
+
+    // Same containment rule `handleAcceptance` applies to `acceptance.record`: the manifest is a
+    // record like any other, and a record can be wrong. This is the last thing between it and a
+    // PUT.
+    const wrong = whyNotAWritableRecord(log);
+    if (wrong) {
+      return refusal({
+        status: 409,
+        error: 'unwritable-record',
+        message:
+          `${manifestPath} names ${JSON.stringify(log)} as its deploymentLog, and that path ` +
+          `${wrong}. Atlas writes to records under ${RECORDS_ROOT}/ and nowhere else. Nothing was written.`,
+      });
+    }
+
+    const current = await client.read(log, credential.branch);
+
+    const stale = staleAgainstCaller(log, payload.sha, current.sha);
+    if (stale) return stale;
+
+    const text = appendDeploymentTransition(current.text, {
+      stage: payload.stage,
+      note: payload.note,
+    });
+
+    const commit = await client.write({
+      path: log,
+      message:
+        `atlas: deployment transition ${payload.stage} for ${payload.workstream}\n\n` +
+        `Recorded by ${principal.author} through Atlas.`,
+      text,
+      sha: current.sha,
+      branch: credential.branch,
+    });
+
+    return respond(200, {
+      ok: true,
+      path: log,
+      stage: payload.stage,
       commit: commit.commitUrl,
       sha: commit.sha,
     });

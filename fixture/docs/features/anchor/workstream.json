@@ -1,7 +1,7 @@
 {
   "codename": "Anchor",
   "what": "A four-milestone workstream invented for the fixture, entirely done, so the depth chart's most important visual case — a column that ran deep and completed, whose head must land past its last milestone rather than on it — has a home in real fixture shape rather than only a hand-built test object",
-  "stage": "shipping",
+  "stage": "development",
   "position": "All four milestones shipped",
   "gate": "Nothing gates further work; a fifth milestone would need its own approval before it could appear here",
   "label": "workstream:anchor",

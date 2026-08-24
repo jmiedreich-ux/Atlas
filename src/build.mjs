@@ -23,6 +23,7 @@
 // and nothing is dated.
 
 import Eleventy from '@11ty/eleventy';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync,
   existsSync,
@@ -37,6 +38,7 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { DEPLOYMENT_STAGES } from '../api/lib/contract.mjs';
 import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
@@ -58,7 +60,15 @@ const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
 // your own order (#780). Decision 12 says no framework runtime and no second hosting model, and
 // this is neither: it is one static file, with no dependency of its own, doing one thing on one
 // page that the reader asked for.
-const THEME_FILES = Object.freeze(['tokens.css', 'order.js']);
+//
+// `deploy.js` (M8 task 7) is the feature planning surface's second and only other piece of
+// behaviour — the Development/Staging/Release trigger buttons that POST to
+// `/api/deployment-transition`. Copied the same way, for the same reason: `theme/_includes/
+// depth.njk`'s own `bodyScripts` block links to `/deploy.js`, and nothing else in this generator
+// ever copies a file out of `theme/` into a build's output — Eleventy's input directory is
+// `theme/_includes` only (`.eleventy.js`), so a file sitting beside it is invisible to Eleventy
+// entirely and has to be named here or it 404s on every real build.
+const THEME_FILES = Object.freeze(['tokens.css', 'order.js', 'deploy.js']);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';
@@ -252,12 +262,114 @@ function collectAssets(projectRoot) {
     });
 }
 
+// A git blob SHA-1 — the same value `git hash-object` (and GitHub's contents API `sha` field)
+// computes for a file's exact bytes: `sha1("blob " + <byte length> + "\0" + <content>)`. Exported
+// so a test can check it against a real `git hash-object` invocation as ground truth, not just a
+// hard-coded constant.
+//
+// Why this exists (M8 task 7 fix round): `theme/deploy.js` used to fetch this value from GitHub's
+// public, unauthenticated contents API at click time. Every real Atlas project lives in a private
+// repository (decision 7), so that GET 404s every time and `currentSha` always resolved to `null`
+// — the round-trip bought nothing but latency. The build already reads the deployment log's exact
+// bytes off disk to compute `displayedStage`/`deploymentHistory` below; computing the blob SHA
+// from those same bytes, once, at build time, is the value a client-side GET was only ever trying
+// to approximate — and unlike the GET, it actually works against a private repository.
+//
+// @param {string} content - the file's exact text, as read from disk (not re-serialised).
+// @returns {string} the 40-character hex blob SHA.
+export function gitBlobSha(content) {
+  const body = Buffer.from(content, 'utf8');
+  const header = Buffer.from(`blob ${body.length}\0`, 'utf8');
+  return createHash('sha1').update(Buffer.concat([header, body])).digest('hex');
+}
+
+// A workstream's *displayed* stage, and the deployment history it was read from — the fix for
+// "chip says Shipping, feature is really in dev". `manifest.stage` is the manifest's own,
+// possibly-stale word for where a workstream stands; a deployment log, when the workstream has
+// one, is the record of what has actually gone out, and its latest entry is what a reader should
+// see on the chip. Computed once, here, the same way `triage` is computed from `classifyTriage`
+// rather than read off the manifest, so every surface agrees.
+//
+// Also returns `deploymentLogSha` (M8 task 7 fix round) — the log file's own git blob SHA, `null`
+// when there is no log yet (nothing on disk to hash). This is what `depth.njk` renders onto the
+// trigger buttons' wrapper, and what `theme/deploy.js` sends back with a transition request
+// instead of fetching a SHA from GitHub client-side — see `gitBlobSha`'s own header above.
+//
+// A workstream that names no `deploymentLog`, or one that has not been written to yet, has
+// nothing to override with — this is the normal, unremarkable state of a workstream that has not
+// started deploying, not a broken reference, so it is the one file read in this generator that is
+// tolerant of a missing file in total silence (contrast `fetchProjectIssues`, which warns when
+// GitHub is unreachable: that is a real failure to reach something that should be there; a log
+// nobody has written yet is not). A file that IS there and is not valid JSON is a different thing
+// — a broken record — and fails the build by decision 32, naming the path, the same as every other
+// broken reference here.
+function readDeploymentLog(projectRoot, stream) {
+  const displayedStage = stream.manifest.stage;
+
+  if (!stream.manifest.deploymentLog) {
+    return { displayedStage, deploymentHistory: [], deploymentLogSha: null };
+  }
+
+  const absolute = path.join(projectRoot, stream.manifest.deploymentLog);
+  if (!existsSync(absolute)) {
+    return { displayedStage, deploymentHistory: [], deploymentLogSha: null };
+  }
+
+  const where = relPath(projectRoot, absolute);
+  const raw = readFileSync(absolute, 'utf8');
+  let deploymentHistory;
+  try {
+    deploymentHistory = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(
+      `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+        `deploymentLog "${stream.manifest.deploymentLog}", but ${where} is not valid JSON ` +
+        `(${error.message}).`,
+    );
+  }
+  if (!Array.isArray(deploymentHistory)) {
+    throw new Error(
+      `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+        `deploymentLog "${stream.manifest.deploymentLog}", but ${where}'s content is not a JSON array ` +
+        `of transitions.`,
+    );
+  }
+
+  // Decision 32's closed vocabulary, enforced on the way in rather than trusted. A hand-edited or
+  // corrupted log entry (an arbitrary string, or one missing "stage" entirely — e.g. a truncated
+  // `{}` as the final write) would otherwise reach `displayedStage` unvalidated, and from there
+  // `state.json` and the rendered chip's CSS class/`data-stage` attribute — the exact thing every
+  // other broken reference in this generator is held to account for by name, not rendered.
+  for (const entry of deploymentHistory) {
+    const stageValue =
+      entry !== null && typeof entry === 'object' && !Array.isArray(entry) ? entry.stage : undefined;
+    if (!DEPLOYMENT_STAGES.includes(stageValue)) {
+      throw new Error(
+        `${relPath(projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" names ` +
+          `deploymentLog "${stream.manifest.deploymentLog}", but ${where} contains an entry whose "stage" ` +
+          `is ${JSON.stringify(stageValue)}, not one of: ${DEPLOYMENT_STAGES.join(', ')}.`,
+      );
+    }
+  }
+
+  const latest = deploymentHistory.at(-1);
+  return {
+    displayedStage: latest ? latest.stage : displayedStage,
+    deploymentHistory,
+    deploymentLogSha: gitBlobSha(raw),
+  };
+}
+
 // --- the model both the pages and state.json are made from ---------------------------------------
 
 // One model, assembled once. The pages render from it and `buildState` projects it, so the
 // agent-facing output cannot drift from the human-facing one — they are not two derivations of the
 // same data, they are one.
-async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
+//
+// Exported (only) so a test can inspect a computed, not-yet-templated field — `displayedStage`
+// and `deploymentHistory` as of M8 task 6 — directly, the same way `triage.mjs` and `depth.mjs`
+// are unit-tested against their own inputs rather than only through rendered HTML or state.json.
+export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const config = loadConfig(projectRoot);
 
   assertRoadmapExists(config.projectRoot);
@@ -299,6 +411,25 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
+    const { displayedStage, deploymentHistory, deploymentLogSha } = readDeploymentLog(config.projectRoot, stream);
+
+    // `computeLadder` (src/depth.mjs) already ran, above, against the raw `manifest.stage` — and
+    // `classifyTriage` (src/triage.mjs), below, is about to. Threading `displayedStage` through
+    // both is a bigger structural change than this fix deserves; the cheap version is to make the
+    // raw value impossible to be stale in the one window that matters. A deployment log with real
+    // entries IS evidence the workstream has left the pre-development stages, so a manifest that
+    // still claims `not-started` or `designing` at that point is a stale record, not a fact any
+    // surface should render — the ladder, the triage order, the chip and state.json would
+    // otherwise disagree about the same workstream, the #780 "two surfaces disagree" failure class.
+    if (deploymentHistory.length > 0 && (stream.manifest.stage === 'not-started' || stream.manifest.stage === 'designing')) {
+      throw new Error(
+        `${relPath(config.projectRoot, stream.manifestPath)}: workstream "${stream.manifest.codename}" has a ` +
+          `deployment log with ${deploymentHistory.length} entr${deploymentHistory.length === 1 ? 'y' : 'ies'}, ` +
+          `but its manifest "stage" is still "${stream.manifest.stage}" — a deployment log with entries is ` +
+          `evidence the workstream has left the pre-development stages, so the manifest is a stale record and ` +
+          `must be corrected by hand before the build can trust it.`,
+      );
+    }
 
     return {
       ...stream,
@@ -307,6 +438,14 @@ async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
       url: workstreamUrl(stream.slug),
       column: ladder.columns[index],
       issues: issues.byLabel.get(stream.manifest.label) ?? [],
+      // Decision 32's "fail loudly" exception carve-out, and the fix for "chip says Shipping,
+      // feature is really in dev": see `readDeploymentLog` above.
+      displayedStage,
+      deploymentHistory,
+      // The log's own build-time git blob SHA, or `null` when there is no log yet. Rendered onto
+      // `.stage-trigger`'s `data-sha` in `depth.njk`; `theme/deploy.js` reads it from there instead
+      // of fetching it from GitHub client-side (M8 task 7 fix round — see `gitBlobSha`'s header).
+      deploymentLogSha,
       milestones: stream.manifest.milestones.map((milestone) => {
         const planPath = `${relDir}/${milestone.plan}`;
         const segment = milestone.id.toLowerCase();

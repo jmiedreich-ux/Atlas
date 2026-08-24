@@ -1,7 +1,7 @@
 {
   "codename": "Tide",
   "what": "A three-milestone workstream invented for the fixture, shallower than Beacon so decision 20 is exercised: no workstream's numbering is imposed on another",
-  "stage": "shipping",
+  "stage": "development",
   "position": "First milestone shipped, second in flight",
   "gate": "Owner review of tide-table accuracy before M3",
   "label": "workstream:tide",

@@ -325,7 +325,17 @@ function wire(doc, storage) {
   if (!container) return;
 
   const rows = new Map();
-  for (const node of container.querySelectorAll('[data-slug]')) {
+  // `:scope > [data-slug]` (a row's OWN direct children only), not a bare descendant
+  // `[data-slug]` — M8 task 7's trigger buttons each carry `data-slug` too (so `theme/deploy.js`
+  // can read a workstream's slug straight off the button that was clicked), nested well inside a
+  // row's own `<li data-slug="...">`. An unscoped query here would find those buttons AFTER the
+  // row itself in document order and `Map.set` would let the last one win, silently replacing the
+  // row element this whole module reorders and expands with a `<button>` that has no
+  // `[data-row-handle]` inside it — `handle` below would be `null` for every row that has a
+  // deploymentLog, and the loop's `if (!handle) continue;` would skip wiring it entirely. Caught
+  // by hand in a real browser (Playwright), not by this file's own unit tests: they build a DOM
+  // fixture by hand and never had a nested `data-slug` to collide with before M8.
+  for (const node of container.querySelectorAll(':scope > [data-slug]')) {
     rows.set(node.getAttribute('data-slug'), node);
   }
   const generated = [...rows.keys()];

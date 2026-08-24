@@ -54,6 +54,17 @@ export function buildState(site) {
     byLabel[label] = site.issues.byLabel.get(label).map(issueRef);
   }
 
+  // Task 6 fix round 2: `computeLadder` (src/depth.mjs) destructures `stage` straight off the raw
+  // manifest — deliberately, since that same value also drives its bar/head-position math, which
+  // this projection must not disturb. `column.stage` therefore still carries the raw
+  // `manifest.stage`, the same staleness `workstreams[].stage` had before the first fix round. Keyed
+  // by codename (the field `ladder.columns[]` and `workstreams[]` both carry, and the one
+  // `computeLadder`'s columns are built from) rather than slug, since `column` has no slug of its
+  // own.
+  const displayedStageByCodename = new Map(
+    site.workstreams.map((stream) => [stream.manifest.codename, stream.displayedStage]),
+  );
+
   return {
     // Decision 29 makes this a contract other tools consume, so it says which contract it is —
     // first key, before anything a reader would have to parse to find it. One line now; after a
@@ -73,7 +84,7 @@ export function buildState(site) {
       slug: stream.slug,
       codename: stream.manifest.codename,
       what: stream.manifest.what,
-      stage: stream.manifest.stage,
+      stage: stream.displayedStage,
       position: stream.manifest.position,
       gate: stream.manifest.gate,
       label: stream.manifest.label,
@@ -151,7 +162,10 @@ export function buildState(site) {
       })),
       columns: site.ladder.columns.map((column) => ({
         codename: column.codename,
-        stage: column.stage,
+        // The displayed (log-overridden) stage, not `computeLadder`'s raw `manifest.stage` — see
+        // `displayedStageByCodename` above. Falls back to `column.stage` only if a codename ever
+        // fails to match, which should not happen since both come from the same `resolved` array.
+        stage: displayedStageByCodename.get(column.codename) ?? column.stage,
         barTo: column.barTo,
         headAt: column.headAt,
         tipLabel: column.tipLabel,

@@ -1,10 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { MILESTONE_STATUSES, validateWorkstream, validateConfig } from '../src/schema.mjs';
+import { MILESTONE_STATUSES, WORKSTREAM_STAGES, DEPLOYMENT_STAGES, validateWorkstream, validateConfig } from '../src/schema.mjs';
 
 // All fixture data below is invented for this test file only — the generator holds no
 // project content of its own (decision 40).
+
+test('WORKSTREAM_STAGES replaces shipping with real deployment stages', () => {
+  assert.deepEqual(WORKSTREAM_STAGES, [
+    'not-started', 'designing', 'planned', 'development', 'staging', 'release',
+  ]);
+  assert.deepEqual(DEPLOYMENT_STAGES, ['development', 'staging', 'release']);
+});
 
 function validManifest() {
   return {
@@ -549,4 +556,59 @@ test('schema: a milestone cannot have closed before it started', () => {
   const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
   assert.match(message, /2026-08-09/, 'the failure never quoted the close date');
   assert.match(message, /2026-08-22/, 'the failure never quoted the start date');
+});
+
+// --- M8 task 6: `deploymentLog` on the workstream, not the milestone -----------------------------
+//
+// A workstream-level field: one deployment history per workstream, not one per milestone. Nullable
+// like `acceptance.record` (decision 14's own nullable-string rule), but — unlike `record` — also
+// genuinely OPTIONAL: a workstream that has never reached development has nowhere to log yet, and
+// every fixture manifest written before this field existed omits the key entirely, so omission
+// must validate too, not just `null`.
+
+test('validateWorkstream: deploymentLog is entirely optional — an existing manifest that omits it still validates', () => {
+  const manifest = validManifest();
+  assert.equal(manifest.deploymentLog, undefined, 'the fixture manifest already names deploymentLog');
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.deploymentLog, undefined);
+});
+
+test('validateWorkstream: deploymentLog accepts a repository path to the log', () => {
+  const manifest = validManifest();
+  manifest.deploymentLog = 'docs/features/nova/deployment-log.json';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.deploymentLog, 'docs/features/nova/deployment-log.json');
+});
+
+test('validateWorkstream: deploymentLog accepts null, the same as acceptance.record', () => {
+  const manifest = validManifest();
+  manifest.deploymentLog = null;
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.deploymentLog, null);
+});
+
+test('validateWorkstream: deploymentLog as an empty string is refused, matching isNullableString', () => {
+  const manifest = validManifest();
+  manifest.deploymentLog = '';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'an empty string was accepted as a path');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /deploymentLog/, 'the failure never named the field');
+});
+
+test('validateWorkstream: deploymentLog rejects a non-string, non-null value', () => {
+  const manifest = validManifest();
+  manifest.deploymentLog = 42;
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'a number was accepted as a path');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /deploymentLog/, 'the failure never named the field');
 });

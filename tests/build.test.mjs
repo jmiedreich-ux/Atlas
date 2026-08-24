@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { build } from '../src/build.mjs';
+import { build, assembleSite, gitBlobSha } from '../src/build.mjs';
 import { MILESTONE_STATUSES } from '../src/schema.mjs';
 import { serialiseSwaConfig } from '../src/swa.mjs';
 
@@ -251,6 +251,9 @@ const EXPECTED_FILES = [
   'docs/field notes.html',
   'docs/reference.html',
   'docs/support.js',
+  // M8 task 7: the feature planning row's Development/Staging/Release trigger buttons, copied
+  // from theme/ alongside tokens.css and order.js — see THEME_FILES in src/build.mjs.
+  'deploy.js',
   'index.html',
   'library/index.html',
   'mobile/index.html',
@@ -301,6 +304,7 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
     ...state.assets.map((asset) => asset.path),
     'tokens.css',
     'order.js',
+    'deploy.js',
     'state.json',
     'staticwebapp.config.json',
   ]);
@@ -479,7 +483,7 @@ test('build: every failure names a repository-relative path, and never an absolu
           JSON.stringify({
             codename: 'Nova',
             what: 'Invented for this test',
-            stage: 'shipping',
+            stage: 'development',
             position: 'Invented for this test',
             gate: 'Nothing but this test',
             label: 'workstream:nova',
@@ -516,7 +520,7 @@ test('build: every failure names a repository-relative path, and never an absolu
           JSON.stringify({
             codename: 'Nova',
             what: 'Invented for this test',
-            stage: 'shipping',
+            stage: 'development',
             position: 'Invented for this test',
             gate: 'Nothing but this test',
             label: 'workstream:nova',
@@ -824,7 +828,7 @@ test('build: every URL it emits is encoded, on the pages and in state.json alike
     JSON.stringify({
       codename: 'Spacey',
       what: 'Invented for this test',
-      stage: 'shipping',
+      stage: 'development',
       position: 'Invented for this test',
       gate: 'Nothing but this test',
       label: 'workstream:spacey',
@@ -1016,7 +1020,7 @@ test('README: the files it says a build writes are the files a build writes', ()
   // because a number in prose beside a list is exactly what drifts when the list grows.
   const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
 
-  const generated = ['state.json', 'tokens.css', 'order.js', 'staticwebapp.config.json'];
+  const generated = ['state.json', 'tokens.css', 'order.js', 'deploy.js', 'staticwebapp.config.json'];
   const written = listFiles(OUT).filter(
     (file) => !file.endsWith('.html') && !state.assets.some((asset) => asset.path === file),
   );
@@ -1064,7 +1068,7 @@ test('build: the site is gated by default — a project that configures nothing 
 test("build: the theme's own files are served where the layouts link to them", () => {
   // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
   // `njk` and nothing else, so neither can be picked up as a page of its own.
-  for (const file of ['tokens.css', 'order.js']) {
+  for (const file of ['tokens.css', 'order.js', 'deploy.js']) {
     assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
     assert.equal(
       sha256(path.join(OUT, file)),
@@ -1074,11 +1078,15 @@ test("build: the theme's own files are served where the layouts link to them", (
   }
   assert.match(read('index.html'), /href="\/tokens\.css"/);
   assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
+  // M8 task 7: the Development/Staging/Release trigger buttons' own script.
+  assert.match(read('index.html'), /<script type="module" src="\/deploy\.js"><\/script>/);
 
   // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
   // up behaviour it has no use for.
   assert.ok(!read('mobile/index.html').includes('order.js'), 'the phone view loads the ordering script');
   assert.ok(!read('library/index.html').includes('order.js'), 'the records index loads the ordering script');
+  assert.ok(!read('mobile/index.html').includes('deploy.js'), 'the phone view loads the trigger script');
+  assert.ok(!read('library/index.html').includes('deploy.js'), 'the records index loads the trigger script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {
@@ -1776,4 +1784,271 @@ test('build: a feature written but never put on the sheet is reported, and does 
 test('build: the fixture builds with nothing to warn about, so the warning stays worth reading', () => {
   // A build that always warns is a warning nobody reads. This is the control for the test above.
   assert.deepEqual(SUMMARY.unnamedFeatures, []);
+});
+
+// --- M8 task 7 fix round: the deployment log's SHA, computed at build time ----------------------
+//
+// `theme/deploy.js` used to fetch the deployment log's current SHA from GitHub's public,
+// unauthenticated contents API at click time — which 404s on every real Atlas project, since those
+// live in private repositories gated behind an invited role (decision 7). `currentSha` always
+// resolved to `null` in practice; the round-trip bought nothing but latency. The real fix: the
+// build already reads the deployment log's bytes off disk (`readDeploymentLog`, M8 task 6) to
+// compute `displayedStage`/`deploymentHistory` — the exact same read can compute the file's git
+// blob SHA at the same time, with no network call at all. `gitBlobSha` is the well-defined,
+// short algorithm `git hash-object` uses: `sha1("blob " + byteLength + "\0" + content)`.
+test('gitBlobSha: matches a known SHA-1 blob hash for a short, fixed string', () => {
+  // "hello world\n" (12 bytes) is a git-hash-object value quoted in Git's own documentation and
+  // reproducible anywhere: `printf 'hello world\n' | git hash-object --stdin`.
+  assert.equal(gitBlobSha('hello world\n'), '3b18e512dba79e4c8300dd08aeb37f8e728b8dad');
+});
+
+test('gitBlobSha: matches `git hash-object` on a real file in this repository, not just a hard-coded constant', async () => {
+  const { spawnSync } = await import('node:child_process');
+
+  const content = JSON.stringify(
+    [
+      { stage: 'development', note: 'first deploy to dev' },
+      { stage: 'staging', note: null },
+    ],
+    null,
+    2,
+  ) + '\n';
+  const file = path.join(TMP_ROOT, 'blob-sha-ground-truth.json');
+  mkdirSync(TMP_ROOT, { recursive: true });
+  writeFileSync(file, content);
+
+  const result = spawnSync('git', ['hash-object', file], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `git hash-object failed: ${result.stderr}`);
+  const expected = result.stdout.trim();
+
+  assert.equal(gitBlobSha(content), expected, "gitBlobSha must agree with git's own hash-object");
+});
+
+test('gitBlobSha: byte length, not JS string length, is what goes in the header (multi-byte content)', async () => {
+  // A content string with multi-byte UTF-8 characters has a different byte length than its JS
+  // `.length` (UTF-16 code units) — proving the header uses `Buffer.byteLength`, not `.length`.
+  const { spawnSync } = await import('node:child_process');
+
+  const content = '{"note":"promoted to staging — done ✅"}\n';
+  const file = path.join(TMP_ROOT, 'blob-sha-multibyte.json');
+  mkdirSync(TMP_ROOT, { recursive: true });
+  writeFileSync(file, content);
+
+  const result = spawnSync('git', ['hash-object', file], { encoding: 'utf8' });
+  assert.equal(result.status, 0, `git hash-object failed: ${result.stderr}`);
+  const expected = result.stdout.trim();
+
+  assert.equal(gitBlobSha(content), expected);
+});
+
+// --- M8 task 6: the displayed stage, and the deployment history it came from --------------------
+//
+// "Chip says Shipping, feature is really in dev": `manifest.stage` is the manifest's own,
+// possibly-stale word for where a workstream stands. `assembleSite` now computes a *displayed*
+// stage — the log's latest entry when the workstream has one — the same way it already computes
+// `triage` from `classifyTriage` rather than reading it off the manifest. `assembleSite` is
+// exported (build.mjs) solely so these tests can inspect the computed field directly, rather than
+// only through rendered HTML or state.json (`state.json` DOES carry it, as of this task's own fix
+// rounds: `workstreams[].stage` and `ladder.columns[].stage` both project `displayedStage`, not
+// the raw manifest value — inspecting `assembleSite`'s own output directly is still the more
+// direct way to test the computation itself, one step removed from the projection).
+//
+// Every test below pins the four workstreams beacon/tide/anchor/reef to a known 'development'
+// stage before building, rather than relying on whatever the shared `fixture/` happens to hold —
+// `resolveWorkstreams` validates the whole project, so a workstream this test does not care about
+// still has to hold a value from the closed vocabulary, and a test that assumed the fixture's own
+// values would silently break if a later edit to `fixture/` ever changed them.
+function fixtureCopyWithValidStages(name) {
+  const root = fixtureCopy(name);
+  for (const slug of ['beacon', 'tide', 'anchor', 'reef']) {
+    editManifest(root, slug, (manifest) => {
+      manifest.stage = 'development';
+    });
+  }
+  return root;
+}
+
+test('build: displayedStage is the log\'s latest entry when a deployment log exists, overriding a stale manifest.stage; deploymentHistory carries the full parsed log', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-override');
+
+  // beacon's manifest says 'development'; its log's latest entry says 'staging'. The chip must
+  // trust the log once one exists — that is the entire point of this task.
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [
+    { stage: 'development', note: 'first deploy to dev' },
+    { stage: 'staging', note: 'promoted to staging' },
+  ];
+  const logContent = `${JSON.stringify(history, null, 2)}\n`;
+  writeFileSync(path.join(projectRoot, logPath), logContent);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const bySlug = new Map(site.workstreams.map((stream) => [stream.slug, stream]));
+
+  const beacon = bySlug.get('beacon');
+  assert.equal(beacon.manifest.stage, 'development', 'the manifest\'s own stage should be untouched');
+  assert.equal(beacon.displayedStage, 'staging', "the log's latest entry should override the manifest's stage");
+  assert.deepEqual(beacon.deploymentHistory, history, 'the full parsed history should be exposed, not just the latest entry');
+  // The build-time SHA (M8 task 7 fix round): computed from the exact bytes on disk, so it must
+  // agree with `git hash-object` on that same file — not just with `gitBlobSha` calling itself.
+  assert.equal(
+    beacon.deploymentLogSha,
+    gitBlobSha(logContent),
+    "deploymentLogSha must be the log file's own git blob SHA",
+  );
+  assert.match(beacon.deploymentLogSha, /^[0-9a-f]{40}$/, 'deploymentLogSha must be a 40-character hex blob SHA');
+
+  // harbor names no deploymentLog at all: displayedStage is simply the manifest's own stage,
+  // deploymentHistory is empty, and there is no file to hash, so deploymentLogSha is null.
+  const harbor = bySlug.get('harbor');
+  assert.equal(harbor.manifest.deploymentLog, undefined, 'fixture drifted: harbor now names a deploymentLog');
+  assert.equal(harbor.displayedStage, harbor.manifest.stage);
+  assert.deepEqual(harbor.deploymentHistory, []);
+  assert.equal(harbor.deploymentLogSha, null);
+});
+
+test('build: a deploymentLog naming a file that does not exist yet falls back silently — a workstream that has never logged anything is normal, not broken', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-missing');
+
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = 'docs/features/shoal/deployment-log.json'; // never written
+  });
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+  const shoal = site.workstreams.find((stream) => stream.slug === 'shoal');
+
+  assert.equal(shoal.displayedStage, 'not-started', 'a missing log should fall back to the manifest\'s own stage');
+  assert.deepEqual(shoal.deploymentHistory, []);
+  assert.equal(shoal.deploymentLogSha, null, 'no file on disk means nothing to hash');
+});
+
+test('build: a deploymentLog that exists but is not valid JSON fails the build loudly, naming the path (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-malformed');
+
+  const logPath = 'docs/features/shoal/deployment-log.json';
+  writeFileSync(path.join(projectRoot, logPath), 'not json at all');
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a malformed deployment log should fail the build, not silently fall back');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the broken file');
+});
+
+// --- final whole-branch review fix: closed-vocabulary validation on a log entry's "stage" -------
+//
+// `readDeploymentLog` above trusted `latest.stage` — the JSON-array shape was checked, but not
+// what each entry's own "stage" actually held. A hand-edited or corrupted log could put any
+// string there, which then reached `state.json` (`workstreams[].stage`, `ladder.columns[].stage`)
+// and the rendered chip's CSS class/`data-stage` attribute unvalidated, bypassing decision 32's
+// closed vocabulary — the one rule every OTHER broken reference in this generator is held to.
+test('build: a deployment log entry with a stage outside DEPLOYMENT_STAGES fails the build loudly, naming the workstream, the log path, and the bad value (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-invalid-stage');
+
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [
+    { stage: 'development', note: 'first deploy to dev' },
+    { stage: 'shipping', note: 'a hand-edit using the retired vocabulary' },
+  ];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log entry with an invalid stage should fail the build, not render it');
+  assert.match(error.message, /[Bb]eacon/, 'the failure never named the workstream');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the log file');
+  assert.match(error.message, /shipping/, 'the failure never named the bad stage value');
+});
+
+// A malformed final entry (e.g. `{}`, from a truncated write) has no "stage" at all — this must
+// fail the same way as any other invalid stage, not silently produce a blank chip via
+// `latest ? latest.stage : displayedStage` reading `undefined`.
+test('build: a deployment log whose final entry has no "stage" fails the build loudly, the same as any other invalid stage (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-blank-entry');
+
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }, {}];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log entry missing "stage" should fail the build, not produce a blank chip');
+  assert.match(error.message, /[Bb]eacon/, 'the failure never named the workstream');
+  assert.match(error.message, /deployment-log\.json/, 'the failure never named the log file');
+});
+
+// --- final whole-branch review fix: a non-empty log is evidence a pre-development manifest.stage
+// is stale --------------------------------------------------------------------------------------
+//
+// `computeLadder`/`preMilestoneCoveredCount` (src/depth.mjs) and `classifyTriage` (src/triage.mjs)
+// both still read the raw `manifest.stage`, not `displayedStage` — threading the override through
+// both is a bigger structural change than this fix wave should attempt. The cheap, correct fix:
+// a deployment log with real entries IS proof the workstream has left the pre-development stages
+// (`not-started`/`designing`), so a manifest that still claims one of those is now a stale record,
+// and decision 32 says a broken reference fails the build by name rather than rendering two
+// surfaces that disagree (the #780 failure class).
+test('build: a non-empty deployment log against a manifest still in a pre-development stage fails the build, naming the workstream, its stale manifest stage, and the log (decision 32)', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-pre-development');
+
+  // shoal's manifest stage is 'not-started' in the fixture (untouched by fixtureCopyWithValidStages,
+  // which only fixes beacon/tide/anchor/reef) — exactly the stale-record shape this guards against.
+  const logPath = 'docs/features/shoal/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'shoal', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(
+    error,
+    'a deployment log with entries against a pre-development manifest.stage should fail the build',
+  );
+  assert.match(error.message, /[Ss]hoal/, 'the failure never named the workstream');
+  assert.match(error.message, /not-started/, 'the failure never named the stale manifest stage');
+});
+
+// The other pre-development value: 'designing' must be caught the same way as 'not-started'.
+test('build: a non-empty deployment log against a "designing" manifest stage fails the build the same way as "not-started"', async () => {
+  const projectRoot = fixtureCopyWithValidStages('deployment-log-pre-development-designing');
+
+  // harbor's manifest stage is 'designing' in the fixture.
+  const logPath = 'docs/features/harbor/deployment-log.json';
+  const history = [{ stage: 'development', note: 'first deploy to dev' }];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'harbor', (manifest) => {
+    manifest.deploymentLog = logPath;
+  });
+
+  const error = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true }).then(
+    () => null,
+    (err) => err,
+  );
+
+  assert.ok(error, 'a deployment log with entries against a "designing" manifest.stage should fail the build');
+  assert.match(error.message, /[Hh]arbor/, 'the failure never named the workstream');
+  assert.match(error.message, /designing/, 'the failure never named the stale manifest stage');
 });

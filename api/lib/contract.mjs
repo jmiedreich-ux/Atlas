@@ -14,7 +14,12 @@
 
 // Decision 32: every vocabulary is closed, and an unknown value is rejected by name rather than
 // rendered — or written — as a blank.
-export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'planned', 'shipping']);
+export const WORKSTREAM_STAGES = Object.freeze(['not-started', 'designing', 'planned', 'development', 'staging', 'release']);
+
+// The subset of WORKSTREAM_STAGES that a transition record may hold: the three real deployment stages.
+// A workstream is in one of six possible states, but only these three are deployment stages that can
+// be recorded in a transition.
+export const DEPLOYMENT_STAGES = Object.freeze(['development', 'staging', 'release']);
 
 // `blocked`, not `gated` (#780): the word "gate" belongs to the workstream's own `gate` field —
 // the thing the owner holds — and what a milestone is recording is simply that it cannot start.

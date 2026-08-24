@@ -9,7 +9,10 @@
   would imply otherwise.
 
   Data this layout expects:
-    workstream — one { slug, dir, manifestPath, manifest } from resolveWorkstreams
+    workstream — one { slug, dir, manifestPath, manifest } from resolveWorkstreams, plus
+                 `displayedStage` (M8 task 6): the manifest's own `stage`, overridden by a
+                 deployment log's latest entry when the workstream has one. The heading chip
+                 renders THIS, never `workstream.manifest.stage` directly.
     issues     — this workstream's open issues, i.e. fetchProjectIssues(...).byLabel for its label
                  (an empty list is fine, and is what a build with no GitHub reach produces)
     project, repo, title — see base.njk
@@ -21,7 +24,7 @@
 
 {% block content %}
 <p class="breadcrumb"><a href="/">Feature planning</a></p>
-<h1>{{ workstream.manifest.codename }} {{ ui.chip("stage", workstream.manifest.stage) }}</h1>
+<h1>{{ workstream.manifest.codename }} {{ ui.chip("stage", workstream.displayedStage) }}</h1>
 <p class="lede">{{ workstream.manifest.what }}</p>
 
 <ul class="meta-list">

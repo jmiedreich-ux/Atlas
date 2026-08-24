@@ -504,14 +504,20 @@ h3 {
   white-space: nowrap;
 }
 
-.chip-done {
+/* `release` reads with `done`, not with the two stages before it — decision 32's vocabulary swap
+ * (M8): a workstream that has reached `release` is at the end of its deployment stages the same
+ * way a `done` milestone is at the end of its own, so both read as "reached the end" rather than
+ * "still moving". `development`/`staging` keep the tone `shipping` carried before M8 retired it. */
+.chip-done,
+.chip-release {
   background: var(--sky-color-live-surface);
   color: var(--sky-positive-text);
 }
 
 .chip-next,
-.chip-shipping,
-.chip-moving {
+.chip-moving,
+.chip-development,
+.chip-staging {
   background: var(--sky-badge-background);
   color: var(--sky-badge-text);
 }
@@ -737,6 +743,102 @@ h3 {
 .milestone-task-count {
   color: var(--sky-text-muted);
   font-size: 0.85rem;
+  margin: var(--sky-space-1) 0 0;
+}
+
+/* M8 task 7: the deployment-transition trail, beside `.milestone-spine` rather than inside it (see
+ * `theme/_includes/depth.njk`'s own header comment). M8 task 8: the dot-and-line visual language
+ * below, and the trigger buttons' own chrome.
+ *
+ * `.stage-node` reuses `.milestone-node`'s dot-on-a-line idea at a smaller scale, deliberately not
+ * identical CSS: a 6px dot on a 1px line (the spine's is a 10px dot on a 2px line), and the dot's
+ * fill is `--sky-color-primary` — the contract's fill/focus accent, used here exactly the way its
+ * own rule allows ("a filled track segment") — rather than any of the spine's neutral/tone fills.
+ * `.stage-node` also carries no `tone-*` modifier the way `.milestone-node` does: a deployment
+ * transition is a plain chronological fact, not a status with its own colour, so every dot reads
+ * the same regardless of which stage it names. Together, smaller, thinner, a different token, and
+ * no tone-colouring keep a glance from reading this as a second milestone spine. */
+.stage-history {
+  border-left: 1px solid var(--sky-color-border);
+  list-style: none;
+  margin: var(--sky-space-4) 0 0;
+  padding: 0 0 0 var(--sky-space-3);
+}
+
+.stage-node {
+  padding: var(--sky-space-1) 0 var(--sky-space-1) var(--sky-space-3);
+  position: relative;
+}
+
+.stage-node::before {
+  background: var(--sky-color-primary);
+  border-radius: 50%;
+  content: '';
+  height: 6px;
+  left: calc(-1 * var(--sky-space-3) - 4px);
+  position: absolute;
+  top: calc(var(--sky-space-1) + 0.3em);
+  width: 6px;
+}
+
+.stage-node-label {
+  color: var(--sky-text-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.stage-node-note {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin-left: var(--sky-space-2);
+}
+
+.stage-trigger {
+  margin: var(--sky-space-4) 0 0;
+}
+
+.stage-trigger-label {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin: 0 0 var(--sky-space-1);
+}
+
+/* Flat, no-box — `.theme-list button`'s own convention (see that rule's header comment above),
+ * not a new button chrome. The three buttons have no wrapper element to hang a flex gap on
+ * (`depth.njk` renders them as bare siblings between the label and status paragraphs), so the gap
+ * is an adjacent-sibling margin instead. */
+.stage-trigger-button {
+  background: none;
+  border: none;
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.stage-trigger-button + .stage-trigger-button {
+  margin-left: var(--sky-space-3);
+}
+
+.stage-trigger-button:hover:not(:disabled) {
+  color: var(--sky-text-primary);
+  text-decoration: underline;
+}
+
+.stage-trigger-button:focus-visible {
+  outline: 2px solid var(--sky-focus-color);
+  outline-offset: 2px;
+}
+
+.stage-trigger-button:disabled {
+  color: var(--sky-text-muted);
+  cursor: not-allowed;
+}
+
+.stage-trigger-status {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
   margin: var(--sky-space-1) 0 0;
 }
 
