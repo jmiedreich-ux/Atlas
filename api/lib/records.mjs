@@ -260,7 +260,7 @@ export function answerQuestion(text, { question, answer, author, where = 'the re
  * @param {string} currentJsonText - the register's current JSON text, as read from the repo.
  * @param {{ questionId: string, chosen: string, chosenWasOffered: boolean, author: string }} args
  * @returns {string} the new JSON text.
- * @throws {RecordError} 'no-such-question' | 'invalid-payload'
+ * @throws {RecordError} 'no-such-question' | 'ambiguous-question' | 'invalid-payload'
  */
 export function answerRegisterQuestion(currentJsonText, { questionId, chosen, chosenWasOffered }) {
   let parsed;
@@ -271,12 +271,22 @@ export function answerRegisterQuestion(currentJsonText, { questionId, chosen, ch
   }
 
   const wanted = String(questionId).toLowerCase();
-  const question = (parsed.questions ?? []).find(
+  const matches = (parsed.questions ?? []).filter(
     (q) => typeof q?.id === 'string' && q.id.toLowerCase() === wanted,
   );
-  if (!question) {
+  if (matches.length === 0) {
     throw new RecordError(`no question ${JSON.stringify(questionId)} in this register`, 'no-such-question');
   }
+  // Decision 32's rule applied to a register, same as the prose path above: a duplicate id is a
+  // record somebody has to fix, not a coin toss about which one gets the answer.
+  if (matches.length > 1) {
+    throw new RecordError(
+      `this register has ${matches.length} questions with the id ${JSON.stringify(questionId)}, so ` +
+        `Atlas cannot tell which one is being answered. Give them separate ids. Nothing was written.`,
+      'ambiguous-question',
+    );
+  }
+  const question = matches[0];
 
   if (chosenWasOffered && !(question.options ?? []).includes(chosen)) {
     throw new RecordError(

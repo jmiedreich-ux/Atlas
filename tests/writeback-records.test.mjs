@@ -389,6 +389,29 @@ test('records: answerRegisterQuestion refuses an offered answer that names no re
   );
 });
 
+test('records: two register questions with one id are refused rather than one of them being picked', () => {
+  // Mirrors answerQuestion's own ambiguous-question guard (decision 32 applied to a register): a
+  // duplicate is a record somebody has to fix, not a coin toss about which one gets the answer.
+  // validateRegister already refuses this at build time (assertNoDuplicateIds) -- this is the
+  // write path's own defense, for a register.json that reached this state some other way (a
+  // manual edit, a race, an upstream bug) before its next rebuild would have caught it.
+  const ambiguous = registerJson({
+    questions: [
+      { id: 'Q1', question: 'First', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+      { id: 'Q1', question: 'Second', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+    ],
+  });
+  assert.throws(
+    () => answerRegisterQuestion(ambiguous, { questionId: 'Q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' }),
+    (error) => {
+      assert.ok(error instanceof RecordError);
+      assert.equal(error.code, 'ambiguous-question');
+      assert.match(error.message, /Q1/);
+      return true;
+    },
+  );
+});
+
 test('records: answering twice replaces, does not append', () => {
   const once = answerRegisterQuestion(registerJson(), { questionId: 'Q1', chosen: 'A', chosenWasOffered: true, author: 'jeremy' });
   const twice = JSON.parse(
