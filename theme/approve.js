@@ -10,8 +10,13 @@
 // approved by someone else gets exactly that 409, and the message says so.
 //
 // ONE STEP, no retry loop of its own — same posture as `theme/deploy.js`: a failed click leaves the
-// button enabled and the status line naming why, and a person decides what to do next rather than
-// this file guessing.
+// button enabled and the modal naming why, and a person decides what to do next rather than this
+// file guessing.
+//
+// THE MODAL, NOT THE INLINE STATUS LINE. See `theme/refresh.js`'s own header for why —
+// `[data-approve-trigger-status]` stays in the DOM but nothing writes to it any more.
+
+import { openActionModal } from './action-modal.js';
 
 /**
  * The body `POST /api/approve` accepts, and nothing else — `api/lib/payload.mjs`'s
@@ -57,7 +62,6 @@ export function wire(doc, fetchImpl) {
   const triggers = doc.querySelectorAll('[data-approve-trigger]');
 
   triggers.forEach((trigger) => {
-    const status = trigger.querySelector('[data-approve-trigger-status]');
     const button = trigger.querySelector('[data-approve-button]');
     if (!button) return;
 
@@ -65,7 +69,7 @@ export function wire(doc, fetchImpl) {
       const slug = button.getAttribute('data-slug');
 
       button.disabled = true;
-      if (status) status.textContent = 'Approving…';
+      const modal = openActionModal(doc, `Approving ${slug}…`);
 
       let outcome;
       try {
@@ -80,12 +84,14 @@ export function wire(doc, fetchImpl) {
         outcome = { status: 0, body: { message: err.message } };
       }
 
-      if (status) status.textContent = outcomeMessage(outcome);
+      const message = outcomeMessage(outcome);
+      const ok = outcome.status >= 200 && outcome.status < 300 && !!outcome.body?.ok;
+      if (modal) modal.resolve({ ok, message });
       // Left disabled on success — the row's own proposal is gone from the repository once this
       // succeeds, and the button would 404 (`no-such-proposal`) on a second click before the next
       // rebuild ever runs. Re-enabled on any refusal, so a real failure (a network blip, a stale
       // branch) can be retried.
-      if (!(outcome.status >= 200 && outcome.status < 300 && outcome.body?.ok)) {
+      if (!ok) {
         button.disabled = false;
       }
     });

@@ -99,6 +99,23 @@
 <main class="site-main" id="main">
 {% block content %}{% endblock %}
 </main>
+{#- The shared action modal (theme/action-modal.js) every write-back trigger opens while its
+    request is in flight — approve, the three deploy stages, and refresh. Hidden by default; JS
+    toggles `hidden` and `aria-hidden` together rather than relying on either alone, so a reader
+    with CSS disabled and a reader using only the accessibility tree agree on whether this is
+    showing. Not loaded as its own <script> — theme/refresh.js (every page) and
+    theme/approve.js/theme/deploy.js (feature planning) each import it directly. -#}
+<div class="action-modal-backdrop" data-action-modal-backdrop hidden>
+<div class="action-modal" role="dialog" aria-modal="true" aria-labelledby="action-modal-title" aria-hidden="true" data-action-modal>
+<button type="button" class="action-modal-close" data-action-modal-close aria-label="Close">&times;</button>
+<p class="action-modal-title" id="action-modal-title" data-action-modal-title></p>
+<div class="action-modal-track" data-action-modal-track>
+<div class="action-modal-fill"></div>
+<div class="action-modal-dot"></div>
+</div>
+<p class="action-modal-message" role="status" aria-live="polite" data-action-modal-message></p>
+</div>
+</div>
 <footer class="site-foot">
 <p>Built from the repository and its issues, never hand-maintained. Where this page and a record disagree, the record is right. <a href="https://github.com/{{ repo }}">{{ repo }}</a></p>
 </footer>

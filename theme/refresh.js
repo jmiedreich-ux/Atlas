@@ -7,9 +7,17 @@
 // refuses any named field — there is nothing for this file to send beyond the request itself.
 //
 // ONE STEP, no retry loop of its own — same posture as `theme/deploy.js` and `theme/approve.js`: a
-// failed click leaves the button enabled and the status line naming why, and a person decides what
-// to do next. Re-enabled on success too, unlike `approve.js` — a second refresh is always a valid
-// thing to ask for, where a second approve of the same slug would 404.
+// failed click leaves the button enabled and the modal naming why, and a person decides what to do
+// next. Re-enabled on success too, unlike `approve.js` — a second refresh is always a valid thing
+// to ask for, where a second approve of the same slug would 404.
+//
+// THE MODAL, NOT THE INLINE STATUS LINE. `[data-refresh-trigger-status]` still sits in the DOM
+// (`base.njk`) but this file no longer writes to it — `theme/action-modal.js`'s shared modal shows
+// the running/success/failure state instead, the same surface `approve.js`/`deploy.js` now open
+// too. `openActionModal` returns `null` on a page with no modal markup, so this still degrades to
+// "the button worked, nothing visibly confirmed it" rather than throwing — not silent, just quiet.
+
+import { openActionModal } from './action-modal.js';
 
 /**
  * A human-readable line for whatever `POST /api/refresh` answered — success, refusal, or a network
@@ -42,13 +50,12 @@ export function wire(doc, fetchImpl) {
   const trigger = doc.querySelector('[data-refresh-trigger]');
   if (!trigger) return;
 
-  const status = trigger.querySelector('[data-refresh-trigger-status]');
   const button = trigger.querySelector('[data-refresh-button]');
   if (!button) return;
 
   button.addEventListener('click', async () => {
     button.disabled = true;
-    if (status) status.textContent = 'Refreshing…';
+    const modal = openActionModal(doc, 'Refreshing…');
 
     let outcome;
     try {
@@ -63,7 +70,13 @@ export function wire(doc, fetchImpl) {
       outcome = { status: 0, body: { message: err.message } };
     }
 
-    if (status) status.textContent = outcomeMessage(outcome);
+    const message = outcomeMessage(outcome);
+    const ok = outcome.status >= 200 && outcome.status < 300 && !!outcome.body?.ok;
+    // The modal is the display surface now; the inline status line stays in the DOM (base.njk)
+    // but nothing writes to it any more — a page with no modal markup gets a quiet degrade
+    // (`openActionModal` returns null) rather than a fallback write, so there is exactly one place
+    // this outcome is ever shown, not two that could disagree.
+    if (modal) modal.resolve({ ok, message });
     button.disabled = false;
   });
 }

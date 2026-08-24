@@ -24,6 +24,7 @@ import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../sr
 import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
 import { approveBody, outcomeMessage as approveOutcomeMessage, wire as wireApprove } from '../theme/approve.js';
 import { outcomeMessage as refreshOutcomeMessage, wire as wireRefresh } from '../theme/refresh.js';
+import { openActionModal, wire as wireActionModal } from '../theme/action-modal.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -618,6 +619,7 @@ const DERIVED_IN_DARK = {
   '--sky-color-border-control': '#6b7c93',
   '--sky-action-link-text': '#7dd3fc',
   '--sky-shadow-card': '0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45)',
+  '--atlas-scrim': 'rgb(0 0 0 / 0.6)',
   '--atlas-tone-exploring-bg': '#2a2247',
   // The feature planning drawing's two carrying states (#780). Derived rather than quoted because
   // the contract names neither: the drawing's states are not the contract's. `--atlas-tone-ahead`
@@ -1954,6 +1956,41 @@ test('deploy.js: outcomeMessage never claims a deployment happened, success or f
 // export), which a hand-built fake element can implement without a real browser. The fake below
 // implements exactly that set and nothing more.
 
+// The shared action modal's fake structure (theme/action-modal.js's own `modalParts()`), used by
+// every trigger's wire() test below now that each opens this instead of writing its own status
+// line. `backdrop` is what a fake doc's `querySelector('[data-action-modal-backdrop]')` returns;
+// `backdrop.querySelector` answers every part `modalParts()` reads directly off it, matching real
+// DOM behaviour (a query on the backdrop reaches every descendant, not only direct children).
+function fakeActionModalBackdrop() {
+  const track = { className: '' };
+  const message = { textContent: '', className: '' };
+  const title = { textContent: '' };
+  const closeListeners = {};
+  const closeButton = {
+    addEventListener: (type, handler) => {
+      closeListeners[type] = handler;
+    },
+  };
+  const modal = { setAttribute: () => {} };
+  const backdropListeners = {};
+  const backdrop = {
+    hidden: true,
+    setAttribute: () => {},
+    addEventListener: (type, handler) => {
+      backdropListeners[type] = handler;
+    },
+    querySelector: (selector) => {
+      if (selector === '[data-action-modal]') return modal;
+      if (selector === '[data-action-modal-title]') return title;
+      if (selector === '[data-action-modal-track]') return track;
+      if (selector === '[data-action-modal-message]') return message;
+      if (selector === '[data-action-modal-close]') return closeButton;
+      return null;
+    },
+  };
+  return { backdrop, modal, title, track, message, closeButton, closeListeners, backdropListeners };
+}
+
 function fakeTriggerElement({ sha, buttons: buttonSpecs }) {
   const status = { textContent: '' };
   const buttons = buttonSpecs.map((attrs) => {
@@ -1979,8 +2016,11 @@ function fakeTriggerElement({ sha, buttons: buttonSpecs }) {
 }
 
 function fakeDoc(triggers) {
+  const modal = fakeActionModalBackdrop();
   return {
     querySelectorAll: (selector) => (selector === '[data-stage-trigger]' ? triggers : []),
+    querySelector: (selector) => (selector === '[data-action-modal-backdrop]' ? modal.backdrop : null),
+    modal,
   };
 }
 
@@ -2004,7 +2044,8 @@ test('deploy.js: wire() sends the SHA the previous successful transition returne
     };
   };
 
-  wire(fakeDoc([trigger]), fetchImpl);
+  const doc = fakeDoc([trigger]);
+  wire(doc, fetchImpl);
 
   await trigger.buttons[0].click(); // Development, using the build-time data-sha
   await trigger.buttons[1].click(); // Staging, in the same page load
@@ -2017,7 +2058,8 @@ test('deploy.js: wire() sends the SHA the previous successful transition returne
     'the second POST sends the SHA the first response returned, not the stale build-time value',
   );
   assert.notEqual(posted[1].sha, buildTimeSha);
-  assert.equal(trigger.status.textContent, 'Recorded — the page will reflect this on the next rebuild.');
+  assert.equal(doc.modal.message.textContent, 'Recorded — the page will reflect this on the next rebuild.');
+  assert.equal(doc.modal.track.className, 'action-modal-track is-success');
 });
 
 test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so a retry still sends what the page rendered', async () => {
@@ -2126,8 +2168,11 @@ function fakeApproveTrigger({ slug }) {
 }
 
 function fakeApproveDoc(triggers) {
+  const modal = fakeActionModalBackdrop();
   return {
     querySelectorAll: (selector) => (selector === '[data-approve-trigger]' ? triggers : []),
+    querySelector: (selector) => (selector === '[data-action-modal-backdrop]' ? modal.backdrop : null),
+    modal,
   };
 }
 
@@ -2139,13 +2184,15 @@ test('approve.js: wire() posts the slug and reports success without a page reloa
     return { status: 200, json: async () => ({ ok: true, slug: 'keystone', featurePath: 'docs/features/keystone/' }) };
   };
 
-  wireApprove(fakeApproveDoc([trigger]), fetchImpl);
+  const doc = fakeApproveDoc([trigger]);
+  wireApprove(doc, fetchImpl);
   await trigger.button.click();
 
   assert.equal(posted.length, 1);
   assert.equal(posted[0].url, '/api/approve');
   assert.deepEqual(posted[0].body, { slug: 'keystone' });
-  assert.match(trigger.status.textContent, /^Approved/);
+  assert.match(doc.modal.message.textContent, /^Approved/);
+  assert.equal(doc.modal.track.className, 'action-modal-track is-success');
 });
 
 test('approve.js: wire() leaves the button disabled after success, so a stale row cannot be clicked twice', async () => {
@@ -2162,11 +2209,13 @@ test('approve.js: wire() re-enables the button after a refusal, so a real failur
   const trigger = fakeApproveTrigger({ slug: 'keystone' });
   const fetchImpl = async () => ({ status: 409, json: async () => ({ message: 'changed between reading it and writing to it' }) });
 
-  wireApprove(fakeApproveDoc([trigger]), fetchImpl);
+  const doc = fakeApproveDoc([trigger]);
+  wireApprove(doc, fetchImpl);
   await trigger.button.click();
 
   assert.equal(trigger.button.disabled, false);
-  assert.match(trigger.status.textContent, /Not approved/);
+  assert.match(doc.modal.message.textContent, /Not approved/);
+  assert.equal(doc.modal.track.className, 'action-modal-track is-failure');
 });
 
 // refresh.js — decision 61. Unlike order.js/deploy.js/approve.js, this loads on EVERY page: it is
@@ -2221,8 +2270,14 @@ function fakeRefreshTrigger() {
 }
 
 function fakeRefreshDoc(trigger) {
+  const modal = fakeActionModalBackdrop();
   return {
-    querySelector: (selector) => (selector === '[data-refresh-trigger]' ? trigger : null),
+    querySelector: (selector) => {
+      if (selector === '[data-refresh-trigger]') return trigger;
+      if (selector === '[data-action-modal-backdrop]') return modal.backdrop;
+      return null;
+    },
+    modal,
   };
 }
 
@@ -2238,13 +2293,15 @@ test('refresh.js: wire() posts an empty body and reports success', async () => {
     return { status: 200, json: async () => ({ ok: true, workflow: 'atlas.yml', ref: 'master' }) };
   };
 
-  wireRefresh(fakeRefreshDoc(trigger), fetchImpl);
+  const doc = fakeRefreshDoc(trigger);
+  wireRefresh(doc, fetchImpl);
   await trigger.button.click();
 
   assert.equal(posted.length, 1);
   assert.equal(posted[0].url, '/api/refresh');
   assert.equal(posted[0].body, '{}');
-  assert.match(trigger.status.textContent, /^Rebuild triggered/);
+  assert.match(doc.modal.message.textContent, /^Rebuild triggered/);
+  assert.equal(doc.modal.track.className, 'action-modal-track is-success');
 });
 
 test('refresh.js: wire() re-enables the button on both success and refusal — a second refresh is always valid', async () => {
@@ -2264,11 +2321,150 @@ test('refresh.js: wire() surfaces the real refusal message from the server', asy
     json: async () => ({ message: 'writing needs the "author" role' }),
   });
 
-  wireRefresh(fakeRefreshDoc(trigger), fetchImpl);
+  const doc = fakeRefreshDoc(trigger);
+  wireRefresh(doc, fetchImpl);
   await trigger.button.click();
 
   assert.equal(trigger.button.disabled, false);
-  assert.equal(trigger.status.textContent, 'Not triggered: writing needs the "author" role');
+  assert.equal(doc.modal.message.textContent, 'Not triggered: writing needs the "author" role');
+  assert.equal(doc.modal.track.className, 'action-modal-track is-failure');
+});
+
+// theme/action-modal.js — the shared modal itself, tested directly rather than only through the
+// three triggers above. `fakeActionModalDoc` adds a document-level `addEventListener` (for the
+// Escape-key listener `wire()` registers) on top of `fakeActionModalBackdrop`'s own parts.
+
+function fakeActionModalDoc() {
+  const modal = fakeActionModalBackdrop();
+  const docListeners = {};
+  const doc = {
+    querySelector: (selector) => (selector === '[data-action-modal-backdrop]' ? modal.backdrop : null),
+    addEventListener: (type, handler) => {
+      docListeners[type] = handler;
+    },
+  };
+  return { doc, modal, docListeners };
+}
+
+test('action-modal.js: openActionModal returns null on a page with no modal markup, so a caller degrades quietly', () => {
+  const doc = { querySelector: () => null };
+  assert.equal(openActionModal(doc, 'Refreshing…'), null);
+});
+
+test('action-modal.js: openActionModal shows the title and the running state, unhidden', () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  openActionModal(doc, 'Refreshing…');
+
+  assert.equal(modal.title.textContent, 'Refreshing…');
+  assert.equal(modal.track.className, 'action-modal-track is-running');
+  assert.equal(modal.message.textContent, '');
+  assert.equal(modal.backdrop.hidden, false);
+});
+
+test('action-modal.js: resolve(ok: true) fills the track and shows the success message', () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  const handle = openActionModal(doc, 'Approving reef…');
+  handle.resolve({ ok: true, message: 'Approved — moved to docs/features/reef/.' });
+
+  assert.equal(modal.track.className, 'action-modal-track is-success');
+  assert.equal(modal.message.textContent, 'Approved — moved to docs/features/reef/.');
+  assert.equal(modal.message.className, 'action-modal-message is-success');
+});
+
+test('action-modal.js: resolve(ok: false) stops the track and shows the real refusal message', () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  const handle = openActionModal(doc, 'Refreshing…');
+  handle.resolve({ ok: false, message: 'Not triggered: the installation does not have Actions: write.' });
+
+  assert.equal(modal.track.className, 'action-modal-track is-failure');
+  assert.equal(modal.message.textContent, 'Not triggered: the installation does not have Actions: write.');
+  assert.equal(modal.message.className, 'action-modal-message is-failure');
+});
+
+test('action-modal.js: a second open resets the previous run\'s classes and message', () => {
+  const { doc, modal } = fakeActionModalDoc();
+
+  openActionModal(doc, 'Refreshing…').resolve({ ok: false, message: 'Not triggered: network error.' });
+  openActionModal(doc, 'Refreshing…');
+
+  assert.equal(modal.track.className, 'action-modal-track is-running');
+  assert.equal(modal.message.textContent, '');
+  assert.equal(modal.message.className, 'action-modal-message');
+});
+
+test('action-modal.js: wire() closes on the close button', () => {
+  const { doc, modal } = fakeActionModalDoc();
+  openActionModal(doc, 'Refreshing…');
+
+  wireActionModal(doc);
+  modal.closeListeners.click();
+
+  assert.equal(modal.backdrop.hidden, true);
+});
+
+test('action-modal.js: wire() closes when the backdrop itself is clicked', () => {
+  const { doc, modal } = fakeActionModalDoc();
+  openActionModal(doc, 'Refreshing…');
+  wireActionModal(doc);
+
+  modal.backdropListeners.click({ target: modal.backdrop });
+
+  assert.equal(modal.backdrop.hidden, true);
+});
+
+test('action-modal.js: wire() does not close on a click that bubbled from inside the card, not the backdrop itself', () => {
+  const { doc, modal } = fakeActionModalDoc();
+  openActionModal(doc, 'Refreshing…');
+  wireActionModal(doc);
+
+  modal.backdropListeners.click({ target: modal.modal }); // the card, not the backdrop
+
+  assert.equal(modal.backdrop.hidden, false);
+});
+
+test('action-modal.js: wire() closes on Escape, only while the modal is open', () => {
+  const { doc, modal, docListeners } = fakeActionModalDoc();
+  wireActionModal(doc);
+
+  docListeners.keydown({ key: 'Escape' });
+  assert.equal(modal.backdrop.hidden, true, 'Escape on an already-closed modal is a harmless no-op, not an error');
+
+  openActionModal(doc, 'Refreshing…');
+  docListeners.keydown({ key: 'Enter' });
+  assert.equal(modal.backdrop.hidden, false, 'a non-Escape key must not close it');
+
+  docListeners.keydown({ key: 'Escape' });
+  assert.equal(modal.backdrop.hidden, true);
+});
+
+test('action-modal.js: wire() does nothing on a page with no modal markup', () => {
+  const doc = { querySelector: () => null, addEventListener: () => assert.fail('should never be called') };
+  assert.doesNotThrow(() => wireActionModal(doc));
+});
+
+// The reduced-motion opt-out lives entirely in CSS (no matchMedia call in theme/action-modal.js —
+// the running/success/failure classes carry the state either way, only the sweep keyframe is
+// conditional), so it is checked here rather than against a stubbed matchMedia.
+test('tokens.css: prefers-reduced-motion drops the sweep animation but not the running state', () => {
+  const opensAt = TOKENS_CSS.search(/^@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/m);
+  assert.notEqual(opensAt, -1, 'no prefers-reduced-motion block in the stylesheet');
+  const cursor = TOKENS_CSS.indexOf('{', opensAt);
+  let depth = 0;
+  let closesAt = cursor;
+  for (; closesAt < TOKENS_CSS.length; closesAt += 1) {
+    if (TOKENS_CSS[closesAt] === '{') depth += 1;
+    else if (TOKENS_CSS[closesAt] === '}') {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  const guarded = TOKENS_CSS.slice(cursor + 1, closesAt);
+  assert.match(guarded, /\.action-modal-track\.is-running \.action-modal-fill/);
+  assert.match(guarded, /\.action-modal-track\.is-running \.action-modal-dot/);
+  assert.match(guarded, /animation:\s*none/);
 });
 
 // --- the document pages ---------------------------------------------------------------------------
