@@ -55,6 +55,36 @@ test('validateWorkstream: a well-formed manifest validates', () => {
   assert.deepEqual(result.value, manifest);
 });
 
+test('validateWorkstream: position over 240 characters is rejected by name', () => {
+  const manifest = validManifest();
+  manifest.position = 'x'.repeat(241);
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.errors.some((e) => e.path === 'position' && /240 characters or fewer/.test(e.message)),
+    `expected a position-length error, got: ${JSON.stringify(result.errors)}`,
+  );
+});
+
+test('validateWorkstream: next over 240 characters is rejected by name', () => {
+  const manifest = validManifest();
+  manifest.next = 'x'.repeat(241);
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.errors.some((e) => e.path === 'next' && /240 characters or fewer/.test(e.message)),
+    `expected a next-length error, got: ${JSON.stringify(result.errors)}`,
+  );
+});
+
+test('validateWorkstream: position and next at exactly 240 characters are accepted', () => {
+  const manifest = validManifest();
+  manifest.position = 'x'.repeat(240);
+  manifest.next = 'x'.repeat(240);
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, `expected valid, got: ${JSON.stringify(result.errors)}`);
+});
+
 test('validateWorkstream: an unknown stage is rejected by name', () => {
   const manifest = validManifest();
   manifest.stage = 'blocked'; // not in the closed vocabulary
