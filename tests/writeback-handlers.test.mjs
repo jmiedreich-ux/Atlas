@@ -763,6 +763,7 @@ test('the Function exports exactly the named write handlers, and no stray one', 
     'handleAnswer',
     'handleApprove',
     'handleDeploymentTransition',
+    'handleRefresh',
   ]);
 });
 

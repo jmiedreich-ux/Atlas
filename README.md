@@ -306,7 +306,7 @@ See `src/swa.mjs`, which is the authoritative source for the emitted file.
 
 ## Write-back — answering, not only reading
 
-Decisions 34 to 37, 58 and 59. Four endpoints ship beside the site as Azure Static Web Apps
+Decisions 34 to 37, 58 to 61. Five endpoints ship beside the site as Azure Static Web Apps
 **managed Functions**, in the same deployable and behind the same auth — which is what decision 5
 chose Static Web Apps for, and what the Free tier includes.
 
@@ -316,6 +316,7 @@ chose Static Web Apps for, and what the Free tier includes.
 | `POST /api/acceptance`           | An acceptance result, into the record the milestone's manifest names in `acceptance.record`.   |
 | `POST /api/deployment-transition` | A deployment stage transition, appended to the JSON log the workstream's manifest names in `deploymentLog` (M8, decision 35 amended: a third writable thing, not a second one). |
 | `POST /api/approve`              | Moves `docs/design/proposed/<slug>/` to `docs/features/<slug>/`, scaffolds its first milestone there, and registers it in `atlas.config.json` — all as one commit (M9, decision 59; there is no longer an intermediate `docs/design/approved/<slug>/` stop — see decisions 58/59 above). |
+| `POST /api/refresh`              | Nothing — it triggers the consuming project's own rebuild workflow (the filename `atlas.config.json`'s `"workflow"` field names) and commits no content at all (M9, decision 61). |
 
 The first three each edit one record at a known SHA — read, edit the text, write with that SHA,
 which both commits and gives optimistic concurrency for free. `approve` moves several files at
@@ -332,6 +333,14 @@ itself widening the scope. **Decision 58** retired decision 35 on that basis. `a
 59) is the first thing actually re-decided under it, on its own stated grounds, not an inference
 from the old sentence going away. There is still no endpoint that sets a milestone's `status`, and
 adding one remains its own decision rather than a feature — that boundary did not move.
+
+**`refresh` (decision 61)** is the other thing decision 57 named as waiting on this re-decision, and
+it is the opposite case from `approve`: it commits nothing at all. It reads `atlas.config.json`'s
+`"workflow"` field — a filename, not a secret, so it lives beside everything else a project already
+names about itself rather than in a new application setting — and asks GitHub to dispatch that
+workflow through the same installation token every write endpoint already holds. No new credential,
+no new trust boundary, no state: the repository is still the only source of truth, this only stops
+a reader waiting on CI to notice a change landed.
 
 Atlas keeps no state of its own (decision 37). A write is a commit; the page is rebuilt from that
 commit by the ordinary build workflow. There is no database, no cache, no queue and no pending
@@ -386,6 +395,14 @@ in the repository, in a build artifact, or in `state.json`:
 **Until they are set, the endpoints refuse with `503 credential-unavailable`, naming the settings
 that are unset, and the site stays completely readable.** Nothing about reading depends on any of
 it: the site is static files that were built before any of it ran.
+
+**`refresh` (decision 61) needs one more thing from the App than the other four do: the "Actions"
+permission, write.** The other four only ever touch repository contents. If the App was granted
+only `contents: write` when it was first created, `POST /api/refresh` answers `403
+forbidden-dispatch` and says so — that is GitHub refusing the permission, not a defect Atlas can
+work around in code. Add "Actions: Read and write" to the App's permissions in GitHub (App
+settings → Permissions & events) and re-accept the installation; nothing else about the
+credential changes.
 
 ### Who may write
 
