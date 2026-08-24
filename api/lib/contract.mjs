@@ -32,8 +32,8 @@ export const DEPLOYMENT_STAGES = Object.freeze(['development', 'staging', 'relea
 // leaves the rename to be carried across by hand to here.
 export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'parked', 'unplanned']);
 
-// The Static Web Apps role a WRITE requires (decisions 35 to 37). Deliberately not `reader`: being
-// able to read the records is not being able to commit to them.
+// The Static Web Apps role a WRITE requires (decisions 34 to 37, and 59 for `approve`).
+// Deliberately not `reader`: being able to read the records is not being able to commit to them.
 //
 // It lives here because this module is the one place a value shared by the generator and the
 // Function is allowed to live. `api/lib/principal.mjs` checks it on every request and `src/swa.mjs`
@@ -42,16 +42,28 @@ export const MILESTONE_STATUSES = Object.freeze(['done', 'next', 'blocked', 'par
 // refuses them.
 export const WRITE_ROLE = 'author';
 
-// Decision 35's second writable thing. Two values and no third: `waived`, `blocked` and `done` are
-// judgements about a milestone's POSITION — the last two are literally milestone statuses, three
-// lines above — and decision 35 assigns those to the project's own operations console rather than
-// to Atlas. A vocabulary that grows to hold them is a status dropdown by another name.
+// Two values and no third: `waived`, `blocked` and `done` are judgements about a milestone's
+// POSITION — the last two are literally milestone statuses, three lines above — not an acceptance
+// RESULT, which is a narrower fact about one demo. A vocabulary that grows to hold them is a status
+// dropdown by another name, and `handleAcceptance` (api/lib/handlers.mjs) still has none — this was
+// never about which console owns the console-wide status dropdown (that reasoning, decision 35's,
+// was withdrawn by decision 57 and decision 35 itself retired by decision 58); it is that an
+// acceptance result and a milestone's position are two different facts, and this endpoint records
+// only the first.
 export const ACCEPTANCE_RESULTS = Object.freeze(['pass', 'fail']);
 
 /** The directory a project's records live in (decision 40). Nothing outside it is writable. */
 export const RECORDS_ROOT = 'docs';
 
-/** The manifest filename. Editing one is decision 35's first excluded thing. */
+/**
+ * The manifest filename. `whyNotAWritableRecord` below still refuses `acceptance`/
+ * `deployment-transition` from ever targeting one — that guard is unrelated to decision 35 and
+ * stands on its own (a milestone's position and a deployment log entry are not manifest edits, and
+ * neither endpoint's payload can name an arbitrary path in the first place). `approve` (decision 59)
+ * DOES write a manifest, through an entirely different mechanism — `api/lib/approve.mjs` and
+ * `createTreeClient`, never this function — because scaffolding a design's first milestone is
+ * itself the action, not a record `acceptance.record`/`deploymentLog` could ever be made to name.
+ */
 export const MANIFEST_FILENAME = 'workstream.json';
 
 /**
@@ -103,10 +115,13 @@ export function whyNotAWritableRecord(path) {
     return `is outside ${RECORDS_ROOT}/, and Atlas only ever writes to a project's records`;
   }
   // Case-insensitively: `WORKSTREAM.JSON` is the same file as `workstream.json` on a
-  // case-insensitive checkout, and the rule exists to keep manifests out of Atlas entirely rather
-  // than to keep one spelling of them out.
+  // case-insensitive checkout, and the rule exists to keep `acceptance`/`deployment-transition`
+  // from ever being pointed at a manifest by name, rather than to keep one spelling of it out.
   if (segments[segments.length - 1].toLowerCase() === MANIFEST_FILENAME) {
-    return 'is a workstream manifest, and decision 35 keeps manifests out of Atlas entirely';
+    return (
+      'is a workstream manifest, and this endpoint writes into the record a manifest names — it ' +
+      'does not write the manifest itself'
+    );
   }
   return '';
 }

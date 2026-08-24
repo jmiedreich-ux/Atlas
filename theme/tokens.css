@@ -918,6 +918,69 @@ a.assignee-name:hover {
   margin: var(--sky-space-1) 0 0;
 }
 
+/* M9's Approve section (decision 59) — a short, separate list below the feature list, not another
+ * kind of .feature-row: a proposed design has no manifest yet, so there is nothing to expand. */
+.proposed-section {
+  margin: var(--sky-space-6) 0 0;
+}
+
+.proposed-list {
+  border-top: 1px solid var(--sky-color-border);
+  list-style: none;
+  margin: var(--sky-space-3) 0 0;
+  padding: 0;
+}
+
+.proposed-row {
+  align-items: baseline;
+  border-bottom: 1px solid var(--sky-color-border);
+  display: flex;
+  gap: var(--sky-space-4);
+  justify-content: space-between;
+  padding: var(--sky-space-3) 0;
+}
+
+.proposed-name {
+  color: var(--sky-text-primary);
+  font-weight: 600;
+}
+
+.approve-trigger {
+  text-align: right;
+}
+
+/* Same flat, no-box convention as .stage-trigger-button. */
+.approve-trigger-button {
+  background: none;
+  border: none;
+  color: var(--sky-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.approve-trigger-button:hover:not(:disabled) {
+  color: var(--sky-text-primary);
+  text-decoration: underline;
+}
+
+.approve-trigger-button:focus-visible {
+  outline: 2px solid var(--sky-focus-color);
+  outline-offset: 2px;
+}
+
+.approve-trigger-button:disabled {
+  color: var(--sky-text-muted);
+  cursor: not-allowed;
+}
+
+.approve-trigger-status {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin: var(--sky-space-1) 0 0;
+}
+
 /* --- surface two: the mobile triage view -------------------------------------------------------- */
 
 .triage-heading {

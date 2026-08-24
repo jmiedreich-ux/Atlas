@@ -1,16 +1,23 @@
-// The three endpoints. Decision 35, and nothing beyond it.
+// The four endpoints.
 //
 //   * `POST /api/answer` records an answer to a question in a register.
 //   * `POST /api/acceptance` records an acceptance result.
 //   * `POST /api/deployment-transition` records a deployment stage transition (M8, decision 35
 //     amended: a third writable thing, not a second one).
+//   * `POST /api/approve` moves a proposed design to approved and scaffolds its first milestone,
+//     in one commit (M9, decision 59 — a fourth, and the first that is not "edit one record").
 //
-// Creating an issue, approving a milestone, editing a manifest and triggering work belong to the
-// project's own operations console — *"two consoles that both act is how they diverge."* A status
-// dropdown on every milestone is the obvious next thing to build here and it is deliberately
-// absent; a test asserts that this module exports exactly three handlers.
+// Decision 35 scoped write-back to the first two of these and justified the rest going to a
+// separate "operations console" that would own approving milestones and editing manifests.
+// Decision 57 withdrew that justification — the console named does not do those things — without
+// itself widening the scope; decision 58 retired decision 35 on that basis, and decision 59 is the
+// first thing actually re-decided under it, on its own stated grounds (see `api/approve/index.mjs`
+// and `api/lib/approve.mjs`). This is not "decision 35 never mattered" — M8 shipped exactly on its
+// strength — it is that the reason it gave stopped being true, and a write path into a manifest is
+// still treated as the bigger surface it always was: `approve` gets its own atomic-commit mechanism
+// rather than reusing the single-file one below, precisely because that surface is bigger.
 //
-// Every write is the same five steps, in the same order, and the order is load-bearing:
+// The first three still share the same five steps, in the same order, and the order is load-bearing:
 //
 //   1. **Authorise from the header alone.** Before the credential is read, so an unauthenticated
 //      caller is never told how Atlas is configured, and so the empty-credential refusal does not
@@ -21,19 +28,26 @@
 //   4. **Read the record and its SHA**, and refuse if the caller's SHA is already stale.
 //   5. **Write with that SHA**, which both commits and gives optimistic concurrency for free.
 //
+// `handleApprove` shares steps 1 to 3 (`prepare`, parametrised over which GitHub client it builds)
+// but not 4 to 5 — it touches more than one record, so its own read/write shape lives in
+// `api/lib/approve.mjs` and `createTreeClient` (api/lib/github.mjs) instead.
+//
 // Nothing is kept anywhere. Decision 37: the answer exists in the repository or it does not exist
 // — no database, no cache, no queue, no pending list. The rebuild is the workflow's job, triggered
 // by the push, which is the whole reason decision 36 insists on a GitHub App.
 
-import { GitHubError, createContentsClient } from './github.mjs';
+import { GitHubError, createContentsClient, createTreeClient } from './github.mjs';
 import { RECORDS_ROOT, whyNotAWritableRecord } from './contract.mjs';
 import { RecordError, answerQuestion, answerRegisterQuestion, appendDeploymentTransition, recordAcceptance } from './records.mjs';
+import { ApproveError, addWorkstreamToConfig, planApproval } from './approve.mjs';
+import { buildManifestText, buildPlanText } from './manifest-template.mjs';
 import { authorise } from './principal.mjs';
 import { fetchInstallationToken } from './app-token.mjs';
 import { readCredential } from './credentials.mjs';
 import {
   validateAcceptancePayload,
   validateAnswerPayload,
+  validateApprovePayload,
   validateDeploymentTransitionPayload,
 } from './payload.mjs';
 
@@ -54,6 +68,14 @@ const RECORD_ERROR_STATUS = {
   'unreadable-deployment-log': 502,
 };
 
+const APPROVE_ERROR_STATUS = {
+  'no-such-proposal': 404,
+  'already-approved': 409,
+  'already-scaffolded': 409,
+  'no-config': 502,
+  'invalid-config': 502,
+};
+
 function respond(status, body) {
   return { status, headers: { 'Content-Type': 'application/json' }, body };
 }
@@ -67,12 +89,18 @@ function workstreamPath(slug, filename) {
 }
 
 /**
- * Steps 1 to 3, which every write shares, plus the client the last two need.
+ * Steps 1 to 3, which every write shares, plus the client the last steps need.
  *
+ * @param {object} request
+ * @param {object} deps
+ * @param {(body: unknown) => object} validate
+ * @param {(args: { repo: string, token: string, fetchImpl: typeof fetch }) => object} [makeClient] -
+ *   `createContentsClient` by default; `handleApprove` passes `createTreeClient` instead, since it
+ *   is not editing one record.
  * @returns {{ ok: true, payload: object, principal: object, client: object, credential: object }
  *   | { ok: false, response: object }}
  */
-async function prepare(request, { env, fetchImpl, nowSeconds }, validate) {
+async function prepare(request, { env, fetchImpl, nowSeconds }, validate, makeClient = createContentsClient) {
   // Not `?? 'POST'`. This was the one guard in the file that assumed the safe answer when it was
   // not told, and nothing else in the write path does that.
   if (typeof request.method !== 'string' || request.method.toUpperCase() !== 'POST') {
@@ -117,7 +145,7 @@ async function prepare(request, { env, fetchImpl, nowSeconds }, validate) {
     payload: payload.value,
     principal: caller.principal,
     credential: credential.value,
-    client: createContentsClient({ repo: credential.value.repo, token, fetchImpl }),
+    client: makeClient({ repo: credential.value.repo, token, fetchImpl }),
   };
 }
 
@@ -132,6 +160,13 @@ function fromError(error) {
   if (error instanceof RecordError) {
     return refusal({
       status: RECORD_ERROR_STATUS[error.code] ?? 400,
+      error: error.code,
+      message: error.message,
+    });
+  }
+  if (error instanceof ApproveError) {
+    return refusal({
+      status: APPROVE_ERROR_STATUS[error.code] ?? 400,
       error: error.code,
       message: error.message,
     });
@@ -452,6 +487,84 @@ export async function handleDeploymentTransition(request, deps) {
       stage: payload.stage,
       commit: commit.commitUrl,
       sha: commit.sha,
+    });
+  } catch (error) {
+    return fromError(error);
+  }
+}
+
+/**
+ * `POST /api/approve` — move a proposed design to approved and scaffold its first milestone, in
+ * one commit (M9, decision 59).
+ *
+ * Unlike the three handlers above, this does not edit one record at a known SHA: it moves every
+ * file under `docs/design/proposed/<slug>/` to `docs/design/approved/<slug>/`, writes a starter
+ * `workstream.json` and `m1-plan.md`, and adds `<slug>` to `atlas.config.json`'s `workstreams` —
+ * four-plus file changes that either all land or none do. `createTreeClient` (api/lib/github.mjs)
+ * builds this as one git tree and one commit; `planApproval` (api/lib/approve.mjs) decides which
+ * moves and which config change from a fresh read of the branch, taken inside this call rather than
+ * from anything the caller sent — so the preconditions it checks (proposal exists, nothing already
+ * approved or scaffolded under this slug) are checked against the repository as it actually is at
+ * write time, not as a page happened to render it.
+ *
+ * @param {{ method?: string, headers: object, body: unknown }} request
+ * @param {{ env: object, fetchImpl?: typeof fetch, nowSeconds: number }} deps
+ * @returns {Promise<{ status: number, headers: object, body: object }>}
+ */
+export async function handleApprove(request, deps) {
+  const ready = await prepare(request, deps, validateApprovePayload, createTreeClient);
+  if (!ready.ok) return ready.response;
+
+  const { payload, principal, credential, client } = ready;
+  const slug = payload.slug;
+
+  try {
+    const { commitSha, treeSha } = await client.readBranch(credential.branch);
+    const entries = await client.readTree(treeSha);
+
+    const { moves, configEntry } = planApproval({ entries, slug });
+
+    const configText = await client.readBlob(configEntry.sha);
+    const newConfigText = addWorkstreamToConfig(configText, slug);
+
+    const [manifestSha, planSha, configSha] = await Promise.all([
+      client.createBlob(buildManifestText(slug)),
+      client.createBlob(buildPlanText(slug)),
+      client.createBlob(newConfigText),
+    ]);
+
+    const treeEntries = [
+      // Each move is two entries: the new path, carrying the SAME blob SHA the file already has
+      // (a git blob is content-addressed, so moving a file commits no new content, only a new tree
+      // position) — and the old path, removed by sending `sha: null` for it.
+      ...moves.flatMap((move) => [
+        { path: move.to, mode: move.mode, type: 'blob', sha: move.sha },
+        { path: move.from, mode: move.mode, type: 'blob', sha: null },
+      ]),
+      { path: `docs/features/${slug}/workstream.json`, mode: '100644', type: 'blob', sha: manifestSha },
+      { path: `docs/features/${slug}/m1-plan.md`, mode: '100644', type: 'blob', sha: planSha },
+      { path: 'atlas.config.json', mode: '100644', type: 'blob', sha: configSha },
+    ];
+
+    const newTreeSha = await client.createTree({ baseTreeSha: treeSha, entries: treeEntries });
+    const newCommitSha = await client.createCommit({
+      treeSha: newTreeSha,
+      parentSha: commitSha,
+      message:
+        `atlas: approve ${slug}\n\n` +
+        `Moved docs/design/proposed/${slug}/ to docs/design/approved/${slug}/, scaffolded its ` +
+        `first milestone, and registered it in atlas.config.json.\n\n` +
+        `Approved by ${principal.author} through Atlas.`,
+    });
+
+    const commit = await client.updateRef({ branch: credential.branch, commitSha: newCommitSha });
+
+    return respond(200, {
+      ok: true,
+      slug,
+      approvedPath: `docs/design/approved/${slug}/`,
+      manifestPath: `docs/features/${slug}/workstream.json`,
+      commit: commit.commitUrl,
     });
   } catch (error) {
     return fromError(error);

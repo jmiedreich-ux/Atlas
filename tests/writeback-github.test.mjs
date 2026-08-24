@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { createPublicKey, createVerify, generateKeyPairSync } from 'node:crypto';
 
 import { fetchInstallationToken, signAppJwt } from '../api/lib/app-token.mjs';
-import { GitHubError, createContentsClient } from '../api/lib/github.mjs';
+import { GitHubError, createContentsClient, createTreeClient } from '../api/lib/github.mjs';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', {
   modulusLength: 2048,
@@ -324,4 +324,133 @@ test('app token: a key that will not sign is reported without quoting a URL eith
       return true;
     },
   );
+});
+
+// --- the tree client (M9, decision 59) -----------------------------------------------------------
+
+function treeClient(fetchImpl) {
+  return createTreeClient({ repo: 'an-owner/a-repo', token: 'ghs_x', fetchImpl });
+}
+
+test('tree: readBranch reads the commit and tree SHAs a branch currently points at', async () => {
+  const fetchImpl = stubFetch({
+    status: 200,
+    json: { commit: { sha: 'commit-1', commit: { tree: { sha: 'tree-1' } } } },
+  });
+  const result = await treeClient(fetchImpl).readBranch('master');
+  assert.deepEqual(result, { commitSha: 'commit-1', treeSha: 'tree-1' });
+  assert.match(fetchImpl.calls[0].url, /\/branches\/master$/);
+});
+
+test('tree: a branch that does not exist is named in the refusal', async () => {
+  const fetchImpl = stubFetch({ status: 404, json: { message: 'Branch not found' } });
+  await assert.rejects(treeClient(fetchImpl).readBranch('no-such-branch'), (error) => {
+    assert.equal(error.status, 404);
+    assert.match(error.message, /no-such-branch/);
+    return true;
+  });
+});
+
+test('tree: readTree returns the flat, recursive blob listing', async () => {
+  const fetchImpl = stubFetch({
+    status: 200,
+    json: { tree: [{ path: 'a.md', mode: '100644', type: 'blob', sha: 's1' }], truncated: false },
+  });
+  const result = await treeClient(fetchImpl).readTree('tree-1');
+  assert.deepEqual(result, [{ path: 'a.md', mode: '100644', type: 'blob', sha: 's1' }]);
+  assert.match(fetchImpl.calls[0].url, /git\/trees\/tree-1\?recursive=1/);
+});
+
+test('tree: a truncated tree listing is refused rather than acted on partially', async () => {
+  const fetchImpl = stubFetch({ status: 200, json: { tree: [], truncated: true } });
+  await assert.rejects(treeClient(fetchImpl).readTree('tree-1'), (error) => {
+    assert.equal(error.code, 'tree-truncated');
+    return true;
+  });
+});
+
+test('tree: readBlob decodes a blob\'s content by its own SHA', async () => {
+  const fetchImpl = stubFetch({
+    status: 200,
+    json: { content: Buffer.from('hello\n', 'utf8').toString('base64'), encoding: 'base64', sha: 's1' },
+  });
+  const text = await treeClient(fetchImpl).readBlob('s1');
+  assert.equal(text, 'hello\n');
+});
+
+test('tree: createBlob POSTs base64 content and returns the new SHA', async () => {
+  const fetchImpl = stubFetch({ status: 201, json: { sha: 'new-blob-sha' } });
+  const sha = await treeClient(fetchImpl).createBlob('hello\n');
+  assert.equal(sha, 'new-blob-sha');
+  const sent = JSON.parse(fetchImpl.calls[0].body);
+  assert.equal(Buffer.from(sent.content, 'base64').toString('utf8'), 'hello\n');
+  assert.match(fetchImpl.calls[0].url, /git\/blobs$/);
+});
+
+test('tree: createTree POSTs the base tree and entries, and validates every entry path', async () => {
+  const fetchImpl = stubFetch({ status: 201, json: { sha: 'new-tree-sha' } });
+  const sha = await treeClient(fetchImpl).createTree({
+    baseTreeSha: 'tree-1',
+    entries: [{ path: 'docs/a.md', mode: '100644', type: 'blob', sha: 's1' }],
+  });
+  assert.equal(sha, 'new-tree-sha');
+  const sent = JSON.parse(fetchImpl.calls[0].body);
+  assert.equal(sent.base_tree, 'tree-1');
+  assert.equal(sent.tree[0].path, 'docs/a.md');
+});
+
+test('tree: createTree refuses an entry path that tries to climb out of the repository', async () => {
+  const fetchImpl = stubFetch({ status: 201, json: { sha: 'x' } });
+  await assert.rejects(
+    treeClient(fetchImpl).createTree({
+      baseTreeSha: 'tree-1',
+      entries: [{ path: '../../outside.md', mode: '100644', type: 'blob', sha: 's1' }],
+    }),
+    (error) => {
+      assert.match(error.message, /repository-relative/);
+      return true;
+    },
+  );
+  assert.equal(fetchImpl.calls.length, 0, 'a request was made for a path that should never be requested');
+});
+
+test('tree: createCommit POSTs exactly one parent — Atlas never writes a merge', async () => {
+  const fetchImpl = stubFetch({ status: 201, json: { sha: 'new-commit-sha' } });
+  const sha = await treeClient(fetchImpl).createCommit({ treeSha: 'tree-2', parentSha: 'commit-1', message: 'atlas: approve x' });
+  assert.equal(sha, 'new-commit-sha');
+  const sent = JSON.parse(fetchImpl.calls[0].body);
+  assert.deepEqual(sent.parents, ['commit-1']);
+  assert.equal(sent.tree, 'tree-2');
+  assert.equal(sent.message, 'atlas: approve x');
+});
+
+test('tree: updateRef moves the branch as a fast-forward, force: false always', async () => {
+  const fetchImpl = stubFetch({ status: 200, json: { object: { sha: 'new-commit-sha' } } });
+  const result = await treeClient(fetchImpl).updateRef({ branch: 'master', commitSha: 'new-commit-sha' });
+  assert.equal(result.commitUrl, 'https://github.com/an-owner/a-repo/commit/new-commit-sha');
+  const sent = JSON.parse(fetchImpl.calls[0].body);
+  assert.equal(sent.sha, 'new-commit-sha');
+  assert.equal(sent.force, false);
+  assert.match(fetchImpl.calls[0].url, /git\/refs\/heads\/master$/);
+});
+
+test('tree: a non-fast-forward ref update is a conflict, the same shape a stale SHA answers with', async () => {
+  const fetchImpl = stubFetch({ status: 422, json: { message: 'Update is not a fast forward' } });
+  await assert.rejects(
+    treeClient(fetchImpl).updateRef({ branch: 'master', commitSha: 'x' }),
+    (error) => {
+      assert.ok(error instanceof GitHubError);
+      assert.equal(error.status, 409);
+      assert.equal(error.code, 'conflict');
+      return true;
+    },
+  );
+});
+
+test('tree: a 409 on the ref update is a conflict too', async () => {
+  const fetchImpl = stubFetch({ status: 409, json: { message: 'reference update failed' } });
+  await assert.rejects(treeClient(fetchImpl).updateRef({ branch: 'master', commitSha: 'x' }), (error) => {
+    assert.equal(error.code, 'conflict');
+    return true;
+  });
 });

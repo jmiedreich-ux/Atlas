@@ -22,6 +22,7 @@ import { renderRegisterMarkdown } from '../src/register.mjs';
 import { TRIAGE_ORDER, orderByTriage } from '../src/triage.mjs';
 import { MILESTONE_STATUSES, WORKSTREAM_STAGES, validateWorkstream } from '../src/schema.mjs';
 import { transitionBody, outcomeMessage, wire } from '../theme/deploy.js';
+import { approveBody, outcomeMessage as approveOutcomeMessage, wire as wireApprove } from '../theme/approve.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -163,11 +164,12 @@ function assemble(entries) {
   });
 }
 
-function renderDepth(entries) {
+function renderDepth(entries, proposedDesigns = []) {
   return env.render('depth.njk', {
     ...site,
     title: 'Feature planning',
     workstreams: assemble(entries),
+    proposedDesigns,
   });
 }
 
@@ -2030,6 +2032,121 @@ test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so 
   await trigger.buttons[0].click();
 
   assert.deepEqual(posted.map((p) => p.sha), [buildTimeSha, buildTimeSha]);
+});
+
+// --- the Proposed section (M9, decision 59) --------------------------------------------------------
+
+test('proposed section: absent entirely when there is nothing proposed — no empty heading', () => {
+  const html = renderDepth(workstreams, []);
+  assert.ok(!html.includes('id="proposed-heading"'), 'the Proposed section rendered with nothing in it');
+});
+
+test('proposed section: one row per slug, each with its own Approve button', () => {
+  const html = renderDepth(workstreams, ['keystone', 'platform-operations']);
+  assert.match(html, /id="proposed-heading"/);
+  // Each slug appears twice — once on its <li>, once on its own button — so a Set is the right
+  // check here, not a raw count.
+  assert.deepEqual(
+    new Set(attrValues(html, 'data-slug').filter((s) => s === 'keystone' || s === 'platform-operations')),
+    new Set(['keystone', 'platform-operations']),
+  );
+  const buttons = [...html.matchAll(/<button[^>]*data-approve-button[^>]*>/g)];
+  assert.equal(buttons.length, 2);
+});
+
+test('approve.js: only the feature planning page loads the trigger script', () => {
+  assert.match(depthHtml, /<script type="module" src="\/approve\.js"><\/script>/);
+  for (const [name, html] of Object.entries(ALL_PAGES)) {
+    if (name === 'depth.njk') continue;
+    assert.ok(!html.includes('approve.js'), `${name} loads approve.js, and only feature planning should`);
+  }
+});
+
+// approve.js's own pure functions.
+
+test('approve.js: approveBody sends exactly the field the endpoint accepts — no sha, unlike deploy.js', () => {
+  assert.deepEqual(JSON.parse(approveBody({ slug: 'keystone' })), { slug: 'keystone' });
+});
+
+test('approve.js: outcomeMessage names the destination on success and never claims more', () => {
+  assert.equal(
+    approveOutcomeMessage({ status: 200, body: { ok: true, approvedPath: 'docs/design/approved/keystone/' } }),
+    'Approved — moved to docs/design/approved/keystone/. The page will reflect this on the next rebuild.',
+  );
+  assert.equal(
+    approveOutcomeMessage({ status: 404, body: { message: 'docs/design/proposed/keystone/ has no files' } }),
+    'Not approved: docs/design/proposed/keystone/ has no files',
+  );
+  assert.equal(approveOutcomeMessage({ status: 502, body: null }), 'Not approved: the server answered 502.');
+});
+
+// approve.js's wire() — the DOM-and-network half, same fake-element convention as deploy.js's own
+// tests above (see that section's header on why this is safe with no real DOM in this environment).
+
+function fakeApproveTrigger({ slug }) {
+  const status = { textContent: '' };
+  const listeners = {};
+  const button = {
+    getAttribute: (name) => (name === 'data-slug' ? slug : null),
+    addEventListener: (type, handler) => {
+      listeners[type] = handler;
+    },
+    disabled: false,
+    click: () => listeners.click(),
+  };
+  return {
+    querySelector: (selector) => {
+      if (selector === '[data-approve-trigger-status]') return status;
+      if (selector === '[data-approve-button]') return button;
+      return null;
+    },
+    status,
+    button,
+  };
+}
+
+function fakeApproveDoc(triggers) {
+  return {
+    querySelectorAll: (selector) => (selector === '[data-approve-trigger]' ? triggers : []),
+  };
+}
+
+test('approve.js: wire() posts the slug and reports success without a page reload', async () => {
+  const trigger = fakeApproveTrigger({ slug: 'keystone' });
+  const posted = [];
+  const fetchImpl = async (url, init) => {
+    posted.push({ url, body: JSON.parse(init.body) });
+    return { status: 200, json: async () => ({ ok: true, slug: 'keystone', approvedPath: 'docs/design/approved/keystone/' }) };
+  };
+
+  wireApprove(fakeApproveDoc([trigger]), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].url, '/api/approve');
+  assert.deepEqual(posted[0].body, { slug: 'keystone' });
+  assert.match(trigger.status.textContent, /^Approved/);
+});
+
+test('approve.js: wire() leaves the button disabled after success, so a stale row cannot be clicked twice', async () => {
+  const trigger = fakeApproveTrigger({ slug: 'keystone' });
+  const fetchImpl = async () => ({ status: 200, json: async () => ({ ok: true, approvedPath: 'x' }) });
+
+  wireApprove(fakeApproveDoc([trigger]), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(trigger.button.disabled, true);
+});
+
+test('approve.js: wire() re-enables the button after a refusal, so a real failure can be retried', async () => {
+  const trigger = fakeApproveTrigger({ slug: 'keystone' });
+  const fetchImpl = async () => ({ status: 409, json: async () => ({ message: 'changed between reading it and writing to it' }) });
+
+  wireApprove(fakeApproveDoc([trigger]), fetchImpl);
+  await trigger.button.click();
+
+  assert.equal(trigger.button.disabled, false);
+  assert.match(trigger.status.textContent, /Not approved/);
 });
 
 // --- the document pages ---------------------------------------------------------------------------

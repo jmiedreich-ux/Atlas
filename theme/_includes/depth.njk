@@ -20,6 +20,9 @@
     milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
     spineDetail — one 'full'|'full-muted'|'count'|'none' per milestone, same order
 
+  `proposedDesigns` — a separate top-level array (not per-workstream): flat slug strings, M9's
+  Approve section below the feature list. See that section's own comment.
+
   M8 task 7's trigger buttons (Development/Staging/Release, `theme/deploy.js`) render only when
   `stream.manifest.deploymentLog` is set — the one build-time signal already on every workstream
   that says `POST /api/deployment-transition` has somewhere to write for it; without one, the
@@ -42,6 +45,15 @@
   about which log and repo a row's buttons belong to, and a future caller (a debugging script, a
   future write-back UI) may want them without re-deriving from the manifest. Remove them if that
   stops being worth the two attributes.
+
+  M9's Approve section (decision 59) — `proposedDesigns`, a flat array of slug strings
+  (`src/config.mjs`'s `proposedDesignDirs`, threaded through by `src/build.mjs`'s `planPages`),
+  each one a `docs/design/proposed/<slug>/` directory that has cleared the same three checks
+  `src/scaffold.mjs`'s `checkPreconditions` runs locally. Unlike every workstream row above, a
+  proposed design has no manifest yet — there is nothing to expand, no spine, no stage — so this is
+  a short, separate list below the feature list rather than another kind of `.feature-row`.
+  `theme/approve.js` wires `[data-approve-button]`; no SHA is sent (see that file's own header for
+  why the concurrency guarantee here does not need one).
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -170,6 +182,24 @@
 {%- endfor %}
 </ul>
 
+{%- if proposedDesigns.length %}
+<section class="proposed-section" aria-labelledby="proposed-heading">
+<h2 id="proposed-heading">Proposed</h2>
+<p class="lede">A design under review in <code>docs/design/proposed/</code>. Approving moves it to <code>approved/</code> and scaffolds its first milestone.</p>
+<ul class="proposed-list">
+{%- for slug in proposedDesigns %}
+<li class="proposed-row" data-slug="{{ slug }}">
+<span class="proposed-name">{{ slug }}</span>
+<div class="approve-trigger" data-approve-trigger>
+<button type="button" class="approve-trigger-button" data-approve-button data-slug="{{ slug }}">Approve</button>
+<p class="approve-trigger-status" data-approve-trigger-status role="status" aria-live="polite"></p>
+</div>
+</li>
+{%- endfor %}
+</ul>
+</section>
+{%- endif %}
+
 <p class="visually-hidden" id="row-note">Drag a feature's header to put the features in the order you want, or focus one and press the up and down arrow keys to move it. Press Enter or Space to open it. Press H to hide a feature; hidden features can be brought back from the controls above the list.</p>
 <p class="visually-hidden" id="task-note">Drag a task to put this milestone's tasks in the order you want, or focus one and press the up and down arrow keys to move it.</p>
 {% endblock %}
@@ -177,4 +207,5 @@
 {% block bodyScripts %}
 <script type="module" src="/order.js"></script>
 <script type="module" src="/deploy.js"></script>
+<script type="module" src="/approve.js"></script>
 {% endblock %}

@@ -24,17 +24,19 @@ export class GitHubError extends Error {
 }
 
 /**
- * A repository-relative path, with each segment encoded but the slashes left alone — the same rule
- * the generator uses for a site URL.
+ * The guard both `apiPath` (below, for a URL) and the tree client (for a JSON tree entry, which is
+ * never URL-encoded) share: the repository is a deployment setting, and a path carrying `..` would
+ * climb out of the repository's own segment of either request and reach a repository nobody
+ * configured.
  *
- * The guard in front of it is the reason this function exists rather than a template string: the
- * repository is a deployment setting, and a path carrying `..` would climb out of the repository's
- * own segment of the API URL and make a request against a repository nobody configured.
+ * @param {unknown} repositoryRelative
+ * @returns {string[]} the path's segments, unencoded.
  */
-function apiPath(repositoryRelative) {
+function assertRepoRelativePath(repositoryRelative) {
   const segments = String(repositoryRelative).split('/');
   if (
     repositoryRelative === '' ||
+    typeof repositoryRelative !== 'string' ||
     repositoryRelative.startsWith('/') ||
     segments.includes('..') ||
     segments.includes('.') ||
@@ -46,7 +48,15 @@ function apiPath(repositoryRelative) {
       { status: 400, code: 'invalid-path' },
     );
   }
-  return segments.map(encodeURIComponent).join('/');
+  return segments;
+}
+
+/**
+ * A repository-relative path, with each segment encoded but the slashes left alone — the same rule
+ * the generator uses for a site URL.
+ */
+function apiPath(repositoryRelative) {
+  return assertRepoRelativePath(repositoryRelative).map(encodeURIComponent).join('/');
 }
 
 async function readJson(response) {
@@ -208,6 +218,205 @@ export function createContentsClient({ repo, token, fetchImpl = fetch, apiRoot =
         commitUrl: payload?.commit?.html_url ?? null,
         sha: payload?.content?.sha ?? null,
       };
+    },
+  };
+}
+
+/**
+ * A client for one repository's Git Data API — blobs, trees, commits and refs.
+ *
+ * `createContentsClient` above edits one file at a time: read text, write text, get a new SHA back.
+ * That is the wrong shape for an action that moves N files and writes two more in one step (M9's
+ * `approve` — decision 59) — a sequence of Contents-API PUTs would leave a real half-state on the
+ * repository if any PUT after the first failed (files gone from `proposed/` with no `workstream.json`
+ * ever written, the exact half-state decision 37's "nothing is kept anywhere" has refused everywhere
+ * else in this codebase). The Git Data API commits a whole tree at once instead: build the new tree
+ * from the old one plus a list of additions and removals, wrap it in one commit, and move the branch
+ * pointer to it — one commit or none, never half of one.
+ *
+ * The concurrency guarantee is the branch ref itself rather than a caller-supplied SHA. `updateRef`
+ * moves `refs/heads/<branch>` with `force: false`, which GitHub only allows when the new commit is a
+ * fast-forward of the ref's CURRENT value — so if the branch moved between this client's `readBranch`
+ * and its `updateRef`, the update is refused and nothing is written, the same "reload and try again"
+ * guarantee `createContentsClient`'s SHA gives one file at a time.
+ *
+ * @param {object} opts
+ * @param {string} opts.repo - `owner/name`, from the deployment's settings. Never from a request.
+ * @param {string} opts.token - an installation access token.
+ * @param {typeof fetch} [opts.fetchImpl]
+ * @param {string} [opts.apiRoot]
+ */
+export function createTreeClient({ repo, token, fetchImpl = fetch, apiRoot = GITHUB_API_ROOT }) {
+  const headers = {
+    Accept: ACCEPT,
+    Authorization: `Bearer ${token}`,
+    'X-GitHub-Api-Version': API_VERSION,
+    'User-Agent': 'atlas-write-back',
+  };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
+
+  async function request(url, init) {
+    try {
+      return await fetchImpl(url, init);
+    } catch (error) {
+      throw new GitHubError(`Atlas could not reach GitHub: ${withoutUrls(error.message)}`);
+    }
+  }
+
+  async function post(path, body) {
+    const url = `${apiRoot}/repos/${repo}/${path}`;
+    const response = await request(url, { method: 'POST', headers: jsonHeaders, body: JSON.stringify(body) });
+    const payload = await readJson(response);
+    if (!response.ok) {
+      throw new GitHubError(
+        `GitHub answered ${response.status} on ${path}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+      );
+    }
+    return payload;
+  }
+
+  return {
+    /**
+     * The commit and tree a branch currently points at.
+     *
+     * @param {string} branch
+     * @returns {Promise<{ commitSha: string, treeSha: string }>}
+     */
+    async readBranch(branch) {
+      const url = `${apiRoot}/repos/${repo}/branches/${encodeURIComponent(branch)}`;
+      const response = await request(url, { headers });
+      const payload = await readJson(response);
+      if (response.status === 404) {
+        throw new GitHubError(`there is no branch ${JSON.stringify(branch)} on this repository.`, {
+          status: 404,
+          code: 'no-such-branch',
+        });
+      }
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} reading branch ${branch}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      return { commitSha: payload.commit.sha, treeSha: payload.commit.commit.tree.sha };
+    },
+
+    /**
+     * Every blob under a tree, recursively, as flat `{ path, mode, type, sha }` entries.
+     *
+     * @param {string} treeSha
+     * @returns {Promise<{ path: string, mode: string, type: string, sha: string }[]>}
+     */
+    async readTree(treeSha) {
+      const url = `${apiRoot}/repos/${repo}/git/trees/${treeSha}?recursive=1`;
+      const response = await request(url, { headers });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} reading the repository tree${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      if (payload.truncated) {
+        // GitHub caps a recursive listing at 100,000 entries / 7MB and truncates silently past
+        // that rather than paging. Acting on a truncated listing risks the move ignoring files it
+        // never saw, which is worse than refusing outright.
+        throw new GitHubError('the repository tree is too large for Atlas to read in one request.', {
+          status: 502,
+          code: 'tree-truncated',
+        });
+      }
+      return payload.tree ?? [];
+    },
+
+    /**
+     * A blob's text content, by its own SHA (not a path — blobs are content-addressed).
+     *
+     * @param {string} sha
+     * @returns {Promise<string>}
+     */
+    async readBlob(sha) {
+      const url = `${apiRoot}/repos/${repo}/git/blobs/${sha}`;
+      const response = await request(url, { headers });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        throw new GitHubError(
+          `GitHub answered ${response.status} reading a blob${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      return Buffer.from(String(payload.content).replace(/\s+/g, ''), 'base64').toString('utf8');
+    },
+
+    /**
+     * Write text as a new blob and return its SHA. Used only for content this client is creating —
+     * a moved file's existing blob SHA is reused as-is, never re-uploaded.
+     *
+     * @param {string} text
+     * @returns {Promise<string>}
+     */
+    async createBlob(text) {
+      const payload = await post('git/blobs', { content: Buffer.from(text, 'utf8').toString('base64'), encoding: 'base64' });
+      return payload.sha;
+    },
+
+    /**
+     * A new tree built from `baseTreeSha` plus `entries`. Each entry's `path` must be a plain
+     * repository-relative path (validated, never encoded — this is JSON, not a URL); an entry with
+     * `sha: null` removes whatever was at that path in the base tree.
+     *
+     * @param {{ baseTreeSha: string, entries: { path: string, mode: string, type: string, sha: string | null }[] }} args
+     * @returns {Promise<string>} the new tree's SHA.
+     */
+    async createTree({ baseTreeSha, entries }) {
+      const tree = entries.map((entry) => {
+        assertRepoRelativePath(entry.path);
+        return entry;
+      });
+      const payload = await post('git/trees', { base_tree: baseTreeSha, tree });
+      return payload.sha;
+    },
+
+    /**
+     * A new commit over an existing tree, with exactly one parent — Atlas never writes a merge.
+     *
+     * @param {{ treeSha: string, parentSha: string, message: string }} args
+     * @returns {Promise<string>} the new commit's SHA.
+     */
+    async createCommit({ treeSha, parentSha, message }) {
+      const payload = await post('git/commits', { message, tree: treeSha, parents: [parentSha] });
+      return payload.sha;
+    },
+
+    /**
+     * Move `branch` to `commitSha`, but only as a fast-forward. This is the whole concurrency
+     * guarantee this client gives: if the branch moved since `readBranch` returned the commit this
+     * new one is built on top of, GitHub refuses the update and nothing is written.
+     *
+     * @param {{ branch: string, commitSha: string }} args
+     * @returns {Promise<{ commitUrl: string }>}
+     */
+    async updateRef({ branch, commitSha }) {
+      const url = `${apiRoot}/repos/${repo}/git/refs/heads/${encodeURIComponent(branch)}`;
+      const response = await request(url, {
+        method: 'PATCH',
+        headers: jsonHeaders,
+        body: JSON.stringify({ sha: commitSha, force: false }),
+      });
+      const payload = await readJson(response);
+      if (!response.ok) {
+        // A non-fast-forward update is GitHub's way of saying the branch moved. Reported the same
+        // way `createContentsClient`'s stale-SHA write is: a conflict, not a generic failure, and
+        // the message says to reload rather than to retry blindly.
+        if (response.status === 422 || response.status === 409) {
+          throw new GitHubError(
+            `${branch} changed between Atlas reading it and writing to it, so nothing was written. ` +
+              `Reload the page and send this again — the other change is still there.`,
+            { status: 409, code: 'conflict' },
+          );
+        }
+        throw new GitHubError(
+          `GitHub answered ${response.status} updating ${branch}${messageFrom(payload) ? `: ${messageFrom(payload)}` : ''}`,
+        );
+      }
+      return { commitUrl: `https://github.com/${repo}/commit/${commitSha}` };
     },
   };
 }

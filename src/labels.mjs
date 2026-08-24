@@ -3,8 +3,9 @@
 // since M4.1 never touched this: `fetchProjectIssues` already buckets by this label if present,
 // this script is the missing other half, making the label namespace real).
 //
-// Never invoked from the website or from write-back — same reasoning as `src/scaffold.mjs`:
-// decision 35's writable things stay exactly what they are. This is a local tool, run against a
+// Never invoked from the website or from write-back — the current write-back scope (decisions 34
+// to 37, 58, 59) has no endpoint for this, and adding one would be its own decision, the same
+// posture `src/scaffold.mjs`'s header states for scaffolding. This is a local tool, run against a
 // real checkout, its effect (labels existing on GitHub) is not something a build produces.
 //
 // Deliberately does NOT auto-apply labels to existing unlabelled open issues: which workstream an

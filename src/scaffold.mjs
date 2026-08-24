@@ -1,10 +1,13 @@
 // A local CLI that turns an approved, unscaffolded design into a starter workstream.json and
 // first milestone plan (Atlas M7).
 //
-// Never invoked from the website or from write-back — decision 35's two writable things (a
-// register answer, an acceptance result) stay exactly two. This is a local tool, run against a
-// real checkout the same way `node src/build.mjs` already is, its output committed through
-// ordinary git.
+// A second caller does the same thing from the website now — `handleApprove` in
+// `api/lib/handlers.mjs` (M9, decision 59) — which is why the manifest/plan text below moved to
+// `api/lib/manifest-template.mjs`: one template, two callers, so a future edit to the starter
+// content cannot fix one and silently miss the other. This file still owns everything specific to
+// running locally against a real checkout: reading `docs/design/` off disk, writing files, and
+// `atlas.config.json`'s update, none of which the API path does the same way (it reads from and
+// writes to GitHub directly, in one commit — see `api/lib/approve.mjs`).
 //
 // Decision 1: built from source, never maintained. Every free-text field this writes is an
 // unmissable placeholder naming where the real content comes from — never a plausible guess.
@@ -13,7 +16,7 @@ import { existsSync, readdirSync, mkdirSync, readFileSync, writeFileSync } from 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const PLACEHOLDER = (hint) => `<< M7 scaffold: replace this — ${hint} >>`;
+import { buildManifestText, buildPlanText } from '../api/lib/manifest-template.mjs';
 
 // Writing the two starter files is not enough to make the feature TRACKED — decision 1's whole
 // point — until `atlas.config.json` names it. A directory `resolveWorkstreams` never iterates is
@@ -27,13 +30,6 @@ function promoteInConfig({ projectRoot, slug }) {
     writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
   }
   return configPath;
-}
-
-function titleize(slug) {
-  return slug
-    .split('-')
-    .map((w) => w[0].toUpperCase() + w.slice(1))
-    .join(' ');
 }
 
 /**
@@ -90,54 +86,14 @@ export function scaffoldWorkstream({ projectRoot, slug }) {
   const check = checkPreconditions({ projectRoot, slug });
   if (!check.ok) return check;
 
-  const codename = titleize(slug);
   const featureDir = path.join(projectRoot, 'docs', 'features', slug);
   mkdirSync(featureDir, { recursive: true });
 
-  const manifest = {
-    codename,
-    what: PLACEHOLDER(`what is ${codename}, in one sentence — see docs/design/approved/${slug}/`),
-    stage: 'designing',
-    position: PLACEHOLDER('where this stands right now'),
-    next: PLACEHOLDER('what is actually blocking work from starting, in one sentence'),
-    label: `workstream:${slug}`,
-    design: [{ name: `${slug}/approved design`, where: `docs/design/approved/${slug}/` }],
-    milestones: [
-      {
-        id: 'M1',
-        label: 'M1',
-        depth: 1,
-        title: PLACEHOLDER(`M1's real title — see docs/design/approved/${slug}/`),
-        status: 'unplanned',
-        plan: 'm1-plan.md',
-        issue: null,
-        pr: null,
-        acceptance: { kind: 'demo-script', record: null },
-      },
-    ],
-  };
-
   const manifestPath = path.join(featureDir, 'workstream.json');
-  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  writeFileSync(manifestPath, buildManifestText(slug));
 
   const planPath = path.join(featureDir, 'm1-plan.md');
-  const plan = `# ${codename} Milestone 1 — ${PLACEHOLDER("this milestone's title")}
-
-> This is a scaffold, not a plan. Every section below names what to fill in and from where.
-
-## Goal
-
-${PLACEHOLDER('one sentence — what does this milestone actually deliver')}
-
-## Where it will land
-
-${PLACEHOLDER('which repository, which files')}
-
-## Spec
-
-docs/design/approved/${slug}/ — read it before writing anything else in this file.
-`;
-  writeFileSync(planPath, plan);
+  writeFileSync(planPath, buildPlanText(slug));
 
   const configPath = promoteInConfig({ projectRoot, slug });
 

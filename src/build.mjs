@@ -39,7 +39,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { DEPLOYMENT_STAGES } from '../api/lib/contract.mjs';
-import { loadConfig, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
+import { loadConfig, proposedDesignDirs, repoRelative, resolveWorkstreams, unnamedFeatureDirs } from './config.mjs';
 import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from './outdir.mjs';
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
 import { emptyBuckets, fetchIssueBodies, fetchProjectIssues } from './github.mjs';
@@ -621,6 +621,10 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     // silent, and that is the same failure shape as a hidden feature nobody can find. Reported,
     // never thrown — `unnamedFeatureDirs` carries the reason that line is where it is.
     unnamedFeatures: unnamedFeatureDirs(config),
+    // M9, decision 59: slugs under docs/design/proposed/ the Feature Planning page's Approve
+    // section renders a button for. See `proposedDesignDirs`'s own header for the three conditions
+    // a slug has to clear, mirrored from `src/scaffold.mjs`'s `checkPreconditions`.
+    proposedDesigns: proposedDesignDirs(config),
   };
 }
 
@@ -683,6 +687,8 @@ function planPages(site) {
       permalink: '/index.html',
       title: 'Feature planning',
       workstreams: site.workstreams,
+      // M9, decision 59: rendered as an "Approve" section, one button per slug.
+      proposedDesigns: site.proposedDesigns,
     },
   });
 
