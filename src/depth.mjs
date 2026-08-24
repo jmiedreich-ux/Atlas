@@ -15,12 +15,13 @@ const STAGE_LABELS = {
 
 // How many of the three pre-milestone rows a workstream's own `stage` has already passed
 // through. `not-started` has passed through none of them — it *is* row zero, not a completed
-// one. `shipping` means milestones are the point of interest, so all three are behind it.
+// one. Any of `development`/`staging`/`release` means milestones are the point of interest, so
+// all three are behind it.
 function preMilestoneCoveredCount(stage) {
   if (stage === 'not-started') return 0;
   const idx = PRE_MILESTONE_STAGES.indexOf(stage);
   if (idx !== -1) return idx + 1; // designing -> 2, planned -> 3
-  return 3; // shipping
+  return 3; // development, staging, or release
 }
 
 // The real edge of finished work: the deepest milestone that is `done`, whatever sits above it.

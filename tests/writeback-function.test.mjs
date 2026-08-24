@@ -3,8 +3,8 @@
 // Decision 5 chose Static Web Apps over an App Service for exactly this — managed Functions ship
 // in the same deployable, behind the same auth as the site, on the Free tier. So the shape of the
 // `api/` directory is part of the contract, not an implementation detail, and the tests below hold
-// it: two functions and no third, POST only, no dependencies, and adapters thin enough that
-// nothing is decided in them.
+// it: three functions and no fourth (M8, decision 35 amended), POST only, no dependencies, and
+// adapters thin enough that nothing is decided in them.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';

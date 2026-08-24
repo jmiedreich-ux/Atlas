@@ -1,10 +1,10 @@
-// The two endpoints, end to end, with no network anywhere.
+// The three endpoints, end to end, with no network anywhere.
 //
-// Decision 35 is the scope and it is narrower than "write-back" sounds: register answers and
-// acceptance results. Creating an issue, approving a milestone, editing a manifest and triggering
-// work belong to the project's own operations console — two consoles that both act is how they
-// diverge. A status dropdown on every milestone is the obvious thing to build here, and it is
-// deliberately not built.
+// Decision 35 is the scope and it is narrower than "write-back" sounds: register answers,
+// acceptance results, and (M8, decision 35 amended) deployment stage transitions. Creating an
+// issue, approving a milestone, editing a manifest and triggering work belong to the project's own
+// operations console — two consoles that both act is how they diverge. A status dropdown on every
+// milestone is the obvious thing to build here, and it is deliberately not built.
 //
 // Every request below goes through a stub standing in for GitHub, holding a tiny repository in
 // memory: an installation-token endpoint, and the contents API with real SHAs that really change
