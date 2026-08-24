@@ -46,6 +46,17 @@
   M9's proposed-design list (decision 59) moved to its own page, `backlog.njk` — "Feature Backlog"
   — at the owner's request; see that template's own header for the data shape and everything else
   that used to live in this comment.
+
+  M9 follow-up: every milestone's full task checklist is now ALWAYS in the markup, not just the one
+  `spineDetail` marks 'full'/'full-muted' — `spineDetail` still decides which milestones START
+  expanded (an owner hit a real case, two milestones both `next` at once, where only the first one
+  spineDetail picks got a checklist at all; the fix is client-side expand/collapse, not a smarter
+  build-time pick). `theme/milestone-toggle.js` wires `[data-milestone-toggle]` the same way
+  `theme/order.js`'s `toggleExpand` already wires `[data-row-handle]` — same `aria-expanded`/
+  `aria-controls`/`hidden` mechanism, one level deeper. The page-level "Expand all"/"Collapse all"
+  pair (`[data-milestones-expand-all]`/`[data-milestones-collapse-all]`) only ever touches milestone
+  toggles, never a workstream's own `[data-row-handle]` — collapsing every feature row at once was
+  not what was asked for, and the two controls already do different things.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -60,6 +71,10 @@
 <p class="controls-note">Drag a feature to reorder it, or press <kbd>H</kbd> to hide one — hidden features come back from the controls below.</p>
 <div class="hidden-bar" data-hidden-bar hidden></div>
 <p class="order-said" data-order-said role="status" aria-live="polite"></p>
+<div class="milestone-toggle-all">
+<button type="button" class="milestone-toggle-all-button" data-milestones-expand-all>Expand all milestones</button>
+<button type="button" class="milestone-toggle-all-button" data-milestones-collapse-all>Collapse all milestones</button>
+</div>
 </div>
 
 <ul class="feature-list" data-feature-list>
@@ -116,6 +131,8 @@
 <ol class="milestone-spine">
 {%- for milestone in stream.milestones %}
 {%- set detail = stream.spineDetail[loop.index0] %}
+{%- set milestoneDetailId = 'milestone-detail-' + stream.slug + '-' + milestone.manifest.id %}
+{%- set startsOpen = detail == 'full' or detail == 'full-muted' %}
 <li class="milestone-node tone-{{ milestone.manifest.status }}" data-milestone-node="{{ stream.slug }}-{{ milestone.manifest.id }}">
 <span class="milestone-icon" aria-hidden="true"></span>
 <div class="milestone-body">
@@ -124,9 +141,22 @@
 <span class="milestone-label">{{ milestone.manifest.label }}</span>
 <span class="milestone-title">{{ milestone.manifest.title }}</span>
 </a>
+{%- if detail != 'none' and milestone.manifest.tasks.length %}
+<button
+  type="button"
+  class="milestone-toggle"
+  data-milestone-toggle
+  aria-expanded="{{ 'true' if startsOpen else 'false' }}"
+  aria-controls="{{ milestoneDetailId }}"
+>
+<span class="disclosure" aria-hidden="true">▸</span>
+<span class="milestone-task-count">{{ milestone.manifest.tasks.length }} sub-task{{ 's' if milestone.manifest.tasks.length != 1 else '' }}</span>
+</button>
+{%- endif %}
 {{ ui.chip('status', milestone.manifest.status) }}
 </div>
-{%- if detail == 'full' or detail == 'full-muted' %}
+{%- if detail != 'none' and (milestone.manifest.assignees.length or milestone.manifest.tasks.length) %}
+<div id="{{ milestoneDetailId }}"{% if not startsOpen %} hidden{% endif %}>
 {%- if milestone.manifest.assignees.length %}
 <ul class="milestone-assignees{% if detail == 'full-muted' %} is-muted{% endif %}" aria-label="Assigned">
 {%- for a in milestone.manifest.assignees %}
@@ -154,8 +184,7 @@
 {%- endfor %}
 </ul>
 {%- endif %}
-{%- elif detail == 'count' and milestone.manifest.tasks.length %}
-<p class="milestone-task-count">{{ milestone.manifest.tasks.length }} sub-task{{ 's' if milestone.manifest.tasks.length != 1 else '' }}</p>
+</div>
 {%- endif %}
 </div>
 </li>
@@ -183,4 +212,5 @@
 {% block bodyScripts %}
 <script type="module" src="/order.js"></script>
 <script type="module" src="/deploy.js"></script>
+<script type="module" src="/milestone-toggle.js"></script>
 {% endblock %}

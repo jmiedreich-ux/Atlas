@@ -30,6 +30,7 @@ import {
   wire as wireRefresh,
 } from '../theme/refresh.js';
 import { openActionModal, wire as wireActionModal } from '../theme/action-modal.js';
+import { toggleOne, setOne, setAll, wire as wireMilestoneToggle } from '../theme/milestone-toggle.js';
 
 // Every name below is either the fixture's invented nautical vocabulary or invented for this
 // test file alone. The generator holds no project content of its own (decision 40), and the
@@ -1332,7 +1333,12 @@ test('spine: the first unplanned milestone after the current one previews muted'
   assert.ok(nodeMatch[0].includes('Preview task'), 'the preview milestone is missing its own task');
 });
 
-test('spine: any other milestone with tasks collapses to a count, not a list', () => {
+// M9 follow-up (milestone-toggle.js): a 'count'-state milestone used to render ONLY a bare count,
+// with no task list anywhere in its markup — the owner hit a real case (two milestones both `next`
+// at once) where that meant a milestone's own checklist was simply unreachable. Every milestone
+// with tasks now carries its full list always; 'count' state only changes whether it STARTS
+// collapsed (`hidden` on the detail wrapper, `aria-expanded="false"` on the toggle that reveals it).
+test('spine: a "count"-state milestone starts collapsed but still carries its full task list, revealable', () => {
   const stream = entry('Beacon3', {
     milestones: [
       milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next', tasks: [] }),
@@ -1353,12 +1359,36 @@ test('spine: any other milestone with tasks collapses to a count, not a list', (
   const html = renderDepth([stream]);
   // M1 is current ('full'), M2 is the preview right after it ('full-muted', empty here), and M3 —
   // neither current nor the one preview slot — is the 'count' state this test is for.
-  const nodeMatch = new RegExp(
-    `data-milestone-node="${stream.slug}-M3"[\\s\\S]*?<p class="milestone-task-count">([\\s\\S]*?)</p>`,
-  ).exec(html);
-  assert.ok(nodeMatch, 'the count-state milestone did not render its task count');
-  assert.doesNotMatch(nodeMatch[0], /data-task-list/, 'a "count" milestone must not also render a task list');
-  assert.match(nodeMatch[1], /^3 sub-tasks$/, 'the count line does not name how many tasks are on record');
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M3"[\\s\\S]*?</div>\\s*</div>`).exec(html);
+  assert.ok(nodeMatch, 'no spine node rendered for M3');
+
+  assert.match(nodeMatch[0], /data-milestone-toggle[\s\S]*?aria-expanded="false"/, 'a "count" milestone must start collapsed');
+  assert.match(nodeMatch[0], /class="milestone-task-count">3 sub-tasks</, 'the toggle must still name how many tasks are on record');
+  assert.match(nodeMatch[0], /data-task-list/, 'the full task list must be in the markup, just collapsed — not absent');
+  assert.match(nodeMatch[0], /hidden(?=[\s>])/, 'the detail wrapper must start hidden');
+  assert.ok(nodeMatch[0].includes('One') && nodeMatch[0].includes('Two') && nodeMatch[0].includes('Three'), 'all three real tasks must be present, just not shown yet');
+});
+
+test('spine: the "count" state\'s toggle and detail wrapper share one real aria-controls/id pair', () => {
+  const stream = entry('Beacon4', {
+    milestones: [
+      milestone({ id: 'M1', label: 'M1', depth: 1, status: 'next', tasks: [] }),
+      milestone({
+        id: 'M2',
+        label: 'M2',
+        depth: 2,
+        status: 'unplanned',
+        tasks: [{ text: 'Later task', done: false, owner: null }],
+      }),
+    ],
+  });
+  const html = renderDepth([stream]);
+  const nodeMatch = new RegExp(`data-milestone-node="${stream.slug}-M2"[\\s\\S]*?</div>\\s*</div>`).exec(html);
+  assert.ok(nodeMatch, 'no spine node rendered for M2');
+
+  const controls = /aria-controls="([^"]+)"/.exec(nodeMatch[0]);
+  assert.ok(controls, 'the toggle names no aria-controls target');
+  assert.ok(nodeMatch[0].includes(`id="${controls[1]}"`), 'aria-controls names an id that is not actually on the page');
 });
 
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------
@@ -3006,4 +3036,142 @@ test('decision 40: no generated page carries a project name its data never suppl
       assert.ok(!lower.includes(projectName), `${name} rendered the name "${projectName}"`);
     }
   }
+});
+
+// --- theme/milestone-toggle.js — per-milestone expand/collapse, and expand-all/collapse-all ----
+
+/**
+ * A fake `[data-milestone-toggle]` handle plus the `[id]` detail element its `aria-controls`
+ * names — the two things `toggleOne`/`setOne` actually operate on. Returns both so a test can
+ * assert on the handle's own attributes and the detail's `hidden` state independently.
+ */
+function fakeMilestoneToggle(id, { expanded = false } = {}) {
+  const handleAttrs = { 'aria-expanded': expanded ? 'true' : 'false', 'aria-controls': id };
+  const handle = {
+    getAttribute: (name) => handleAttrs[name] ?? null,
+    setAttribute: (name, value) => {
+      handleAttrs[name] = value;
+    },
+    listeners: {},
+    addEventListener(type, fn) {
+      this.listeners[type] = fn;
+    },
+  };
+  const detailAttrs = { hidden: expanded ? null : '' };
+  const detail = {
+    id,
+    setAttribute: (name, value) => {
+      detailAttrs[name] = value;
+    },
+    removeAttribute: (name) => {
+      detailAttrs[name] = null;
+    },
+  };
+  return { handle, detail, detailAttrs };
+}
+
+function fakeMilestoneToggleDoc(entries, { expandAllButton, collapseAllButton } = {}) {
+  const byId = new Map(entries.map(({ detail }) => [detail.id, detail]));
+  return {
+    querySelectorAll: (selector) => (selector === '[data-milestone-toggle]' ? entries.map((e) => e.handle) : []),
+    querySelector: (selector) => {
+      if (selector === '[data-milestones-expand-all]') return expandAllButton ?? null;
+      if (selector === '[data-milestones-collapse-all]') return collapseAllButton ?? null;
+      return null;
+    },
+    getElementById: (id) => byId.get(id) ?? null,
+  };
+}
+
+test('milestone-toggle.js: setOne(expanded: true) opens the toggle and reveals its detail', () => {
+  const entry = fakeMilestoneToggle('detail-1');
+  const doc = fakeMilestoneToggleDoc([entry]);
+
+  setOne(doc, entry.handle, true);
+
+  assert.equal(entry.handle.getAttribute('aria-expanded'), 'true');
+  assert.equal(entry.detailAttrs.hidden, null, 'hidden must be removed once expanded');
+});
+
+test('milestone-toggle.js: setOne(expanded: false) closes the toggle and hides its detail', () => {
+  const entry = fakeMilestoneToggle('detail-2', { expanded: true });
+  const doc = fakeMilestoneToggleDoc([entry]);
+
+  setOne(doc, entry.handle, false);
+
+  assert.equal(entry.handle.getAttribute('aria-expanded'), 'false');
+  assert.equal(entry.detailAttrs.hidden, '', 'hidden must be set once collapsed');
+});
+
+test('milestone-toggle.js: setOne does not throw when aria-controls names nothing on the page', () => {
+  const handle = {
+    getAttribute: (name) => (name === 'aria-controls' ? 'nowhere' : 'false'),
+    setAttribute: () => {},
+  };
+  const doc = { getElementById: () => null };
+  assert.doesNotThrow(() => setOne(doc, handle, true));
+});
+
+test('milestone-toggle.js: toggleOne flips whatever state a toggle is currently in', () => {
+  const entry = fakeMilestoneToggle('detail-3', { expanded: false });
+  const doc = fakeMilestoneToggleDoc([entry]);
+
+  toggleOne(doc, entry.handle);
+  assert.equal(entry.handle.getAttribute('aria-expanded'), 'true');
+
+  toggleOne(doc, entry.handle);
+  assert.equal(entry.handle.getAttribute('aria-expanded'), 'false');
+});
+
+test('milestone-toggle.js: setAll expands or collapses every milestone toggle on the page at once', () => {
+  const a = fakeMilestoneToggle('detail-a', { expanded: false });
+  const b = fakeMilestoneToggle('detail-b', { expanded: true });
+  const doc = fakeMilestoneToggleDoc([a, b]);
+
+  setAll(doc, true);
+  assert.equal(a.handle.getAttribute('aria-expanded'), 'true');
+  assert.equal(b.handle.getAttribute('aria-expanded'), 'true');
+  assert.equal(a.detailAttrs.hidden, null);
+  assert.equal(b.detailAttrs.hidden, null);
+
+  setAll(doc, false);
+  assert.equal(a.handle.getAttribute('aria-expanded'), 'false');
+  assert.equal(b.handle.getAttribute('aria-expanded'), 'false');
+  assert.equal(a.detailAttrs.hidden, '');
+  assert.equal(b.detailAttrs.hidden, '');
+});
+
+test('milestone-toggle.js: wire() attaches a click handler to every milestone toggle', () => {
+  const entry = fakeMilestoneToggle('detail-4', { expanded: false });
+  const doc = fakeMilestoneToggleDoc([entry]);
+
+  wireMilestoneToggle(doc);
+  assert.equal(typeof entry.handle.listeners.click, 'function', 'wire() did not attach a click handler');
+
+  entry.handle.listeners.click();
+  assert.equal(entry.handle.getAttribute('aria-expanded'), 'true', 'the wired click handler did not toggle the milestone');
+});
+
+test('milestone-toggle.js: wire() wires "Expand all"/"Collapse all" when the page has them', () => {
+  const a = fakeMilestoneToggle('detail-5', { expanded: false });
+  const b = fakeMilestoneToggle('detail-6', { expanded: false });
+  const expandAllListeners = {};
+  const collapseAllListeners = {};
+  const expandAllButton = { addEventListener: (type, fn) => { expandAllListeners[type] = fn; } };
+  const collapseAllButton = { addEventListener: (type, fn) => { collapseAllListeners[type] = fn; } };
+  const doc = fakeMilestoneToggleDoc([a, b], { expandAllButton, collapseAllButton });
+
+  wireMilestoneToggle(doc);
+  expandAllListeners.click();
+  assert.equal(a.handle.getAttribute('aria-expanded'), 'true');
+  assert.equal(b.handle.getAttribute('aria-expanded'), 'true');
+
+  collapseAllListeners.click();
+  assert.equal(a.handle.getAttribute('aria-expanded'), 'false');
+  assert.equal(b.handle.getAttribute('aria-expanded'), 'false');
+});
+
+test('milestone-toggle.js: wire() does nothing on a page with neither toggles nor the all-controls', () => {
+  const doc = { querySelectorAll: () => [], querySelector: () => null };
+  assert.doesNotThrow(() => wireMilestoneToggle(doc));
 });

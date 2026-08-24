@@ -271,6 +271,10 @@ const EXPECTED_FILES = [
   // no <script> tag names it, so THEME_FILES's own comment is the only thing standing between this
   // and repeating approve.js's exact 404.
   'action-modal.js',
+  // M9 follow-up: per-milestone expand/collapse, loaded from depth.njk's own bodyScripts block
+  // (unlike action-modal.js, this one DOES carry a <script> tag, so it is not the same failure
+  // shape — named here for the same reason every other theme file is: the file set is exact).
+  'milestone-toggle.js',
   // M5 Task 4: the registers index, generated whenever any workstream has a register — beacon
   // does, in this fixture.
   'registers/index.html',
@@ -324,6 +328,7 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
     'approve.js',
     'refresh.js',
     'action-modal.js',
+    'milestone-toggle.js',
     'state.json',
     'staticwebapp.config.json',
   ]);
@@ -1055,6 +1060,7 @@ test('README: the files it says a build writes are the files a build writes', ()
     'approve.js',
     'refresh.js',
     'action-modal.js',
+    'milestone-toggle.js',
     'staticwebapp.config.json',
   ];
   const written = listFiles(OUT).filter(
@@ -1062,7 +1068,7 @@ test('README: the files it says a build writes are the files a build writes', ()
   );
   assert.deepEqual(written.sort(), [...generated].sort(), 'the build writes a different set than this test knows');
 
-  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
   const claimed = /every build writes (\w+) files of its own/.exec(readme);
   assert.ok(claimed, 'the README no longer says how many files a build writes');
   assert.equal(
@@ -1104,7 +1110,7 @@ test('build: the site is gated by default — a project that configures nothing 
 test("build: the theme's own files are served where the layouts link to them", () => {
   // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
   // `njk` and nothing else, so neither can be picked up as a page of its own.
-  for (const file of ['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js', 'action-modal.js']) {
+  for (const file of ['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js', 'action-modal.js', 'milestone-toggle.js']) {
     assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
     assert.equal(
       sha256(path.join(OUT, file)),
@@ -1151,6 +1157,16 @@ test("build: the theme's own files are served where the layouts link to them", (
       `${page} does not load the refresh script`,
     );
   }
+
+  // M9 follow-up: per-milestone expand/collapse is Feature Planning's own concern, same as
+  // order.js/deploy.js above — not every page's, the way refresh.js is.
+  assert.match(
+    read('index.html'),
+    /<script type="module" src="\/milestone-toggle\.js"><\/script>/,
+    'index.html does not load the milestone-toggle script',
+  );
+  assert.ok(!read('mobile/index.html').includes('milestone-toggle.js'), 'the phone view loads the milestone-toggle script');
+  assert.ok(!read('library/index.html').includes('milestone-toggle.js'), 'the records index loads the milestone-toggle script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {

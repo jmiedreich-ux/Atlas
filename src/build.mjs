@@ -95,6 +95,7 @@ const THEME_FILES = Object.freeze([
   'approve.js',
   'refresh.js',
   'action-modal.js',
+  'milestone-toggle.js',
 ]);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
