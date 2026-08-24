@@ -1,7 +1,7 @@
 {
   "codename": "Beacon",
   "what": "A six-milestone workstream invented for the fixture, deep enough to exercise a tall column in the depth chart",
-  "stage": "shipping",
+  "stage": "development",
   "position": "Three milestones shipped, fourth in flight",
   "gate": "Owner sign-off on the M4 demo before M5 starts",
   "label": "workstream:beacon",
