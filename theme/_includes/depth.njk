@@ -9,10 +9,24 @@
     displayedStage — src/build.mjs's assembleSite: the manifest's own `stage`, overridden by a
                      deployment log's latest entry when the workstream has one (M8 task 6). The
                      chip renders THIS, never `manifest.stage` directly.
+    deploymentHistory — src/build.mjs's assembleSite (M8 task 6): the ordered `{ stage, note }`
+                     array read from `stream.manifest.deploymentLog`, or `[]` when the workstream
+                     names no log yet. Rendered as `.stage-history` below, beside (not inside)
+                     `.milestone-spine` — a stage transition is a fact about the feature, not
+                     about any one milestone (M8 design doc, "Where the ordered history renders").
     column   — computeLadder's own entry: covered[], completedCount, milestoneCount, tipLabel
     triage   — src/triage.mjs's classifyTriage result
     milestones — url/planUrl/recordUrl-enriched, `.manifest` mirrors `manifest.milestones[i]`
     spineDetail — one 'full'|'full-muted'|'count'|'none' per milestone, same order
+
+  M8 task 7's trigger buttons (Development/Staging/Release, `theme/deploy.js`) render only when
+  `stream.manifest.deploymentLog` is set — the one build-time signal already on every workstream
+  that says `POST /api/deployment-transition` has somewhere to write for it; without one, the
+  endpoint itself refuses with `no-deployment-log` before writing anything
+  (`api/lib/handlers.mjs`'s `handleDeploymentTransition`). No existing "write-back configured"
+  template conditional was found to mirror (grepped `theme/`, `src/`, `api/` first) — `api/answer`
+  and `api/acceptance` are real endpoints with no caller anywhere in `theme/`, so this is Atlas's
+  first write-back UI, not a copy of one.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -95,6 +109,30 @@
 {%- endfor %}
 </ol>
 {%- endif %}
+{#- Beside .milestone-spine, not inside it (see the header comment above). Never blank: a
+    workstream with no logged transitions yet still shows one node for its own current
+    displayedStage, which is the pre-deployment case, not an empty state. -#}
+<ol class="stage-history" aria-label="Deployment history">
+{%- if stream.deploymentHistory.length == 0 %}
+<li class="stage-node"><span class="stage-node-label">{{ ui.chipLabel(stream.displayedStage) }}</span></li>
+{%- else %}
+{%- for transition in stream.deploymentHistory %}
+<li class="stage-node">
+<span class="stage-node-label">{{ ui.chipLabel(transition.stage) }}</span>
+{%- if transition.note %}<span class="stage-node-note">{{ transition.note }}</span>{% endif %}
+</li>
+{%- endfor %}
+{%- endif %}
+</ol>
+{%- if stream.manifest.deploymentLog %}
+<div class="stage-trigger" data-stage-trigger data-log="{{ stream.manifest.deploymentLog }}" data-repo="{{ repo }}">
+<p class="stage-trigger-label">Record a deployment transition</p>
+<button type="button" class="stage-trigger-button" data-transition-to="development" data-slug="{{ stream.slug }}">Development</button>
+<button type="button" class="stage-trigger-button" data-transition-to="staging" data-slug="{{ stream.slug }}">Staging</button>
+<button type="button" class="stage-trigger-button" data-transition-to="release" data-slug="{{ stream.slug }}">Release</button>
+<p class="stage-trigger-status" data-stage-trigger-status role="status" aria-live="polite"></p>
+</div>
+{%- endif %}
 </div>
 </li>
 {%- endfor %}
@@ -106,4 +144,5 @@
 
 {% block bodyScripts %}
 <script type="module" src="/order.js"></script>
+<script type="module" src="/deploy.js"></script>
 {% endblock %}

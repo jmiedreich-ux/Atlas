@@ -58,7 +58,15 @@ const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
 // your own order (#780). Decision 12 says no framework runtime and no second hosting model, and
 // this is neither: it is one static file, with no dependency of its own, doing one thing on one
 // page that the reader asked for.
-const THEME_FILES = Object.freeze(['tokens.css', 'order.js']);
+//
+// `deploy.js` (M8 task 7) is the feature planning surface's second and only other piece of
+// behaviour — the Development/Staging/Release trigger buttons that POST to
+// `/api/deployment-transition`. Copied the same way, for the same reason: `theme/_includes/
+// depth.njk`'s own `bodyScripts` block links to `/deploy.js`, and nothing else in this generator
+// ever copies a file out of `theme/` into a build's output — Eleventy's input directory is
+// `theme/_includes` only (`.eleventy.js`), so a file sitting beside it is invisible to Eleventy
+// entirely and has to be named here or it 404s on every real build.
+const THEME_FILES = Object.freeze(['tokens.css', 'order.js', 'deploy.js']);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';

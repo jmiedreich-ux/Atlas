@@ -268,8 +268,8 @@ by everyone who can reach the site should not be under `docs/`. The only excepti
 `workstream.json` manifests, which are read rather than served, and dot-files and dot-directories,
 which are skipped.
 
-Alongside the pages, every build writes four files of its own: `state.json` (above), `tokens.css`
-and `order.js` copied from the theme, and `staticwebapp.config.json` (below).
+Alongside the pages, every build writes five files of its own: `state.json` (above), `tokens.css`,
+`order.js` and `deploy.js` copied from the theme, and `staticwebapp.config.json` (below).
 
 ## Who can read the site
 

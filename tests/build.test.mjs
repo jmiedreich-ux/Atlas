@@ -251,6 +251,9 @@ const EXPECTED_FILES = [
   'docs/field notes.html',
   'docs/reference.html',
   'docs/support.js',
+  // M8 task 7: the feature planning row's Development/Staging/Release trigger buttons, copied
+  // from theme/ alongside tokens.css and order.js — see THEME_FILES in src/build.mjs.
+  'deploy.js',
   'index.html',
   'library/index.html',
   'mobile/index.html',
@@ -301,6 +304,7 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
     ...state.assets.map((asset) => asset.path),
     'tokens.css',
     'order.js',
+    'deploy.js',
     'state.json',
     'staticwebapp.config.json',
   ]);
@@ -1016,7 +1020,7 @@ test('README: the files it says a build writes are the files a build writes', ()
   // because a number in prose beside a list is exactly what drifts when the list grows.
   const readme = readFileSync(path.join(REPO_ROOT, 'README.md'), 'utf8');
 
-  const generated = ['state.json', 'tokens.css', 'order.js', 'staticwebapp.config.json'];
+  const generated = ['state.json', 'tokens.css', 'order.js', 'deploy.js', 'staticwebapp.config.json'];
   const written = listFiles(OUT).filter(
     (file) => !file.endsWith('.html') && !state.assets.some((asset) => asset.path === file),
   );
@@ -1064,7 +1068,7 @@ test('build: the site is gated by default — a project that configures nothing 
 test("build: the theme's own files are served where the layouts link to them", () => {
   // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
   // `njk` and nothing else, so neither can be picked up as a page of its own.
-  for (const file of ['tokens.css', 'order.js']) {
+  for (const file of ['tokens.css', 'order.js', 'deploy.js']) {
     assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
     assert.equal(
       sha256(path.join(OUT, file)),
@@ -1074,11 +1078,15 @@ test("build: the theme's own files are served where the layouts link to them", (
   }
   assert.match(read('index.html'), /href="\/tokens\.css"/);
   assert.match(read('index.html'), /<script type="module" src="\/order\.js"><\/script>/);
+  // M8 task 7: the Development/Staging/Release trigger buttons' own script.
+  assert.match(read('index.html'), /<script type="module" src="\/deploy\.js"><\/script>/);
 
   // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
   // up behaviour it has no use for.
   assert.ok(!read('mobile/index.html').includes('order.js'), 'the phone view loads the ordering script');
   assert.ok(!read('library/index.html').includes('order.js'), 'the records index loads the ordering script');
+  assert.ok(!read('mobile/index.html').includes('deploy.js'), 'the phone view loads the trigger script');
+  assert.ok(!read('library/index.html').includes('deploy.js'), 'the records index loads the trigger script');
 });
 
 test("build: the project's Markdown records are rendered as pages at their own paths", () => {

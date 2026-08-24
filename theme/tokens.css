@@ -504,14 +504,20 @@ h3 {
   white-space: nowrap;
 }
 
-.chip-done {
+/* `release` reads with `done`, not with the two stages before it — decision 32's vocabulary swap
+ * (M8): a workstream that has reached `release` is at the end of its deployment stages the same
+ * way a `done` milestone is at the end of its own, so both read as "reached the end" rather than
+ * "still moving". `development`/`staging` keep the tone `shipping` carried before M8 retired it. */
+.chip-done,
+.chip-release {
   background: var(--sky-color-live-surface);
   color: var(--sky-positive-text);
 }
 
 .chip-next,
-.chip-shipping,
-.chip-moving {
+.chip-moving,
+.chip-development,
+.chip-staging {
   background: var(--sky-badge-background);
   color: var(--sky-badge-text);
 }
@@ -737,6 +743,42 @@ h3 {
 .milestone-task-count {
   color: var(--sky-text-muted);
   font-size: 0.85rem;
+  margin: var(--sky-space-1) 0 0;
+}
+
+/* M8 task 7: the deployment-transition trail, beside `.milestone-spine` rather than inside it (see
+ * `theme/_includes/depth.njk`'s own header comment). Structural only — enough that the list reset
+ * and it does not read as broken — the dot-and-line visual language and the trigger buttons' own
+ * chrome are M8 task 8's job, not this one's. */
+.stage-history {
+  list-style: none;
+  margin: var(--sky-space-4) 0 0;
+  padding: 0;
+}
+
+.stage-node {
+  padding: var(--sky-space-1) 0;
+}
+
+.stage-node-note {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin-left: var(--sky-space-2);
+}
+
+.stage-trigger {
+  margin: var(--sky-space-4) 0 0;
+}
+
+.stage-trigger-label {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
+  margin: 0 0 var(--sky-space-1);
+}
+
+.stage-trigger-status {
+  color: var(--sky-text-muted);
+  font-size: 0.8rem;
   margin: var(--sky-space-1) 0 0;
 }
 
