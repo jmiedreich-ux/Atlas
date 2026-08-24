@@ -1160,6 +1160,66 @@ test('register: a register.json produces a generated document, and a hand edit t
   assert.equal(rebuilt, rendered, 'the rebuilt page differs from the first build with no source change');
 });
 
+test('register: the index shows a structured register\'s open count, orders by it, and shows a legacy register as a plain link with no count', async () => {
+  const projectRoot = fixtureCopy('register-index');
+
+  // beacon: structured, 2 of 3 open.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'beacon', 'register.json'),
+    JSON.stringify({
+      slug: 'beacon', title: 'Beacon Register',
+      questions: [
+        { id: 'Q1', question: 'Q1?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q2', question: 'Q2?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q3', question: 'Q3?', why: 'W', options: ['A'], recommended: 'A', severity: 'minor', chosen: { kind: 'offered', value: 'A' }, citations: [] },
+      ],
+    }),
+  );
+  // tide: structured, 1 of 2 open — fewer open than beacon, so must sort after it.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'tide', 'register.json'),
+    JSON.stringify({
+      slug: 'tide', title: 'Tide Register',
+      questions: [
+        { id: 'Q1', question: 'Q1?', why: 'W', options: ['A'], recommended: 'A', severity: 'BLOCKING', chosen: { kind: 'deferred', value: null }, citations: [] },
+        { id: 'Q2', question: 'Q2?', why: 'W', options: ['A'], recommended: 'A', severity: 'minor', chosen: { kind: 'offered', value: 'A' }, citations: [] },
+      ],
+    }),
+  );
+  // reef: legacy prose only, no register.json.
+  writeFileSync(
+    path.join(projectRoot, 'docs', 'features', 'reef', 'open-questions.md'),
+    '# Reef Build — Open Questions Register\n\n### Q1 · BLOCKING\n\n**A legacy question?**\n\nWhy.\n\n*Recommended:* A\n\n*Answer:* A\n',
+  );
+  // anchor: neither — must be absent from the index entirely.
+
+  const out = path.join(TMP_ROOT, 'register-index-out');
+  rmSync(out, { recursive: true, force: true });
+  await build(projectRoot, out, { fetchImpl: stubFetch, quiet: true });
+
+  const indexHtml = readFileSync(path.join(out, 'registers', 'index.html'), 'utf8');
+
+  const beaconIndex = indexHtml.indexOf('Beacon Register');
+  const tideIndex = indexHtml.indexOf('Tide Register');
+  const reefIndex = indexHtml.indexOf('Reef Build');
+  assert.ok(beaconIndex !== -1, 'the structured Beacon register is missing from the index');
+  assert.ok(tideIndex !== -1, 'the structured Tide register is missing from the index');
+  assert.ok(reefIndex !== -1, 'the legacy Reef register is missing from the index');
+
+  assert.ok(beaconIndex < tideIndex, 'Beacon (2 open) must sort before Tide (1 open) — more open first');
+  assert.ok(tideIndex < reefIndex, 'structured registers must sort before legacy-prose ones');
+
+  // Real counts render for structured entries.
+  assert.match(indexHtml.slice(beaconIndex - 5, beaconIndex + 200), /2\s*open/i);
+  assert.match(indexHtml.slice(tideIndex - 5, tideIndex + 200), /1\s*open/i);
+
+  // The legacy entry carries no count.
+  assert.doesNotMatch(indexHtml.slice(reefIndex - 5, reefIndex + 200), /\d+\s*open/i);
+
+  // Anchor has neither register.json nor open-questions.md — absent entirely.
+  assert.ok(!indexHtml.includes('Anchor'), 'a workstream with no register at all appeared in the index');
+});
+
 test('register: a workstream with no register.json builds exactly as it did before this milestone', () => {
   // The fixture's own shared build (OUT, built once at module load) has no register.json anywhere
   // under it — this just asserts that absence is silent, not an error, for every fixture workstream.

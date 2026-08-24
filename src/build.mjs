@@ -275,6 +275,49 @@ function collectDocuments(projectRoot, slugs = []) {
   return documents;
 }
 
+// Task 4: one entry per workstream that has a register of either kind, sorted structured-first
+// (most open questions first — the one an owner most needs to look at), legacy-prose after
+// (alphabetically by codename, since there is no open count to sort a prose register by).
+function buildRegisterIndex(projectRoot, resolved, documents) {
+  const entries = [];
+  for (const stream of resolved) {
+    const virtualPath = path.posix.join(DOCS_DIRNAME, 'features', stream.slug, 'register.md');
+    const structuredDoc = documents.find((d) => d.path === virtualPath);
+    if (structuredDoc) {
+      const openCount = structuredDoc.register.questions.filter((q) => q.chosen.kind === 'deferred').length;
+      entries.push({
+        slug: stream.slug,
+        codename: stream.manifest.codename,
+        kind: 'structured',
+        title: structuredDoc.register.title,
+        url: structuredDoc.url,
+        openCount,
+      });
+      continue;
+    }
+    const legacyRelative = path.posix.join(DOCS_DIRNAME, 'features', stream.slug, 'open-questions.md');
+    const legacyDoc = documents.find((d) => d.path === legacyRelative);
+    if (legacyDoc) {
+      entries.push({
+        slug: stream.slug,
+        codename: stream.manifest.codename,
+        kind: 'legacy',
+        title: legacyDoc.title,
+        url: legacyDoc.url,
+        openCount: null,
+      });
+    }
+    // Neither register.json nor open-questions.md: this workstream has no register at all, and is
+    // absent from the index entirely — decision 3 again, an index cannot list what was not found.
+  }
+
+  const structured = entries.filter((e) => e.kind === 'structured').sort((a, b) => b.openCount - a.openCount);
+  const legacy = entries
+    .filter((e) => e.kind === 'legacy')
+    .sort((a, b) => (a.codename < b.codename ? -1 : a.codename > b.codename ? 1 : 0));
+  return [...structured, ...legacy];
+}
+
 // Decision 10: the standalone documents under `docs/` — thirty-two of them in the real corpus, ten
 // loading a sibling `support.js` — and any other file they need. Copied verbatim to the same
 // relative location, so a link written for the repository still resolves on the site.
@@ -454,6 +497,12 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   const documents = collectDocuments(config.projectRoot, resolved.map((stream) => stream.slug));
   const documentUrlByPath = new Map(documents.map((doc) => [doc.path, doc.url]));
 
+  // Task 4: the registers index. Built from the discovered set directly (no hand-maintained list
+  // anywhere) — a structured register (register.json present) shows its real open count; a
+  // legacy-prose one (a workstream's open-questions.md, and any register not yet migrated — Task 6's
+  // stated cost) shows a plain link with none, since nothing parses its open count from prose.
+  const registerIndex = buildRegisterIndex(config.projectRoot, resolved, documents);
+
   const unclassified = resolved.map((stream, index) => {
     const relDir = relPath(config.projectRoot, stream.dir);
     const { displayedStage, deploymentHistory, deploymentLogSha } = readDeploymentLog(config.projectRoot, stream);
@@ -544,6 +593,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     triaged,
     issues,
     documents,
+    registerIndex,
     assets: collectAssets(config.projectRoot),
     // #780's task 12: the other half of decision 32. A config naming a directory that is not there
     // already fails the build; a feature that has been WRITTEN and never put on the sheet was
@@ -670,6 +720,21 @@ function planPages(site) {
       groups: groupRecordsByDirectory(site.documents, site.assets),
     },
   });
+
+  // Task 4: the registers index, absent entirely when no workstream has a register of either
+  // kind — an empty page nobody would ever reach is not better than no page.
+  if (site.registerIndex.length > 0) {
+    pages.push({
+      name: 'registers',
+      extend: 'registers-index.njk',
+      data: {
+        ...shell,
+        permalink: '/registers/index.html',
+        title: 'Registers',
+        registers: site.registerIndex,
+      },
+    });
+  }
 
   for (const doc of site.documents) {
     // A register (M5) renders through its own purpose-built template — "surfaced as a group"
