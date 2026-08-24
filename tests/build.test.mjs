@@ -2201,3 +2201,35 @@ test('build: a non-empty deployment log against a "designing" manifest stage fai
   assert.match(error.message, /[Hh]arbor/, 'the failure never named the workstream');
   assert.match(error.message, /designing/, 'the failure never named the stale manifest stage');
 });
+
+// --- proposedDesigns' url (M9 follow-up: the Upcoming Features section links to content) -----------
+
+test('build: a proposed design with a Markdown file gets an Upcoming Features url pointing at its rendered page', async () => {
+  const projectRoot = fixtureCopy('proposed-design-markdown');
+  const dir = path.join(projectRoot, 'docs', 'design', 'proposed', 'new-idea');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'spec.md'), '# New Idea\n\nA sketch, not yet a feature.\n');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+
+  assert.deepEqual(
+    site.proposedDesigns.find((entry) => entry.slug === 'new-idea'),
+    { slug: 'new-idea', url: '/docs/design/proposed/new-idea/spec/' },
+    'a slug with a rendered Markdown record should link straight to it',
+  );
+});
+
+test('build: a proposed design with only a copied HTML document still gets an Upcoming Features url', async () => {
+  const projectRoot = fixtureCopy('proposed-design-html-only');
+  const dir = path.join(projectRoot, 'docs', 'design', 'proposed', 'wireframes-only');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'screens.html'), '<html><body>wireframes</body></html>');
+
+  const site = await assembleSite(projectRoot, { fetchImpl: forbiddenFetch, offline: true });
+
+  assert.deepEqual(
+    site.proposedDesigns.find((entry) => entry.slug === 'wireframes-only'),
+    { slug: 'wireframes-only', url: '/docs/design/proposed/wireframes-only/screens.html' },
+    'a slug with no rendered Markdown should fall back to its copied HTML document',
+  );
+});

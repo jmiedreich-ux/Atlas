@@ -2034,16 +2034,19 @@ test('deploy.js: wire() leaves the SHA unchanged after a refused transition, so 
   assert.deepEqual(posted.map((p) => p.sha), [buildTimeSha, buildTimeSha]);
 });
 
-// --- the Proposed section (M9, decision 59) --------------------------------------------------------
+// --- the Upcoming Features section (M9, decision 59) ------------------------------------------------
 
-test('proposed section: absent entirely when there is nothing proposed — no empty heading', () => {
+test('upcoming features section: absent entirely when there is nothing proposed — no empty heading', () => {
   const html = renderDepth(workstreams, []);
-  assert.ok(!html.includes('id="proposed-heading"'), 'the Proposed section rendered with nothing in it');
+  assert.ok(!html.includes('id="upcoming-heading"'), 'the Upcoming Features section rendered with nothing in it');
 });
 
-test('proposed section: one row per slug, each with its own Approve button', () => {
-  const html = renderDepth(workstreams, ['keystone', 'platform-operations']);
-  assert.match(html, /id="proposed-heading"/);
+test('upcoming features section: one row per slug, each with its own Approve button', () => {
+  const html = renderDepth(workstreams, [
+    { slug: 'keystone', url: '/docs/design/proposed/keystone/decisions/' },
+    { slug: 'platform-operations', url: null },
+  ]);
+  assert.match(html, /id="upcoming-heading"/);
   // Each slug appears twice — once on its <li>, once on its own button — so a Set is the right
   // check here, not a raw count.
   assert.deepEqual(
@@ -2052,6 +2055,16 @@ test('proposed section: one row per slug, each with its own Approve button', () 
   );
   const buttons = [...html.matchAll(/<button[^>]*data-approve-button[^>]*>/g)];
   assert.equal(buttons.length, 2);
+});
+
+test('upcoming features section: a slug with a resolved url links to it; one with none renders plain text', () => {
+  const html = renderDepth(workstreams, [
+    { slug: 'keystone', url: '/docs/design/proposed/keystone/decisions/' },
+    { slug: 'platform-operations', url: null },
+  ]);
+  assert.match(html, /<a class="upcoming-name" href="\/docs\/design\/proposed\/keystone\/decisions\/">keystone<\/a>/);
+  assert.match(html, /<span class="upcoming-name">platform-operations<\/span>/);
+  assert.ok(!html.includes('<a class="upcoming-name" href="">'), 'a null url must never render an empty href');
 });
 
 test('approve.js: only the feature planning page loads the trigger script', () => {

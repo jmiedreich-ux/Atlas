@@ -510,6 +510,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
   // this same build renders for them, rather than leaving them as text nobody can follow.
   const documents = collectDocuments(config.projectRoot, resolved.map((stream) => stream.slug));
   const documentUrlByPath = new Map(documents.map((doc) => [doc.path, doc.url]));
+  const assets = collectAssets(config.projectRoot);
 
   // Task 4: the registers index. Built from the discovered set directly (no hand-maintained list
   // anywhere) — a structured register (register.json present) shows its real open count; a
@@ -615,17 +616,35 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
     issues,
     documents,
     registerIndex,
-    assets: collectAssets(config.projectRoot),
+    assets,
     // #780's task 12: the other half of decision 32. A config naming a directory that is not there
     // already fails the build; a feature that has been WRITTEN and never put on the sheet was
     // silent, and that is the same failure shape as a hidden feature nobody can find. Reported,
     // never thrown — `unnamedFeatureDirs` carries the reason that line is where it is.
     unnamedFeatures: unnamedFeatureDirs(config),
-    // M9, decision 59: slugs under docs/design/proposed/ the Feature Planning page's Approve
-    // section renders a button for. See `proposedDesignDirs`'s own header for the three conditions
-    // a slug has to clear, mirrored from `src/scaffold.mjs`'s `checkPreconditions`.
-    proposedDesigns: proposedDesignDirs(config),
+    // M9, decision 59: slugs under docs/design/proposed/ the Feature Planning page's "Upcoming
+    // Features" section renders a row (and an Approve button) for. See `proposedDesignDirs`'s own
+    // header for the three conditions a slug has to clear, mirrored from `src/scaffold.mjs`'s
+    // `checkPreconditions`. `url` is where the row links — see `proposedDesignUrl` above.
+    proposedDesigns: proposedDesignDirs(config).map((slug) => ({
+      slug,
+      url: proposedDesignUrl(slug, documents, assets),
+    })),
   };
+}
+
+// The document a proposed design's "Upcoming Features" row links to (M9 follow-up): the first
+// rendered Markdown record under its `docs/design/proposed/<slug>/` directory, or — a corpus that
+// is wireframes and nothing else, like `platform-operations` — the first copied HTML document
+// there. `null` when a slug's directory holds neither `.md` nor `.html`; `planApproval`'s own
+// precondition (the directory has files) means this shouldn't happen, but the row falls back to
+// plain, unlinked text rather than a broken href if it ever does.
+function proposedDesignUrl(slug, documents, assets) {
+  const prefix = `docs/design/proposed/${slug}/`;
+  const doc = documents.find((entry) => entry.path.startsWith(prefix));
+  if (doc) return doc.url;
+  const asset = assets.find((entry) => entry.isDocument && entry.path.startsWith(prefix));
+  return asset ? asset.url : null;
 }
 
 // --- the pages -------------------------------------------------------------------------------------
@@ -687,7 +706,8 @@ function planPages(site) {
       permalink: '/index.html',
       title: 'Feature planning',
       workstreams: site.workstreams,
-      // M9, decision 59: rendered as an "Approve" section, one button per slug.
+      // M9, decision 59: rendered as an "Upcoming Features" section, one row and Approve button
+      // per slug.
       proposedDesigns: site.proposedDesigns,
     },
   });
