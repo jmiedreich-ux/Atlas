@@ -267,6 +267,10 @@ const EXPECTED_FILES = [
   // it — see THEME_FILES's own comment in src/build.mjs.
   'approve.js',
   'refresh.js',
+  // The shared action modal (decision 61 follow-up) approve.js/deploy.js/refresh.js each import —
+  // no <script> tag names it, so THEME_FILES's own comment is the only thing standing between this
+  // and repeating approve.js's exact 404.
+  'action-modal.js',
   // M5 Task 4: the registers index, generated whenever any workstream has a register — beacon
   // does, in this fixture.
   'registers/index.html',
@@ -319,6 +323,7 @@ test('build: Eleventy writes exactly the pages the build planned, and nothing of
     'deploy.js',
     'approve.js',
     'refresh.js',
+    'action-modal.js',
     'state.json',
     'staticwebapp.config.json',
   ]);
@@ -1046,6 +1051,7 @@ test('README: the files it says a build writes are the files a build writes', ()
     'deploy.js',
     'approve.js',
     'refresh.js',
+    'action-modal.js',
     'staticwebapp.config.json',
   ];
   const written = listFiles(OUT).filter(
@@ -1053,7 +1059,7 @@ test('README: the files it says a build writes are the files a build writes', ()
   );
   assert.deepEqual(written.sort(), [...generated].sort(), 'the build writes a different set than this test knows');
 
-  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'];
+  const words = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight'];
   const claimed = /every build writes (\w+) files of its own/.exec(readme);
   assert.ok(claimed, 'the README no longer says how many files a build writes');
   assert.equal(
@@ -1095,7 +1101,7 @@ test('build: the site is gated by default — a project that configures nothing 
 test("build: the theme's own files are served where the layouts link to them", () => {
   // Both are copied byte-for-byte from theme/, never rendered: Eleventy's template formats are
   // `njk` and nothing else, so neither can be picked up as a page of its own.
-  for (const file of ['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js']) {
+  for (const file of ['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js', 'action-modal.js']) {
     assert.ok(existsSync(path.join(OUT, file)), `no /${file} in the output`);
     assert.equal(
       sha256(path.join(OUT, file)),
@@ -1109,6 +1115,13 @@ test("build: the theme's own files are served where the layouts link to them", (
   assert.match(read('index.html'), /<script type="module" src="\/deploy\.js"><\/script>/);
   // M9, decision 59: the Approve button's own script.
   assert.match(read('index.html'), /<script type="module" src="\/approve\.js"><\/script>/);
+  // No <script src="/action-modal.js"> anywhere — refresh.js/approve.js/deploy.js each import it
+  // directly (theme/action-modal.js's own header explains why), so its only presence in a page is
+  // as the import target those scripts resolve, not a tag of its own.
+  assert.ok(
+    !read('index.html').includes('src="/action-modal.js"'),
+    'action-modal.js should be reached only by import, never its own <script> tag',
+  );
 
   // Only the surface that needs it loads it. Decision 12: no framework runtime, and no page picks
   // up behaviour it has no use for.

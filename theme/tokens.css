@@ -48,7 +48,7 @@
  *
  * **Dark.** The contract's default `:root` is `color-scheme: light`; it carries a dark set under
  * `:root[data-sky-theme="midnight"]`, and every token below that midnight defines takes ITS value
- * exactly too. Seven tokens Atlas uses are absent from midnight, and only those are derived — each
+ * exactly too. Eight tokens Atlas uses are absent from midnight, and only those are derived — each
  * marked DERIVED at its definition, with what it was derived from.
  *
  * ============================================================================================
@@ -121,6 +121,9 @@
 
   /* Elevation. The contract defines one panel shadow; a card needs less. */
   --sky-shadow-card: 0 1px 2px rgb(15 23 42 / 0.09), 0 10px 24px rgb(15 23 42 / 0.10);
+
+  /* The modal backdrop scrim — the ink token at low alpha, so it darkens rather than tints. */
+  --atlas-scrim: rgb(15 23 42 / 0.55);
 
   /* --- the locked contract: spacing and shape ----------------------------------------------- */
   --sky-space-1: 0.25rem;
@@ -239,6 +242,10 @@
     /* DERIVED: midnight replaces the panel shadow's slate tint with black at a higher alpha
      * (rgb(0 0 0 / 0.34) for rgb(15 23 42 / 0.12)); the card shadow follows the same rule. */
     --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+    /* DERIVED: Atlas's own token (see its light-mode definition above); a darker, more opaque
+     * scrim than the light value, the same "black at a higher alpha" rule the card shadow above
+     * already follows, so a modal backdrop reads as a backdrop against a dark page too. */
+    --atlas-scrim: rgb(0 0 0 / 0.6);
     /* DERIVED: the contract's link blue is #1d6fb8, unreadable on a dark ground. Lightened into
      * the same family midnight already uses for --sky-focus-color (#38bdf8). */
     --sky-action-link-text: #7dd3fc;
@@ -278,6 +285,7 @@
   --sky-color-fill-subtle: #182234;
   --sky-color-border-control: #6b7c93;
   --sky-shadow-card: 0 1px 2px rgb(0 0 0 / 0.5), 0 10px 24px rgb(0 0 0 / 0.45);
+  --atlas-scrim: rgb(0 0 0 / 0.6);
   --sky-action-link-text: #7dd3fc;
   --atlas-tone-exploring-bg: #2a2247;
   --atlas-tone-done: #5fa8d8;
@@ -1022,6 +1030,193 @@ a.assignee-name:hover {
   color: var(--sky-text-muted);
   font-size: 0.8rem;
   margin: var(--sky-space-1) 0 0;
+}
+
+/* --- the shared action modal (decision 61 follow-up) --------------------------------------------
+ *
+ * The track is `.milestone-spine`'s own idea turned sideways: a filled segment for progress, in
+ * the same `--sky-color-primary` accent `.milestone-node.tone-done` and `.stage-node`'s dot
+ * already use, rather than a colour invented for this one surface. Running is an indeterminate
+ * sweep (the duration is not knowable — see theme/action-modal.js's own header); success fills the
+ * track solid and turns the dot into a check; failure stops the sweep and turns the dot into a
+ * cross, in `--sky-danger-text`, the same token `.milestone-node.tone-parked` already uses for
+ * "this stopped."
+ */
+
+.action-modal-backdrop {
+  align-items: center;
+  background: var(--atlas-scrim);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--sky-space-4);
+  position: fixed;
+  z-index: 100;
+}
+
+.action-modal-backdrop[hidden] {
+  display: none;
+}
+
+.action-modal {
+  background: var(--sky-card-background);
+  border-radius: var(--sky-card-radius);
+  box-shadow: var(--sky-shadow-card);
+  max-width: 26rem;
+  padding: var(--sky-space-6);
+  position: relative;
+  width: 100%;
+}
+
+.action-modal-close {
+  background: none;
+  border: none;
+  color: var(--sky-text-muted);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: var(--sky-space-1);
+  position: absolute;
+  right: var(--sky-space-3);
+  top: var(--sky-space-3);
+}
+
+.action-modal-close:hover {
+  color: var(--sky-text-primary);
+}
+
+.action-modal-close:focus-visible {
+  outline: var(--sky-focus-ring);
+  outline-offset: var(--sky-focus-offset);
+}
+
+.action-modal-title {
+  font-weight: 600;
+  margin: 0 var(--sky-space-6) var(--sky-space-5) 0;
+}
+
+.action-modal-track {
+  background: var(--sky-color-border);
+  border-radius: var(--sky-radius-pill);
+  height: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.action-modal-fill,
+.action-modal-dot {
+  background: var(--sky-color-primary);
+  border-radius: var(--sky-radius-pill);
+  position: absolute;
+}
+
+.action-modal-fill {
+  height: 100%;
+  left: 0;
+  top: 0;
+  width: 28%;
+}
+
+.action-modal-dot {
+  height: 10px;
+  right: -1px;
+  top: 50%;
+  transform: translate(0, -50%);
+  width: 10px;
+}
+
+/* Running: the fill sweeps left-to-right on loop, the dot rides its leading edge. */
+.action-modal-track.is-running .action-modal-fill {
+  animation: action-modal-sweep 1.1s ease-in-out infinite;
+}
+
+.action-modal-track.is-running .action-modal-dot {
+  animation: action-modal-sweep-dot 1.1s ease-in-out infinite;
+}
+
+@keyframes action-modal-sweep {
+  0% { left: -28%; }
+  100% { left: 100%; }
+}
+
+@keyframes action-modal-sweep-dot {
+  0% { left: 0%; }
+  100% { left: 100%; }
+}
+
+/* Success: the fill completes and holds; the dot becomes a check mark. */
+.action-modal-track.is-success .action-modal-fill {
+  left: 0;
+  width: 100%;
+}
+
+.action-modal-track.is-success .action-modal-dot {
+  align-items: center;
+  background: var(--sky-color-primary);
+  color: var(--sky-color-surface-raised);
+  display: flex;
+  font-size: 8px;
+  height: 14px;
+  justify-content: center;
+  left: calc(100% - 14px);
+  top: 50%;
+  width: 14px;
+}
+
+.action-modal-track.is-success .action-modal-dot::after {
+  content: '\2713';
+}
+
+/* Failure: the fill stops wherever it was and turns the danger tone; the dot becomes a cross. */
+.action-modal-track.is-failure .action-modal-fill {
+  background: var(--sky-danger-text);
+  left: 0;
+  width: 45%;
+}
+
+.action-modal-track.is-failure .action-modal-dot {
+  align-items: center;
+  background: var(--sky-danger-text);
+  color: var(--sky-color-surface-raised);
+  display: flex;
+  font-size: 8px;
+  height: 14px;
+  justify-content: center;
+  left: calc(45% - 14px);
+  top: 50%;
+  width: 14px;
+}
+
+.action-modal-track.is-failure .action-modal-dot::after {
+  content: '\2715';
+}
+
+.action-modal-message {
+  color: var(--sky-text-secondary);
+  font-size: 0.85rem;
+  margin: var(--sky-space-3) 0 0;
+}
+
+.action-modal-message.is-failure {
+  color: var(--sky-danger-text);
+}
+
+/* A visitor who has asked for less motion still learns a request is running and how it ended —
+ * the classes above still switch, only the sweep's own keyframe animation drops. */
+@media (prefers-reduced-motion: reduce) {
+  .action-modal-track.is-running .action-modal-fill,
+  .action-modal-track.is-running .action-modal-dot {
+    animation: none;
+  }
+
+  .action-modal-track.is-running .action-modal-fill {
+    left: 0;
+    width: 50%;
+  }
+
+  .action-modal-track.is-running .action-modal-dot {
+    left: calc(50% - 5px);
+  }
 }
 
 /* --- surface two: the mobile triage view -------------------------------------------------------- */

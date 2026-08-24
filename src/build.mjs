@@ -80,7 +80,22 @@ const THEME_DIR = path.join(GENERATOR_ROOT, 'theme');
 // per-surface `bodyScripts` block — every page carries the refresh button, not only feature
 // planning — but it is copied here the same way regardless: this list is about what a build's
 // output needs to contain, not which page links to it.
-const THEME_FILES = Object.freeze(['tokens.css', 'order.js', 'deploy.js', 'approve.js', 'refresh.js']);
+//
+// `action-modal.js` (the shared action modal, decision 61 follow-up) is named here even though
+// `base.njk` never carries a `<script src="/action-modal.js">` tag of its own — `refresh.js`,
+// `approve.js` and `deploy.js` each `import` it directly, and a browser resolves that import
+// against `/action-modal.js` on the deployed site the same way it resolves any other same-origin
+// path, so the file still has to exist in the output or every one of those imports 404s. This is
+// exactly the failure mode this whole comment already exists to prevent, this time for a file with
+// no `<script>` tag to remind anyone it needs listing.
+const THEME_FILES = Object.freeze([
+  'tokens.css',
+  'order.js',
+  'deploy.js',
+  'approve.js',
+  'refresh.js',
+  'action-modal.js',
+]);
 
 // Decision 40: the fixed convention a project provides, and nothing else.
 const CONFIG_FILENAME = 'atlas.config.json';

@@ -54,6 +54,11 @@
 // reassigned from each successful response, and the next click in the same group sends the current
 // value. A 409 from someone *else's* write in between still needs a reload — that guarantee is
 // real and unchanged.
+//
+// THE MODAL, NOT THE INLINE STATUS LINE. See `theme/refresh.js`'s own header for why —
+// `[data-stage-trigger-status]` stays in the DOM but nothing writes to it any more.
+
+import { openActionModal } from './action-modal.js';
 
 /**
  * The body `POST /api/deployment-transition` (Task 5) accepts, and nothing else —
@@ -109,7 +114,6 @@ export function wire(doc, fetchImpl) {
     // "SHA IS HELD IN MEMORY" section) so a second click in the same page load sends what the first
     // click's response actually returned, not the stale value the page was built with.
     let sha = trigger.getAttribute('data-sha') || null;
-    const status = trigger.querySelector('[data-stage-trigger-status]');
     const buttons = [...trigger.querySelectorAll('[data-transition-to]')];
 
     buttons.forEach((button) => {
@@ -120,7 +124,7 @@ export function wire(doc, fetchImpl) {
         buttons.forEach((b) => {
           b.disabled = true;
         });
-        if (status) status.textContent = 'Recording…';
+        const modal = openActionModal(doc, `Recording ${stage}…`);
 
         let outcome;
         try {
@@ -138,7 +142,9 @@ export function wire(doc, fetchImpl) {
           outcome = { status: 0, body: { message: err.message } };
         }
 
-        if (status) status.textContent = outcomeMessage(outcome);
+        const message = outcomeMessage(outcome);
+        const ok = outcome.status >= 200 && outcome.status < 300 && !!outcome.body?.ok;
+        if (modal) modal.resolve({ ok, message });
         buttons.forEach((b) => {
           b.disabled = false;
         });
