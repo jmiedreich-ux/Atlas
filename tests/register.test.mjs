@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRegister } from '../src/register.mjs';
+import { validateRegister, renderRegisterMarkdown } from '../src/register.mjs';
 
 function question(overrides = {}) {
   return {
@@ -76,4 +76,36 @@ test('register: citations defaults to an empty array when omitted, not required'
   const result = validateRegister(register({ questions: [q] }));
   assert.equal(result.ok, true);
   assert.deepEqual(result.value.questions[0].citations, []);
+});
+
+// --- renderRegisterMarkdown ----------------------------------------------------------------------
+
+test("register: renderRegisterMarkdown reproduces the corpus's own heading and answer shape", () => {
+  const md = renderRegisterMarkdown(register({
+    questions: [question({
+      id: 'Q1',
+      chosen: { kind: 'offered', value: 'Option A' },
+      citations: ['decisions.md 10', 'README.md'],
+    })],
+  }));
+  assert.match(md, /^### Q1 · BLOCKING$/m);
+  assert.match(md, /\*\*A question invented for this test\?\*\*/);
+  assert.match(md, /\*Recommended:\* Option A/);
+  assert.match(md, /\*Answer:\* Option A/);
+  assert.match(md, /<sub>decisions\.md 10; README\.md<\/sub>/);
+});
+
+test('register: a written-in answer is marked as such in the document', () => {
+  const md = renderRegisterMarkdown(register({
+    questions: [question({ chosen: { kind: 'written-in', value: 'A different plan entirely.' } })],
+  }));
+  assert.match(md, /\*Answer:\* A different plan entirely\. \(written in\)/);
+});
+
+test('register: a deferred question says so, with no answer line', () => {
+  const md = renderRegisterMarkdown(register({
+    questions: [question({ chosen: { kind: 'deferred', value: null } })],
+  }));
+  assert.match(md, /\*\*Status:\*\* deferred/);
+  assert.doesNotMatch(md, /\*Answer:\*/);
 });

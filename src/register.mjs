@@ -133,3 +133,39 @@ export function validateRegister(obj) {
   value.questions = value.questions.map((q) => ({ citations: [], ...q }));
   return { ok: true, value };
 }
+
+// Heading level, question-bold, and label-italic all matched against a real, hand-written register
+// corpus directly rather than assumed: `### Q<n> · <severity>`, the question itself in `**bold**`,
+// and `*Recommended:*`/`*Answer:*` as italic labels (single asterisk), not the bold double-asterisk
+// labels an earlier draft of this function used. A generated register page that used the wrong
+// heading level or emphasis would be visually distinguishable from a hand-written one on sight,
+// which defeats the point of generating it.
+function renderQuestion(q) {
+  const lines = [`### ${q.id} · ${q.severity}`, '', `**${q.question}**`, '', q.why, '', `*Recommended:* ${q.recommended}`];
+  if (q.chosen.kind === 'deferred') {
+    lines.push('', '**Status:** deferred');
+  } else {
+    const suffix = q.chosen.kind === 'written-in' ? ' (written in)' : '';
+    lines.push('', `*Answer:* ${q.chosen.value}${suffix}`);
+  }
+  if (q.citations.length > 0) {
+    lines.push('', `<sub>${q.citations.join('; ')}</sub>`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The readable register, generated from its data (decision 3 applied to a register: this
+ * document is build output, never a file anybody edits — a hand edit to it is overwritten by the
+ * next build, which is the point rather than a side effect).
+ *
+ * @param {object} register - a `validateRegister`-passed value.
+ * @returns {string} markdown, in the same shape the corpus's own hand-written registers use.
+ */
+export function renderRegisterMarkdown(register) {
+  const lines = [`# ${register.title}`, ''];
+  for (const q of register.questions) {
+    lines.push(renderQuestion(q), '');
+  }
+  return lines.join('\n').trimEnd() + '\n';
+}

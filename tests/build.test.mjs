@@ -1111,6 +1111,64 @@ test("build: the project's Markdown records are rendered as pages at their own p
   }
 });
 
+// --- M5: a register's document is generated, never a file anybody edits ------------------------
+
+test('register: a register.json produces a generated document, and a hand edit to the output is lost on the next build', async () => {
+  const projectRoot = fixtureCopy('register-generated');
+  const registerPath = path.join(projectRoot, 'docs', 'features', 'beacon', 'register.json');
+  writeFileSync(
+    registerPath,
+    JSON.stringify(
+      {
+        slug: 'beacon',
+        title: 'Beacon Register',
+        questions: [
+          {
+            id: 'Q1',
+            question: 'Real question, invented for this test?',
+            why: 'Real why.',
+            options: ['A', 'B'],
+            recommended: 'A',
+            severity: 'BLOCKING',
+            chosen: { kind: 'offered', value: 'A' },
+            citations: [],
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+
+  const out1 = path.join(TMP_ROOT, 'register-generated-out');
+  rmSync(out1, { recursive: true, force: true });
+  await build(projectRoot, out1, { fetchImpl: stubFetch, quiet: true });
+
+  const generatedPage = path.join(out1, 'docs', 'features', 'beacon', 'register', 'index.html');
+  assert.ok(existsSync(generatedPage), 'no page was generated for the register at all');
+  const rendered = readFileSync(generatedPage, 'utf8');
+  assert.ok(rendered.includes('Beacon Register'), "the generated page never names the register's own title");
+  assert.ok(rendered.includes('Real question, invented for this test?'), 'the generated page never rendered the question itself');
+
+  // A hand edit made directly to the OUTPUT (not the source register.json) does not survive a
+  // rebuild — the document is regenerated from the record every time, never read back as its own
+  // source (decision 3's "no artifact without a generator", applied to a register).
+  writeFileSync(generatedPage, 'HAND EDITED, SHOULD NOT SURVIVE');
+  await build(projectRoot, out1, { fetchImpl: stubFetch, quiet: true });
+  const rebuilt = readFileSync(generatedPage, 'utf8');
+  assert.ok(!rebuilt.includes('HAND EDITED'), 'a hand edit to the generated output survived a rebuild');
+  assert.equal(rebuilt, rendered, 'the rebuilt page differs from the first build with no source change');
+});
+
+test('register: a workstream with no register.json builds exactly as it did before this milestone', () => {
+  // The fixture's own shared build (OUT, built once at module load) has no register.json anywhere
+  // under it — this just asserts that absence is silent, not an error, for every fixture workstream.
+  for (const slug of FIXTURE_WORKSTREAMS) {
+    const page = path.join(OUT, 'docs', 'features', slug, 'register', 'index.html');
+    assert.ok(!existsSync(page), `${slug} has no register.json but a register page was generated anyway`);
+  }
+});
+
 // --- decision 10: standalone HTML is copied, never templated ------------------------------------
 
 test('build: a standalone .html file and its sibling script are copied byte-for-byte', () => {

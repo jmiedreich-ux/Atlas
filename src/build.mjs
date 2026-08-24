@@ -44,6 +44,7 @@ import { assertOutputDirIsSafe, assertStagingDirIsFree, createStagingDir } from 
 import { computeLadder, assertLadderResolves, spineDetail } from './depth.mjs';
 import { emptyBuckets, fetchIssueBodies, fetchProjectIssues } from './github.mjs';
 import { headingAnchors, renderMarkdown } from './markdown.mjs';
+import { validateRegister, renderRegisterMarkdown } from './register.mjs';
 import { buildState, serialiseState } from './state.mjs';
 import { SWA_CONFIG_FILENAME, serialiseSwaConfig } from './swa.mjs';
 import { orderByTriage } from './triage.mjs';
@@ -197,11 +198,50 @@ function assertRoadmapExists(projectRoot) {
 // and neither is ever the other. Recorded rather than renamed: both names are in the v1 `state.json`
 // contract.
 
-// The Markdown records: the roadmap, and everything under `docs/` (decision 40). A record renders
-// at the URL its own path implies — `docs/x/y.md` becomes `/docs/x/y/` — because that is precisely
-// what `src/markdown.mjs` rewrites a relative `y.md` link to. Render them anywhere else and every
-// cross-reference in the corpus breaks.
-function collectDocuments(projectRoot) {
+// One document entry, from a repository-relative `.md` path and its text — real, on disk, or
+// generated (M5's registers, below). The URL/permalink formula is the single thing that must
+// never diverge between the two: `docs/x/y.md` becomes `/docs/x/y/`, because that is precisely
+// what `src/markdown.mjs` rewrites a relative `y.md` link to, and a generated document that used
+// a different formula would be a cross-reference nothing else in the corpus could resolve.
+function documentFromMarkdown(source, relative, text) {
+  const withoutExtension = relative.replace(/\.md$/, '');
+  const anchors = headingAnchors(text);
+  return {
+    source,
+    path: relative,
+    url: `/${encodeUrlPath(withoutExtension)}/`,
+    permalink: `/${withoutExtension}/index.html`,
+    // Decision 15: the file is the authority, so its own first heading names it. Only when a
+    // record carries no heading at all does the filename stand in.
+    title: anchors.find((anchor) => anchor.level === 1)?.text.trim() || path.basename(withoutExtension),
+    hrefBase: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative),
+    text,
+    anchors,
+  };
+}
+
+// A question register (M5, decision 51): `docs/features/<slug>/register.json`, optional. Present
+// ones generate their own markdown document as build output — decision 3 applied to a register —
+// and are folded into the same `documents` collection every other rendered `.md` file goes
+// through, so a register's page is indistinguishable in the pipeline from any other document.
+function loadRegister(projectRoot, slug) {
+  const registerPath = path.join(projectRoot, DOCS_DIRNAME, 'features', slug, 'register.json');
+  if (!existsSync(registerPath)) return null;
+  const raw = JSON.parse(readFileSync(registerPath, 'utf8'));
+  const result = validateRegister(raw);
+  if (!result.ok) {
+    throw new Error(
+      `atlas: ${relPath(projectRoot, registerPath)} is not a valid register:\n` +
+        result.errors.map((e) => `  ${e.path || '(root)'}: ${e.message}`).join('\n'),
+    );
+  }
+  return result.value;
+}
+
+// The Markdown records: the roadmap, everything under `docs/` (decision 40), and every
+// workstream's register document, generated rather than read (M5). A record renders at the URL
+// its own path implies — see `documentFromMarkdown` above.
+function collectDocuments(projectRoot, slugs = []) {
   // The roadmap first, then the corpus. Its presence is not re-tested here: `assertRoadmapExists`
   // has already thrown if it is missing, and a second check would read as though it might not have.
   const sources = [
@@ -209,25 +249,19 @@ function collectDocuments(projectRoot) {
     ...filesUnder(path.join(projectRoot, DOCS_DIRNAME)).filter((file) => file.endsWith('.md')),
   ];
 
-  return sources.map((source) => {
+  const documents = sources.map((source) => {
     const relative = relPath(projectRoot, source);
-    const withoutExtension = relative.replace(/\.md$/, '');
-    const text = readFileSync(source, 'utf8');
-    const anchors = headingAnchors(text);
-
-    return {
-      source,
-      path: relative,
-      url: `/${encodeUrlPath(withoutExtension)}/`,
-      permalink: `/${withoutExtension}/index.html`,
-      // Decision 15: the file is the authority, so its own first heading names it. Only when a
-      // record carries no heading at all does the filename stand in.
-      title: anchors.find((anchor) => anchor.level === 1)?.text.trim() || path.basename(withoutExtension),
-      hrefBase: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative),
-      text,
-      anchors,
-    };
+    return documentFromMarkdown(source, relative, readFileSync(source, 'utf8'));
   });
+
+  for (const slug of slugs) {
+    const register = loadRegister(projectRoot, slug);
+    if (register === null) continue;
+    const virtualPath = path.posix.join(DOCS_DIRNAME, 'features', slug, 'register.md');
+    documents.push(documentFromMarkdown(null, virtualPath, renderRegisterMarkdown(register)));
+  }
+
+  return documents;
 }
 
 // Decision 10: the standalone documents under `docs/` — thirty-two of them in the real corpus, ten
@@ -406,7 +440,7 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
 
   // The records first, so a milestone can link its plan and its acceptance record to the pages
   // this same build renders for them, rather than leaving them as text nobody can follow.
-  const documents = collectDocuments(config.projectRoot);
+  const documents = collectDocuments(config.projectRoot, resolved.map((stream) => stream.slug));
   const documentUrlByPath = new Map(documents.map((doc) => [doc.path, doc.url]));
 
   const unclassified = resolved.map((stream, index) => {
