@@ -752,6 +752,42 @@ h3 {
   font-weight: 600;
 }
 
+/* Real GitHub assignees on a milestone's own issue (M6: "people are assignees") — distinct from
+ * `.task-owner`, which is a plain text tag inside one checklist line and may name an agent rather
+ * than a person. This is the whole issue's own real assignee list, not per task. */
+.milestone-assignees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sky-space-2);
+  list-style: none;
+  margin: var(--sky-space-2) 0 0;
+  padding: 0;
+}
+
+.milestone-assignees.is-muted {
+  opacity: 0.65;
+}
+
+.assignee {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.assignee-avatar {
+  border-radius: 50%;
+  display: block;
+}
+
+.assignee-name {
+  color: var(--sky-text-secondary);
+  font-size: 0.8rem;
+}
+
+a.assignee-name:hover {
+  color: var(--sky-text-primary);
+}
+
 .task-list {
   list-style: none;
   margin: var(--sky-space-2) 0 0;

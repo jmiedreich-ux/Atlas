@@ -121,6 +121,22 @@
 {{ ui.chip('status', milestone.manifest.status) }}
 </div>
 {%- if detail == 'full' or detail == 'full-muted' %}
+{%- if milestone.manifest.assignees.length %}
+<ul class="milestone-assignees{% if detail == 'full-muted' %} is-muted{% endif %}" aria-label="Assigned">
+{%- for a in milestone.manifest.assignees %}
+<li class="assignee">
+{%- if a.avatarUrl -%}
+<img class="assignee-avatar" src="{{ a.avatarUrl }}" alt="" width="16" height="16">
+{%- endif -%}
+{%- if a.htmlUrl -%}
+<a class="assignee-name" href="{{ a.htmlUrl }}">{{ a.login }}</a>
+{%- else -%}
+<span class="assignee-name">{{ a.login }}</span>
+{%- endif -%}
+</li>
+{%- endfor %}
+</ul>
+{%- endif %}
 {%- if milestone.manifest.tasks.length %}
 <ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
 {%- for t in milestone.manifest.tasks %}
