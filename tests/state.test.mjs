@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, existsSync, rmSync, mkdirSync, cpSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -32,6 +32,27 @@ await build(FIXTURE_ROOT, OUT, {
 
 const read = (rel) => readFileSync(path.join(OUT, rel), 'utf8');
 const state = JSON.parse(read('state.json'));
+
+// A copy of the fixture that one test may break on purpose, mirroring tests/build.test.mjs's own
+// `fixtureCopy`/`editManifest` helpers — state.test.mjs otherwise builds once, at module scope,
+// against the shared fixture, but the override test below needs a `deploymentLog` no shared
+// fixture workstream carries.
+const TMP_ROOT = path.join(REPO_ROOT, '.tmp-tests');
+
+function fixtureCopy(name) {
+  const dir = path.join(TMP_ROOT, name);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(path.dirname(dir), { recursive: true });
+  cpSync(FIXTURE_ROOT, dir, { recursive: true });
+  return dir;
+}
+
+function editManifest(projectRoot, slug, mutate) {
+  const file = path.join(projectRoot, 'docs', 'features', slug, 'workstream.json');
+  const manifest = JSON.parse(readFileSync(file, 'utf8'));
+  mutate(manifest);
+  writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+}
 
 const config = loadConfig(FIXTURE_ROOT);
 const workstreams = resolveWorkstreams(config);
@@ -89,6 +110,42 @@ test('state: every workstream carries the position fields the manifest is the au
     assert.ok(page.includes(entry.gate), `${stream.slug}: the page and state disagree about the gate`);
     assert.ok(page.includes(entry.position), `${stream.slug}: the page and state disagree about the position`);
   }
+});
+
+test('state: a workstream\'s stage is the displayed stage, not the manifest\'s raw one, once a deployment log overrides it (Task 6 fix)', async () => {
+  // The rendered chip (theme/_includes/workstream.njk, depth.njk) and state.json's `stage` key
+  // must never disagree about a workstream's stage — the same failure class src/depth.mjs's own
+  // comments describe for `tipLabel`. `assembleSite` computes `displayedStage` from a
+  // `deploymentLog`'s latest entry when one exists; this proves `buildState` projects that
+  // computed field, not `manifest.stage` directly.
+  const projectRoot = fixtureCopy('state-deployment-log-override');
+
+  const logPath = 'docs/features/beacon/deployment-log.json';
+  const history = [
+    { stage: 'development', note: 'first deploy to dev' },
+    { stage: 'staging', note: 'promoted to staging' },
+  ];
+  writeFileSync(path.join(projectRoot, logPath), `${JSON.stringify(history, null, 2)}\n`);
+  editManifest(projectRoot, 'beacon', (manifest) => {
+    manifest.stage = 'development';
+    manifest.deploymentLog = logPath;
+  });
+
+  const out = path.join(TMP_ROOT, 'state-deployment-log-override-out');
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+
+  await build(projectRoot, out, { offline: true, quiet: true });
+
+  const overriddenState = JSON.parse(readFileSync(path.join(out, 'state.json'), 'utf8'));
+  const beacon = overriddenState.workstreams.find((w) => w.slug === 'beacon');
+
+  assert.ok(beacon, 'state.json has no entry for beacon');
+  assert.equal(
+    beacon.stage,
+    'staging',
+    "state.json's stage must be the deployment log's latest entry, not the manifest's raw 'development'",
+  );
 });
 
 test('state: every milestone matches the row the workstream page rendered for it', () => {

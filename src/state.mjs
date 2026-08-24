@@ -73,7 +73,7 @@ export function buildState(site) {
       slug: stream.slug,
       codename: stream.manifest.codename,
       what: stream.manifest.what,
-      stage: stream.manifest.stage,
+      stage: stream.displayedStage,
       position: stream.manifest.position,
       gate: stream.manifest.gate,
       label: stream.manifest.label,
