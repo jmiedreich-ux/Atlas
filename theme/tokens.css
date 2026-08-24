@@ -803,11 +803,23 @@ h3 {
 /* The label+title pair, together, as one link to that milestone's own page — decision 24's chip
  * beside it stays outside the link, since a status is not the thing being navigated to. Flex here
  * for the same reason `.milestone-head` is: the two spans it wraps used to be its direct children
- * and shared its gap; this keeps that layout now that they sit one level deeper. */
+ * and shared its gap; this keeps that layout now that they sit one level deeper.
+ *
+ * Deliberately NOT styled like `a`'s global link colour — the owner asked for this to read as
+ * ordinary spine text, not a link, even though it is one. `color: inherit` and no underline at
+ * rest; a hover/focus underline is the only affordance that it goes anywhere, which keyboard
+ * navigation already gets for free from the global `:focus-visible` outline regardless. */
 .milestone-name-link {
   align-items: baseline;
+  color: inherit;
   display: flex;
   gap: var(--sky-space-2);
+  text-decoration: none;
+}
+
+.milestone-name-link:hover {
+  color: inherit;
+  text-decoration: underline;
 }
 
 .milestone-label {
