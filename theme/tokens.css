@@ -899,7 +899,54 @@ a.assignee-name:hover {
 .milestone-task-count {
   color: var(--sky-text-muted);
   font-size: 0.85rem;
-  margin: var(--sky-space-1) 0 0;
+}
+
+/* Same button-reset + disclosure-rotation shape `.feature-row-head` already has one level up —
+ * this is that pattern applied to one milestone's own checklist instead of a whole feature row. */
+.milestone-toggle {
+  align-items: center;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  gap: var(--sky-space-2);
+  margin-left: auto;
+  padding: 0;
+}
+
+.milestone-toggle:focus-visible {
+  outline: var(--sky-focus-ring);
+  outline-offset: 2px;
+}
+
+.milestone-toggle[aria-expanded="true"] .disclosure {
+  transform: rotate(90deg);
+}
+
+.milestone-toggle-all {
+  display: flex;
+  gap: var(--sky-space-3);
+  margin-top: var(--sky-space-2);
+}
+
+.milestone-toggle-all-button {
+  background: none;
+  border: none;
+  color: var(--sky-action-link-text);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.milestone-toggle-all-button:hover {
+  color: var(--sky-text-primary);
+}
+
+.milestone-toggle-all-button:focus-visible {
+  outline: var(--sky-focus-ring);
+  outline-offset: 2px;
 }
 
 /* M8 task 7: the deployment-transition trail, beside `.milestone-spine` rather than inside it (see
