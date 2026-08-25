@@ -25,15 +25,23 @@ export const TRIAGE_ORDER = Object.freeze([
 /**
  * Which of decision 27's five states a workstream is in.
  *
- * Stage is read first, because a workstream that has not started designing yet cannot be moving
- * whatever its milestone list says. Only once a workstream is past `planned` do its milestones
- * decide anything.
+ * `ownerAction` (decision 63, draft) is read first: an explicit "this needs you" always wins,
+ * whatever stage or milestone status would otherwise say. Failing that, stage is read next,
+ * because a workstream that has not started designing yet cannot be moving whatever its milestone
+ * list says. Only once a workstream is past `planned` do its milestones decide anything.
  *
  * @param {object} manifest - a validated workstream manifest (decision 14).
  * @returns {'awaiting-decision' | 'moving' | 'blocked' | 'designing' | 'not-started'}
  */
 export function classifyTriage(manifest) {
   const milestones = manifest?.milestones ?? [];
+
+  // Decision 63 (draft): an explicit `ownerAction` is the real signal now, read before stage says
+  // anything — a workstream can be `designing` (this function's own next check would otherwise
+  // send it to `designing`, not `awaiting-decision`) and still have something specific waiting on
+  // the owner right now, which `stage` alone cannot say. `next`'s prose could say the same thing
+  // in words a reader had to parse to notice; `ownerAction` existing at all is the noticing.
+  if (manifest?.ownerAction) return 'awaiting-decision';
 
   if (manifest?.stage === 'not-started') return 'not-started';
   if (manifest?.stage === 'designing') return 'designing';

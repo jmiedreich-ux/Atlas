@@ -33,13 +33,14 @@ function manifest(shape) {
 // The one caller that must NOT go through the schema: the fallback test below feeds a stage the
 // closed vocabulary rejects on purpose, to pin what `classifyTriage` does with one. Separated
 // rather than made a flag, so it is impossible to reach by accident.
-function unvalidatedManifest({ stage, statuses = [] }) {
+function unvalidatedManifest({ stage, statuses = [], ownerAction }) {
   return {
     codename: 'Invented',
     what: 'A workstream invented for this test',
     stage,
     position: 'Invented for this test',
     next: 'Invented for this test',
+    ...(ownerAction !== undefined ? { ownerAction } : {}),
     label: 'workstream:invented',
     design: [],
     milestones: statuses.map((status, i) => ({
@@ -132,6 +133,50 @@ test('triage: every stage against every milestone status lands where it lands to
       `stage "${stage}" with ${status === null ? 'no milestones' : `a "${status}" milestone`} must be "${expected}"`,
     );
   }
+});
+
+// Decision 63 (draft): ownerAction is read before stage or milestone status, and wins over both —
+// the explicit "this needs you" signal, not an inference. One test per corner the TABLE above
+// already covers as "not awaiting-decision" on stage/status alone, to prove ownerAction actually
+// overrides rather than just agreeing where the two would already agree.
+
+test('triage: ownerAction forces awaiting-decision even on a "designing" stage, which stage alone would classify as "designing"', () => {
+  assert.equal(
+    classifyTriage(manifest({ stage: 'designing', statuses: [], ownerAction: 'Review issue #861' })),
+    'awaiting-decision',
+  );
+});
+
+test('triage: ownerAction forces awaiting-decision even with a "next" milestone, which status alone would classify as "moving"', () => {
+  assert.equal(
+    classifyTriage(manifest({ stage: 'development', statuses: ['next'], ownerAction: 'Review issue #861' })),
+    'awaiting-decision',
+  );
+});
+
+test('triage: ownerAction forces awaiting-decision even with a "parked" milestone, which status alone would classify as "blocked"', () => {
+  assert.equal(
+    classifyTriage(manifest({ stage: 'development', statuses: ['parked'], ownerAction: 'Review issue #861' })),
+    'awaiting-decision',
+  );
+});
+
+test('triage: ownerAction forces awaiting-decision on a "not-started" stage too — nothing outranks it', () => {
+  assert.equal(
+    classifyTriage(manifest({ stage: 'not-started', statuses: [], ownerAction: 'Review issue #861' })),
+    'awaiting-decision',
+  );
+});
+
+test('triage: an absent ownerAction changes nothing — the table above still holds', () => {
+  assert.equal(classifyTriage(manifest({ stage: 'designing', statuses: [] })), 'designing');
+});
+
+test('triage: ownerAction as an empty string does not force awaiting-decision — falsy, not "set"', () => {
+  // Schema-level, an empty string is refused outright (tests/schema.test.mjs); this pins
+  // classifyTriage's own behaviour if one ever reached it some other way — falsy reads as absent,
+  // not as a truncated action nobody wrote yet.
+  assert.equal(classifyTriage(unvalidatedManifest({ stage: 'designing', statuses: [], ownerAction: '' })), 'designing');
 });
 
 test('triage: the table covers the whole closed vocabulary, so a new value cannot slip in unpinned', () => {

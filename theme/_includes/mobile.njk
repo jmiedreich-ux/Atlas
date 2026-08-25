@@ -73,6 +73,10 @@
     four milestones, all done and nothing beyond, while the desk chart correctly drew no balloon
     for it. The two surfaces read this one field now, so they cannot say different things. -#}
 {% if stream.column.tipLabel %}<p class="card-next">Next: {{ stream.column.tipLabel }}</p>{% endif %}
+{#- Decision 63 (draft): the plain sentence behind this section's own "Waiting on you" heading —
+    a card sorted into this section by `ownerAction` alone (its stage might otherwise have put it
+    under "Designing") still has to say WHAT, not just that it is here. -#}
+{% if stream.manifest.ownerAction %}<p class="card-owner-action"><span class="card-status-label">{{ ui.chipLabel('awaiting-decision') }}</span>{{ stream.manifest.ownerAction }}</p>{% endif %}
 <p class="card-status"><span class="card-status-label">Status</span>{{ stream.manifest.next }}</p>
 </article>
 </li>

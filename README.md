@@ -114,6 +114,7 @@ projects them, so the site and this file cannot disagree.
   "surfaces": [ { "id": "depth", "url": "/" }, { "id": "triage", "url": "/mobile/" } ],
   "workstreams": [ {
     "slug": "…", "codename": "…", "stage": "…", "position": "…", "next": "…",
+    "ownerAction": "…",               // optional (decision 63, draft) — plain, direct, forces triage below
     "triage": "awaiting-decision",    // decision 27's state, from the same call the phone view used
     "dir": "docs/features/…",         // every path is repository-relative, never absolute
     "manifestPath": "docs/features/…/workstream.json",
@@ -210,6 +211,16 @@ fixed convention, at its own root:
   says otherwise. A log with entries against a manifest `stage` still `not-started` or `designing`
   is a stale record, not a fact, and fails the build by decision 32 rather than rendering two
   surfaces that disagree.
+
+  `ownerAction` (decision 63, draft) is optional — absent, or `null`, for a workstream with nothing
+  specific waiting on the owner right now. When present it is a short, plain, direct sentence
+  saying what to do — "Review issue #861 (component inventory)", not "Owner reviews the component
+  inventory (#861)" — capped at the same 240 characters `position`/`next` are, because this is read
+  on a chip at a glance, not as a paragraph. Setting it forces `src/triage.mjs`'s `classifyTriage`
+  to `awaiting-decision` regardless of `stage` or milestone status — a `designing`-stage workstream
+  with something specific for the owner to decide shows up under "Waiting on you" on the phone view
+  and carries the same chip on the desk view and its own page, rather than requiring `next`'s prose
+  to be read and interpreted to notice.
 
   Two vocabularies are closed, and an unrecognised value fails the build rather than rendering a
   blank chip (decision 32):

@@ -5,7 +5,7 @@
   the design doc for this rebuild is explicit that the milestone is the axis here, not a calendar.
 
   Data this layout expects — `workstreams`, in the order the config declares, each:
-    slug, manifest { codename, stage, next, milestones: [{ id, label, depth, title, status, tasks }] }
+    slug, manifest { codename, stage, next, ownerAction, milestones: [{ id, label, depth, title, status, tasks }] }
     displayedStage — src/build.mjs's assembleSite: the manifest's own `stage`, overridden by a
                      deployment log's latest entry when the workstream has one (M8 task 6). The
                      chip renders THIS, never `manifest.stage` directly.
@@ -112,6 +112,12 @@
 <span class="feature-next">{{ stream.manifest.next }}</span>
 {%- endif %}
 {{ ui.chip('triage', stream.triage) }}
+{#- Decision 63 (draft): the chip above already says "Waiting on you" once `ownerAction` exists
+    (src/triage.mjs) — this is the plain sentence saying what, right beside it, so a reader never
+    has to open the row or parse `next`'s narrative prose to find out. -#}
+{%- if stream.manifest.ownerAction %}
+<span class="owner-action-text">{{ stream.manifest.ownerAction }}</span>
+{%- endif %}
 </div>
 <a class="feature-link" href="{{ stream.url }}">View {{ stream.manifest.codename }}'s own page</a>
 <div class="feature-spine" id="spine-{{ stream.slug }}" data-feature-spine hidden>

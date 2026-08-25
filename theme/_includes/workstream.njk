@@ -18,7 +18,10 @@
                  deployment log's latest entry when the workstream has one. The heading chip
                  renders THIS, never `workstream.manifest.stage` directly. `design` is the
                  enriched `manifest.design` (each entry plus `.url`, `null` if unresolved) — use
-                 THIS, never `workstream.manifest.design` directly.
+                 THIS, never `workstream.manifest.design` directly. `triage` (src/triage.mjs) is
+                 always `awaiting-decision` when `manifest.ownerAction` is set (decision 63, draft)
+                 — the same value the accordion and mobile view already show, reused rather than
+                 re-derived here.
     issues     — this workstream's open issues, i.e. fetchProjectIssues(...).byLabel for its label
                  (an empty list is fine, and is what a build with no GitHub reach produces)
     project, repo, title — see base.njk
@@ -32,6 +35,14 @@
 <p class="breadcrumb"><a href="/">Feature planning</a></p>
 <h1>{{ workstream.manifest.codename }} {{ ui.chip("stage", workstream.displayedStage) }}</h1>
 <p class="lede">{{ workstream.manifest.what }}</p>
+
+{#- Decision 63 (draft): the same explicit signal the accordion and mobile view already show,
+    prominent here too — `workstream.triage` is already `awaiting-decision` whenever `ownerAction`
+    is set (src/triage.mjs reads it first), so this reuses that one computed value rather than
+    re-deriving "does this need the owner" a third way. -#}
+{%- if workstream.manifest.ownerAction %}
+<p class="owner-action-callout">{{ ui.chip('triage', workstream.triage) }} <span class="owner-action-text">{{ workstream.manifest.ownerAction }}</span></p>
+{%- endif %}
 
 <ul class="meta-list">
 <li><span class="meta-label">Where it stands</span>{{ workstream.manifest.position }}</li>
