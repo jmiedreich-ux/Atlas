@@ -1983,6 +1983,16 @@ test('build: a task id tag (decision 62, draft) reaches the real built page as d
   // data attribute a person cannot read on the page.
   assert.match(nodeMatch[0], /<span class="task-id">T1<\/span>/, 'the id-tagged task did not render its id as visible text');
   assert.equal((nodeMatch[0].match(/class="task-id"/g) ?? []).length, 1, 'only the id-tagged task should show a visible id — the other task has no id tag');
+
+  // Owner request, 2026-08-24: "make the tasks clickable to their respected git hub link" — every
+  // task under this milestone links to the SAME issue (beacon M4's own, #104), since a checklist
+  // line has no narrower GitHub URL of its own.
+  const linkCount = (nodeMatch[0].match(/class="task-text task-text-link"/g) ?? []).length;
+  assert.equal(linkCount, 2, 'both tasks under this milestone should link to their shared issue, id-tagged or not');
+  assert.ok(
+    nodeMatch[0].includes('href="https://github.com/atlas-fixtures/lighthouse/issues/104"'),
+    'a task did not link to its milestone\'s real issue URL',
+  );
 });
 
 test('build: real GitHub assignees on a milestone\'s own issue render on the page, end to end', async () => {

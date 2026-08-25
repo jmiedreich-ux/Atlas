@@ -909,6 +909,20 @@ a.assignee-name:hover {
   text-decoration: line-through;
 }
 
+/* Same de-styling `.milestone-name-link` already gets ("I don't want the link look on them") — a
+ * task linking to its issue reads as ordinary task text at rest, with a hover/focus underline as
+ * the only hint it goes anywhere. `.task-line.is-done`'s muted/strikethrough rule above still wins
+ * for a done task, since both select on the shared `.task-text` class regardless of tag. */
+.task-text-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.task-text-link:hover {
+  color: inherit;
+  text-decoration: underline;
+}
+
 /* Same mono/muted/small treatment `.milestone-label` already uses for M1/M2/… — a task id is the
  * same kind of thing, one level deeper, and reuses the identical recipe rather than a second one. */
 .task-id {

@@ -65,6 +65,13 @@
   interaction reads it: no approve/deny/defer/comment mechanism exists yet. This only makes the id
   legible to a person who needs to refer to a specific task out loud or in writing, the same reason
   `.milestone-label` (M1, M2, …) is visible text rather than only a `data-milestone-node` attribute.
+
+  Owner request, 2026-08-24: "make the tasks clickable to their respected git hub link." Every task
+  under one milestone comes from ONE checklist inside ONE issue — `milestone.issueUrl` (`src/build.mjs`,
+  built from `config.repo` and the milestone's own `issue` number, never from a fetched object) — so
+  a task's own "respective link" is that shared issue, not something narrower GitHub does not expose.
+  `.task-text-link` gets the same de-styled treatment `.milestone-name-link` already does (PR #28,
+  "I don't want the link look on them"): `color: inherit`, no underline at rest, hover-only.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -195,7 +202,11 @@
 {%- if t.id %}
 <span class="task-id">{{ t.id }}</span>
 {%- endif %}
+{%- if milestone.issueUrl %}
+<a class="task-text task-text-link" href="{{ milestone.issueUrl }}">{{ t.text }}</a>
+{%- else %}
 <span class="task-text">{{ t.text }}</span>
+{%- endif %}
 <span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
 </li>
 {%- endfor %}
