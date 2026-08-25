@@ -623,6 +623,14 @@ export async function assembleSite(projectRoot, { fetchImpl, token, offline }) {
           recordUrl: milestone.acceptance.record
             ? documentUrlByPath.get(milestone.acceptance.record) ?? null
             : null,
+          // Owner request, 2026-08-24: "make the tasks clickable to their respected git hub link."
+          // Every task in `manifest.tasks` above comes from ONE checklist, inside ONE issue — this
+          // milestone's own `issue` — so there is no separate per-task URL to give; the honest
+          // "respective link" a task can have is the issue its checkbox lives in. Built directly
+          // from `config.repo` and the issue number, not from a fetched object's `html_url`: the
+          // number is already known before any fetch happens, and GitHub's issue URL shape is
+          // fixed, so nothing here depends on `fetchIssueBodies` having succeeded.
+          issueUrl: milestone.issue !== null ? `https://github.com/${config.repo}/issues/${milestone.issue}` : null,
           hrefBase: relDir,
         };
       }),
