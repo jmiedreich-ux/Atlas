@@ -60,9 +60,11 @@
 
   Decision 62 (draft): a task line may carry a real id now (`src/tasks.mjs`'s `parseTasks`,
   `T3 · Move dialog to…`). `data-task-id` on `.task-line` below is that id, present only when the
-  issue actually wrote one — inert data, not a feature. No interaction reads it yet; it exists so
-  a later, separately-decided approve/deny/defer/comment mechanism has something stable to address
-  a task by, instead of the position-only `data-task-index` every task has always carried.
+  issue actually wrote one, and — owner request, 2026-08-24, "we need to refer to those" — now also
+  shown as visible text (`.task-id`) before the task itself, not only as a data attribute. Still no
+  interaction reads it: no approve/deny/defer/comment mechanism exists yet. This only makes the id
+  legible to a person who needs to refer to a specific task out loud or in writing, the same reason
+  `.milestone-label` (M1, M2, …) is visible text rather than only a `data-milestone-node` attribute.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -184,6 +186,9 @@
 {%- for t in milestone.manifest.tasks %}
 <li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}"{% if t.id %} data-task-id="{{ t.id }}"{% endif %} aria-describedby="task-note">
 <span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
+{%- if t.id %}
+<span class="task-id">{{ t.id }}</span>
+{%- endif %}
 <span class="task-text">{{ t.text }}</span>
 <span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
 </li>

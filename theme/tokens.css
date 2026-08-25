@@ -890,6 +890,15 @@ a.assignee-name:hover {
   text-decoration: line-through;
 }
 
+/* Same mono/muted/small treatment `.milestone-label` already uses for M1/M2/… — a task id is the
+ * same kind of thing, one level deeper, and reuses the identical recipe rather than a second one. */
+.task-id {
+  color: var(--sky-text-muted);
+  font-family: var(--atlas-font-mono, monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .task-owner {
   color: var(--sky-text-muted);
   font-size: 0.8rem;
