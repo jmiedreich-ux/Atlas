@@ -585,6 +585,25 @@ h3 {
   color: var(--sky-warning-text);
 }
 
+/* Decision 63 (draft): the plain-language ownerAction sentence beside the "Waiting on you" chip
+ * above — same accent colour as that chip, not a new one, so the two read as one signal rather
+ * than two competing ones. Weight, not a background: this sits inline beside other plain text
+ * (`.feature-next`, `next`'s own prose) and only needs to draw the eye, not box itself off. */
+.owner-action-text {
+  color: var(--sky-warning-text);
+  font-weight: 600;
+}
+
+.owner-action-callout {
+  align-items: baseline;
+  display: flex;
+  gap: var(--sky-space-2);
+}
+
+.card-owner-action {
+  color: var(--sky-warning-text);
+}
+
 .chip-parked,
 .chip-blocked {
   background: var(--sky-color-off-surface);

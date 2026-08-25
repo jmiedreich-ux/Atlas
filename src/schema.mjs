@@ -249,6 +249,27 @@ export function validateWorkstream(obj) {
     errors.push({ path: 'deploymentLog', message: '"deploymentLog" must be a non-empty string or null' });
   }
 
+  // Decision 63 (draft): a plain, direct statement of what the owner needs to do right now —
+  // separate from `next`'s narrative prose, which stays free to explain HOW things got here.
+  // Same optional-and-nullable shape as `deploymentLog` above (every manifest written before this
+  // field existed omits it; that has to validate as cleanly as `null`), plus `next`'s own concise
+  // cap — this is read at a glance on a chip, not as a paragraph, so the same discipline applies.
+  if (obj.ownerAction !== undefined && obj.ownerAction !== null) {
+    if (!isNonEmptyString(obj.ownerAction)) {
+      errors.push({
+        path: 'ownerAction',
+        message: `"ownerAction" must be a non-empty string or null (got ${JSON.stringify(obj.ownerAction)})`,
+      });
+    } else if (obj.ownerAction.length > CONCISE_FIELD_LIMIT) {
+      errors.push({
+        path: 'ownerAction',
+        message:
+          `"ownerAction" must be ${CONCISE_FIELD_LIMIT} characters or fewer ` +
+          `(got ${obj.ownerAction.length}) — state the action plainly, not the reasoning behind it`,
+      });
+    }
+  }
+
   if (!Array.isArray(obj.design)) {
     errors.push({ path: 'design', message: '"design" is required and must be an array' });
   } else {

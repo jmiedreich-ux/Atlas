@@ -1391,6 +1391,64 @@ test('spine: the "count" state\'s toggle and detail wrapper share one real aria-
   assert.ok(nodeMatch[0].includes(`id="${controls[1]}"`), 'aria-controls names an id that is not actually on the page');
 });
 
+// --- decision 63 (draft): ownerAction is a plain, unmissable "this needs you" -------------------
+
+test('depth: a workstream with an ownerAction shows the plain text beside its (now forced) "Waiting on you" chip', () => {
+  const stream = entry('Nova', { stage: 'designing', ownerAction: 'Review issue #861 (component inventory)' });
+  const html = renderDepth([stream]);
+
+  const rowMatch = new RegExp(`data-slug="${stream.slug}"[\\s\\S]*?</div>\\s*<a class="feature-link"`).exec(html);
+  assert.ok(rowMatch, 'no feature row rendered for Nova');
+  assert.match(rowMatch[0], /chip-awaiting-decision/, 'ownerAction did not force the awaiting-decision chip');
+  assert.ok(
+    rowMatch[0].includes('Review issue #861 (component inventory)'),
+    'the plain ownerAction sentence is missing from the row',
+  );
+});
+
+test('depth: a workstream with no ownerAction renders no owner-action text at all', () => {
+  const stream = entry('Reef', { stage: 'designing' });
+  const html = renderDepth([stream]);
+
+  const rowMatch = new RegExp(`data-slug="${stream.slug}"[\\s\\S]*?</div>\\s*<a class="feature-link"`).exec(html);
+  assert.ok(rowMatch, 'no feature row rendered for Reef');
+  assert.doesNotMatch(rowMatch[0], /owner-action-text/, 'an ownerAction span rendered with nothing to show');
+});
+
+test('workstream page: an ownerAction renders as a callout near the top, using the same forced triage chip', () => {
+  const stream = entry('Nova', { stage: 'designing', ownerAction: 'Review issue #861 (component inventory)' });
+  const html = renderWorkstream(stream);
+
+  assert.match(html, /class="owner-action-callout"[\s\S]*?chip-awaiting-decision[\s\S]*?Review issue #861 \(component inventory\)/);
+});
+
+test('workstream page: no ownerAction means no callout', () => {
+  const stream = entry('Reef', { stage: 'designing' });
+  const html = renderWorkstream(stream);
+
+  assert.doesNotMatch(html, /owner-action-callout/);
+});
+
+test('mobile: a workstream with an ownerAction is sorted into "Waiting on you" even though its stage would otherwise put it under "Designing", and shows the plain sentence', () => {
+  const stream = entry('Nova', { stage: 'designing', ownerAction: 'Review issue #861 (component inventory)' });
+  const html = renderMobile([stream]);
+
+  const order = attrValues(html, 'data-workstream');
+  assert.deepEqual(order, ['Nova'], 'the only card did not render');
+
+  const headingMatch = /<h2 class="triage-heading">([\s\S]*?)<\/h2>/.exec(html);
+  assert.ok(headingMatch, 'no section heading rendered');
+  assert.match(headingMatch[1], /Waiting on you/, 'ownerAction did not sort Nova into the awaiting-decision section');
+  assert.ok(html.includes('Review issue #861 (component inventory)'), 'the plain ownerAction sentence is missing from the card');
+});
+
+test('mobile: no ownerAction means no owner-action line on the card', () => {
+  const stream = entry('Reef', { stage: 'designing' });
+  const html = renderMobile([stream]);
+
+  assert.doesNotMatch(html, /card-owner-action/);
+});
+
 // --- decision 27: the mobile view is sorted by what needs the owner ------------------------------
 
 test('mobile: workstreams are ordered by what needs the owner, not alphabetically', () => {

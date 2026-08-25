@@ -643,3 +643,74 @@ test('validateWorkstream: deploymentLog rejects a non-string, non-null value', (
   const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
   assert.match(message, /deploymentLog/, 'the failure never named the field');
 });
+
+// Decision 63 (draft): ownerAction is a plain, direct statement of what the owner needs to do
+// right now, separate from `next`'s narrative prose. Same optional-and-nullable shape as
+// deploymentLog above, plus next's own 240-character concise cap — read at a glance on a chip,
+// not as a paragraph.
+
+test('validateWorkstream: ownerAction is entirely optional — an existing manifest that omits it still validates', () => {
+  const manifest = validManifest();
+  assert.equal(manifest.ownerAction, undefined, 'the fixture manifest already names ownerAction');
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.ownerAction, undefined);
+});
+
+test('validateWorkstream: ownerAction accepts a plain sentence', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = 'Review issue #861 (component inventory)';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.ownerAction, 'Review issue #861 (component inventory)');
+});
+
+test('validateWorkstream: ownerAction accepts null, the same as deploymentLog', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = null;
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.value.ownerAction, null);
+});
+
+test('validateWorkstream: ownerAction as an empty string is refused', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = '';
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'an empty string was accepted as an action');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /ownerAction/, 'the failure never named the field');
+});
+
+test('validateWorkstream: ownerAction rejects a non-string, non-null value', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = 42;
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'a number was accepted as an action');
+  const message = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+  assert.match(message, /ownerAction/, 'the failure never named the field');
+});
+
+test('validateWorkstream: ownerAction over 240 characters is rejected by name', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = 'x'.repeat(241);
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, false, 'an over-length action was accepted');
+  assert.ok(
+    result.errors.some((e) => e.path === 'ownerAction' && /240 characters or fewer/.test(e.message)),
+  );
+});
+
+test('validateWorkstream: ownerAction at exactly 240 characters is accepted', () => {
+  const manifest = validManifest();
+  manifest.ownerAction = 'x'.repeat(240);
+
+  const result = validateWorkstream(manifest);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
