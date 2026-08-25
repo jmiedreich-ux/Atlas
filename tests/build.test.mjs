@@ -1978,6 +1978,11 @@ test('build: a task id tag (decision 62, draft) reaches the real built page as d
   assert.ok(nodeMatch[0].includes('Wire up the relay'), 'the id-tagged task\'s own text is missing');
   const idAttrCount = (nodeMatch[0].match(/data-task-id="/g) ?? []).length;
   assert.equal(idAttrCount, 1, 'only the id-tagged task should carry data-task-id — the other task has no id tag');
+
+  // Owner request, 2026-08-24: "we need to refer to those" — the id is visible text, not only a
+  // data attribute a person cannot read on the page.
+  assert.match(nodeMatch[0], /<span class="task-id">T1<\/span>/, 'the id-tagged task did not render its id as visible text');
+  assert.equal((nodeMatch[0].match(/class="task-id"/g) ?? []).length, 1, 'only the id-tagged task should show a visible id — the other task has no id tag');
 });
 
 test('build: real GitHub assignees on a milestone\'s own issue render on the page, end to end', async () => {
