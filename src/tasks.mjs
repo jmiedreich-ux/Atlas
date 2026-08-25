@@ -6,6 +6,18 @@
 // Deliberately no hierarchy: an indented sub-item reads as an ordinary top-level line, because the
 // owner has said sub-tasks, if they ever appear, "would all just get listed sequentially."
 
+// An optional leading task id — `T3 · Move dialog to…` — decision 62 (draft): the same id shape
+// `headingId` (api/lib/records.mjs) uses for a register question's heading (letters then digits,
+// `/^[A-Za-z]{1,8}[-.]?\d+[a-z]?$/`), mirrored here rather than imported — `api/` and `src/` are
+// separate concerns in this codebase, and the two ids need to match the same shape exactly, not
+// merely resemble it, so a future comparison between a register id and a task id never has to
+// wonder if they were ever the same rule. Unlike a register heading, a task line has no natural
+// first-token boundary a plain id could lean on, so the id here needs an unambiguous separator of
+// its own — the middle dot, never plain whitespace. That is what keeps this from misfiring on a
+// task that merely starts with an id-shaped word: "T3 create the menu" has no `·`, so it stays
+// ordinary text, `id: null`, exactly as every task parsed before this existed.
+const TASK_ID_TAG = /^([A-Za-z]{1,8}[-.]?\d+[a-z]?)\s*·\s*(.+)$/;
+
 // A line may end with an owner tag: an em-dash, an en-dash, or a plain hyphen, preceded by
 // whitespace, followed by a name. Whitespace before the dash is what keeps this from misfiring on
 // a hyphenated word inside the task text itself ("Write-back" has no space before its hyphen, so
@@ -30,7 +42,7 @@ const TASK_LINE = /^-\s*\[([ xX])\]\s+(.+)$/;
 
 /**
  * @param {string | null | undefined} issueBody
- * @returns {{ text: string, done: boolean, owner: string | null }[]}
+ * @returns {{ id: string | null, text: string, done: boolean, owner: string | null }[]}
  */
 export function parseTasks(issueBody) {
   if (typeof issueBody !== 'string') return [];
@@ -42,8 +54,18 @@ export function parseTasks(issueBody) {
 
     const done = match[1].toLowerCase() === 'x';
     let text = match[2].trim();
-    let owner = null;
+    let id = null;
 
+    // Read before the owner tag, not after: the id is a LEADING marker and the owner a TRAILING
+    // one, and neither pattern can ever match inside the other's own capture, so order between
+    // them only matters for readability here, not correctness.
+    const idMatch = TASK_ID_TAG.exec(text);
+    if (idMatch) {
+      id = idMatch[1];
+      text = idMatch[2].trim();
+    }
+
+    let owner = null;
     const ownerMatch = OWNER_TAG.exec(text);
     if (ownerMatch) {
       owner = ownerMatch[1].trim();
@@ -51,7 +73,7 @@ export function parseTasks(issueBody) {
     }
     if (text.length === 0) continue;
 
-    tasks.push({ text, done, owner });
+    tasks.push({ id, text, done, owner });
   }
   return tasks;
 }

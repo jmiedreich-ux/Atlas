@@ -1964,6 +1964,22 @@ test('build: fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a ren
   assert.match(nodeMatch[0], /class="task-line is-done"/, 'the checked task did not render as done');
 });
 
+test('build: a task id tag (decision 62, draft) reaches the real built page as data-task-id, end to end', async () => {
+  const out = freshDir('task-id-e2e');
+  const bodies = new Map([
+    [104, ['- [ ] T1 \u00b7 Wire up the relay', '- [x] Ship the housing'].join('\n')],
+  ]);
+  await build(FIXTURE_ROOT, out, { fetchImpl: stubFetchWithIssueBodies(bodies), quiet: true });
+
+  const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+  const nodeMatch = new RegExp('data-milestone-node="beacon-M4"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>').exec(html);
+  assert.ok(nodeMatch, 'beacon/M4 did not render a task list');
+  assert.ok(nodeMatch[0].includes('data-task-id="T1"'), 'a task with an id tag did not carry data-task-id on the real page');
+  assert.ok(nodeMatch[0].includes('Wire up the relay'), 'the id-tagged task\'s own text is missing');
+  const idAttrCount = (nodeMatch[0].match(/data-task-id="/g) ?? []).length;
+  assert.equal(idAttrCount, 1, 'only the id-tagged task should carry data-task-id — the other task has no id tag');
+});
+
 test('build: real GitHub assignees on a milestone\'s own issue render on the page, end to end', async () => {
   const out = freshDir('assignees-e2e');
   const bodies = new Map([[104, '- [ ] Wire up the relay']]);
