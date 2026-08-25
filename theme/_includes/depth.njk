@@ -57,6 +57,12 @@
   pair (`[data-milestones-expand-all]`/`[data-milestones-collapse-all]`) only ever touches milestone
   toggles, never a workstream's own `[data-row-handle]` — collapsing every feature row at once was
   not what was asked for, and the two controls already do different things.
+
+  Decision 62 (draft): a task line may carry a real id now (`src/tasks.mjs`'s `parseTasks`,
+  `T3 · Move dialog to…`). `data-task-id` on `.task-line` below is that id, present only when the
+  issue actually wrote one — inert data, not a feature. No interaction reads it yet; it exists so
+  a later, separately-decided approve/deny/defer/comment mechanism has something stable to address
+  a task by, instead of the position-only `data-task-index` every task has always carried.
 -#}
 {% extends "base.njk" %}
 {% import "base.njk" as ui %}
@@ -176,7 +182,7 @@
 {%- if milestone.manifest.tasks.length %}
 <ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
 {%- for t in milestone.manifest.tasks %}
-<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}" aria-describedby="task-note">
+<li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}"{% if t.id %} data-task-id="{{ t.id }}"{% endif %} aria-describedby="task-note">
 <span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
 <span class="task-text">{{ t.text }}</span>
 <span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
