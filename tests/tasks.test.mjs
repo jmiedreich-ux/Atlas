@@ -248,6 +248,74 @@ test('parseTasks: a word that merely contains "cloud" is not mistaken for the ma
   ]);
 });
 
+// --- real issues found live in a real consuming project's milestone issue ---------------------
+
+test('parseTasks: a bold-wrapped id (GitHub-flavoured "**T1** ·") is unwrapped and read', () => {
+  const body = '- [ ] **T1** · Settle Q210–Q212 with the owner. No code first.';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: 'T1',
+      text: 'Settle Q210–Q212 with the owner. No code first.',
+      done: false,
+      owner: null,
+      location: null,
+    },
+  ]);
+});
+
+test('parseTasks: bold elsewhere on the line (not wrapping the id) is left alone — a separate, cosmetic concern', () => {
+  const body = '- [ ] **Delete forever** as the seventh item.';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: '**Delete forever** as the seventh item.', done: false, owner: null, location: null },
+  ]);
+});
+
+test('parseTasks: an ordinary sentence dash is not misread as an owner tag — the real bug in #868', () => {
+  // "Migration 076 — ordered delete, one transaction, names what it discards." used to parse as
+  // text "Migration 076" with the entire rest of the sentence as owner "ordered delete, one
+  // transaction, names what it discards." — a comma-bearing, period-ending run no real owner tag
+  // has ever looked like. The whole line now stays intact as the task's own text.
+  const body = '- [ ] Migration 076 — ordered delete, one transaction, names what it discards.';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: null,
+      text: 'Migration 076 — ordered delete, one transaction, names what it discards.',
+      done: false,
+      owner: null,
+      location: null,
+    },
+  ]);
+});
+
+test('parseTasks: a semicolon-bearing clause after a dash is not misread as an owner tag', () => {
+  const body = '- [ ] `DeleteMenuAsync` — refuses on any `MenuScreenAssignments` row; refuses on stale revision; idempotent.';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: null,
+      text: '`DeleteMenuAsync` — refuses on any `MenuScreenAssignments` row; refuses on stale revision; idempotent.',
+      done: false,
+      owner: null,
+      location: null,
+    },
+  ]);
+});
+
+test('parseTasks: a real owner tag still parses correctly right beside prose that has its own dash earlier in the line', () => {
+  // The shape check applies to the CAPTURED (last) segment only — an earlier, legitimate prose
+  // dash elsewhere in the line does not prevent a real trailing owner tag from being read.
+  const body = '- [ ] Migration 076 — ordered delete, one transaction — Ada';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Migration 076 — ordered delete, one transaction', done: false, owner: 'Ada', location: null },
+  ]);
+});
+
+test('parseTasks: a real owner tag with a location marker still parses correctly', () => {
+  const body = '- [ ] Ship the release — foundation (local)';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release', done: false, owner: 'foundation', location: 'local' },
+  ]);
+});
+
 test('parseTasks: an id tag, an owner tag, and a location marker all parse together on one line', () => {
   const body = '- [x] CG-M1-01 · Working install and build commands recorded. — coordinator (cloud)';
   assert.deepEqual(parseTasks(body), [

@@ -25,6 +25,15 @@
 // exactly as every task parsed before this existed.
 const TASK_ID_TAG = /^([A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)*)\s*·\s*(.+)$/;
 
+// A real issue found live: an id written as GitHub-flavoured bold — `**T1** · text` — renders fine
+// on GitHub itself, but is invisible to `TASK_ID_TAG` above, which anchors at `^` and expects the
+// id's own characters there, not two literal asterisks. This unwraps exactly that one shape —
+// bold wrapping the FIRST token, immediately followed by the middle dot — before the id match is
+// attempted, so a checklist authored with GitHub's own emphasis still parses. It does not touch
+// bold appearing anywhere else on the line (mid-sentence emphasis is a separate, cosmetic concern
+// this function has never addressed either way).
+const BOLD_ID_WRAPPER = /^\*\*([^*]+)\*\*(\s*·.*)$/;
+
 // A line may end with an owner tag: an em-dash, an en-dash, or a plain hyphen, preceded by
 // whitespace, followed by a name. Whitespace before the dash is what keeps this from misfiring on
 // a hyphenated word inside the task text itself ("Write-back" has no space before its hyphen, so
@@ -41,6 +50,24 @@ const TASK_ID_TAG = /^([A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)*)\s*·\s*(.+)$/;
 // and fails to match, so the engine's normal leftmost-first search lands on the last dash for us,
 // with no lookahead or backtracking trick required.
 const OWNER_TAG = /\s+[—–-]\s*([^\s—–-][^—–-]*)$/;
+
+// A real issue found live: a task written as a genuine engineering sentence often uses an em dash
+// as an ordinary clause connector — "Migration 076 — ordered delete, one transaction, names what
+// it discards." — which `OWNER_TAG` above cannot tell apart from a real trailing owner tag; both
+// are "whitespace, a dash, then a run of text with no further dash". Several tasks in a real,
+// densely-written milestone issue broke this way: the real task text was truncated to a few
+// words, and the rest of the sentence — commas, semicolons and all — showed up as the task's
+// "owner".
+//
+// The fix is a shape check on the CAPTURED text, not a smarter dash rule: every owner tag this
+// project has ever actually written — a name, a role, a role pair ("coordinator/reviewer"), a role
+// with a location marker ("foundation (local)") — is letters, digits, spaces, parentheses and a
+// slash, nothing else. A clause of real prose almost always carries a comma, a semicolon, a period
+// before the end, or a backtick — punctuation no name or role has ever needed. When the shape
+// fails, the owner match is discarded entirely (not truncated to whatever part WOULD have fit) —
+// the whole line stays as the task's own text, which is the honest reading: this was never an
+// owner tag to begin with.
+const OWNER_SHAPE = /^[A-Za-z0-9 ()/]+$/;
 
 // An optional trailing "(cloud)" or "(local)" INSIDE the owner tag's own captured text — e.g.
 // "— foundation (local)" — read after `OWNER_TAG` has already isolated the owner segment, not as
@@ -75,6 +102,9 @@ export function parseTasks(issueBody) {
     // Read before the owner tag, not after: the id is a LEADING marker and the owner a TRAILING
     // one, and neither pattern can ever match inside the other's own capture, so order between
     // them only matters for readability here, not correctness.
+    const boldMatch = BOLD_ID_WRAPPER.exec(text);
+    if (boldMatch) text = boldMatch[1] + boldMatch[2];
+
     const idMatch = TASK_ID_TAG.exec(text);
     if (idMatch && /\d/.test(idMatch[1])) {
       id = idMatch[1];
@@ -84,7 +114,7 @@ export function parseTasks(issueBody) {
     let owner = null;
     let location = null;
     const ownerMatch = OWNER_TAG.exec(text);
-    if (ownerMatch) {
+    if (ownerMatch && OWNER_SHAPE.test(ownerMatch[1].trim())) {
       owner = ownerMatch[1].trim();
       text = text.slice(0, ownerMatch.index).trim();
 
