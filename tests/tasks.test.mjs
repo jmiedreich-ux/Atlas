@@ -9,29 +9,29 @@ test('parseTasks: reads an unchecked and a checked task, in document order', () 
     '- [x] Second task',
   ].join('\n');
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'First task', done: false, owner: null },
-    { id: null, text: 'Second task', done: true, owner: null },
+    { id: null, text: 'First task', done: false, owner: null, location: null },
+    { id: null, text: 'Second task', done: true, owner: null, location: null },
   ]);
 });
 
 test('parseTasks: the checkbox mark is case-insensitive', () => {
   const body = '- [X] Done with a capital X';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Done with a capital X', done: true, owner: null },
+    { id: null, text: 'Done with a capital X', done: true, owner: null, location: null },
   ]);
 });
 
 test('parseTasks: an owner tag after an em-dash is parsed and stripped', () => {
   const body = '- [x] Write-back endpoint deployed — Claude';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Write-back endpoint deployed', done: true, owner: 'Claude' },
+    { id: null, text: 'Write-back endpoint deployed', done: true, owner: 'Claude', location: null },
   ]);
 });
 
 test('parseTasks: an owner tag after a plain hyphen is also parsed', () => {
   const body = '- [ ] Supply App credentials to the server - Claude';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Supply App credentials to the server', done: false, owner: 'Claude' },
+    { id: null, text: 'Supply App credentials to the server', done: false, owner: 'Claude', location: null },
   ]);
 });
 
@@ -39,14 +39,14 @@ test('parseTasks: a hyphen with no surrounding space is not mistaken for an owne
   // "Write-back" is one word. The owner tag convention requires whitespace before the dash.
   const body = '- [ ] Write-back endpoint deployed';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Write-back endpoint deployed', done: false, owner: null },
+    { id: null, text: 'Write-back endpoint deployed', done: false, owner: null, location: null },
   ]);
 });
 
 test('parseTasks: a task with no owner tag is unassigned', () => {
   const body = '- [ ] Backfill migration';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Backfill migration', done: false, owner: null },
+    { id: null, text: 'Backfill migration', done: false, owner: null, location: null },
   ]);
 });
 
@@ -63,8 +63,8 @@ test('parseTasks: non-checklist lines are ignored, in a real issue body', () => 
     '> A blockquote, also not a task',
   ].join('\n');
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'First real task', done: true, owner: null },
-    { id: null, text: 'Second real task', done: false, owner: null },
+    { id: null, text: 'First real task', done: true, owner: null, location: null },
+    { id: null, text: 'Second real task', done: false, owner: null, location: null },
   ]);
 });
 
@@ -79,14 +79,14 @@ test('parseTasks: null, undefined and an empty string all yield no tasks', () =>
 test('parseTasks: the owner tag is the trailing dash, even when the task text has an earlier one', () => {
   const body = '- [ ] Deploy - staging and prod — Claude';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Deploy - staging and prod', done: false, owner: 'Claude' },
+    { id: null, text: 'Deploy - staging and prod', done: false, owner: 'Claude', location: null },
   ]);
 });
 
 test('parseTasks: two dashes in one line — the owner is the segment after the LAST one', () => {
   const body = '- [ ] Wire up A — B — Claude';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Wire up A — B', done: false, owner: 'Claude' },
+    { id: null, text: 'Wire up A — B', done: false, owner: 'Claude', location: null },
   ]);
 });
 
@@ -99,14 +99,14 @@ test('parseTasks: a single trailing hyphen is read as an owner tag even when it 
   // for "looks like a name" to fall back to.
   const body = '- [x] Rename foo - bar';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Rename foo', done: true, owner: 'bar' },
+    { id: null, text: 'Rename foo', done: true, owner: 'bar', location: null },
   ]);
 });
 
 test('parseTasks: an en-dash also introduces an owner tag', () => {
   const body = '- [ ] Ship the release – Ada';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Ship the release', done: false, owner: 'Ada' },
+    { id: null, text: 'Ship the release', done: false, owner: 'Ada', location: null },
   ]);
 });
 
@@ -116,8 +116,8 @@ test('parseTasks: sequential and flat — an indented sub-item is read as an ord
     '  - [ ] Indented item',
   ].join('\n');
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Parent task', done: false, owner: null },
-    { id: null, text: 'Indented item', done: false, owner: null },
+    { id: null, text: 'Parent task', done: false, owner: null, location: null },
+    { id: null, text: 'Indented item', done: false, owner: null, location: null },
   ]);
 });
 
@@ -126,14 +126,14 @@ test('parseTasks: sequential and flat — an indented sub-item is read as an ord
 test('parseTasks: a leading id tag before a middle dot is read and stripped', () => {
   const body = '- [ ] T3 · Move dialog to the item panel';
   assert.deepEqual(parseTasks(body), [
-    { id: 'T3', text: 'Move dialog to the item panel', done: false, owner: null },
+    { id: 'T3', text: 'Move dialog to the item panel', done: false, owner: null, location: null },
   ]);
 });
 
 test('parseTasks: a task with no id tag still parses exactly as before — id is null, not a defect', () => {
   const body = '- [ ] Move dialog to the item panel';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'Move dialog to the item panel', done: false, owner: null },
+    { id: null, text: 'Move dialog to the item panel', done: false, owner: null, location: null },
   ]);
 });
 
@@ -144,7 +144,7 @@ test('parseTasks: an id-shaped word with no middle dot is ordinary text, not an 
   // never gets misread.
   const body = '- [ ] T3 create the menu';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'T3 create the menu', done: false, owner: null },
+    { id: null, text: 'T3 create the menu', done: false, owner: null, location: null },
   ]);
 });
 
@@ -154,14 +154,42 @@ test('parseTasks: letters with no digit before a middle dot is not a valid id sh
   // a literal middle dot in it, not id "AB".
   const body = '- [ ] AB · Ordinary text starting with two letters and a dot';
   assert.deepEqual(parseTasks(body), [
-    { id: null, text: 'AB · Ordinary text starting with two letters and a dot', done: false, owner: null },
+    { id: null, text: 'AB · Ordinary text starting with two letters and a dot', done: false, owner: null, location: null },
   ]);
 });
 
 test('parseTasks: an id tag and a trailing owner tag on the same line both parse', () => {
   const body = '- [x] T7 · Ship the release – Ada';
   assert.deepEqual(parseTasks(body), [
-    { id: 'T7', text: 'Ship the release', done: true, owner: 'Ada' },
+    { id: 'T7', text: 'Ship the release', done: true, owner: 'Ada', location: null },
+  ]);
+});
+
+test('parseTasks: a compound, multi-segment packet id (real-world shape: CG-M1-01) is read and stripped', () => {
+  const body = '- [ ] CG-M1-01 · Working install, dev, build, and browser-test commands recorded.';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: 'CG-M1-01',
+      text: 'Working install, dev, build, and browser-test commands recorded.',
+      done: false,
+      owner: null,
+      location: null,
+    },
+  ]);
+});
+
+test('parseTasks: a compound id with no digit anywhere in it is rejected, same as a simple one', () => {
+  // Mirrors the simple-shape "AB · text" rejection above, at compound shape too: "AB-CD" has
+  // letters and a dash but no digit anywhere, so it is not a valid id under either shape.
+  const body = '- [ ] AB-CD · Ordinary text with a compound-looking but digit-free prefix';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: null,
+      text: 'AB-CD · Ordinary text with a compound-looking but digit-free prefix',
+      done: false,
+      owner: null,
+      location: null,
+    },
   ]);
 });
 
@@ -171,7 +199,64 @@ test('parseTasks: an id tag alone with the checkbox mark and done state all stil
     '- [x] T2 · Second task — Claude',
   ].join('\n');
   assert.deepEqual(parseTasks(body), [
-    { id: 'T1', text: 'First task', done: false, owner: null },
-    { id: 'T2', text: 'Second task', done: true, owner: 'Claude' },
+    { id: 'T1', text: 'First task', done: false, owner: null, location: null },
+    { id: 'T2', text: 'Second task', done: true, owner: 'Claude', location: null },
+  ]);
+});
+
+// --- an optional cloud/local marker inside the owner tag itself: "— name (cloud)" / "(local)" ---
+
+test('parseTasks: a trailing "(cloud)" inside the owner tag is read as location, stripped from the owner name', () => {
+  const body = '- [ ] Ship the release — coordinator (cloud)';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release', done: false, owner: 'coordinator', location: 'cloud' },
+  ]);
+});
+
+test('parseTasks: a trailing "(local)" inside the owner tag is read as location, stripped from the owner name', () => {
+  const body = '- [ ] Ship the release — foundation (local)';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release', done: false, owner: 'foundation', location: 'local' },
+  ]);
+});
+
+test('parseTasks: the location marker is case-insensitive', () => {
+  const body = '- [ ] Ship the release — foundation (LOCAL)';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release', done: false, owner: 'foundation', location: 'local' },
+  ]);
+});
+
+test('parseTasks: an owner tag with no location marker leaves location null, not guessed', () => {
+  const body = '- [ ] Ship the release — Ada';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release', done: false, owner: 'Ada', location: null },
+  ]);
+});
+
+test('parseTasks: no owner tag at all means no location either — the marker lives inside the owner tag, not on its own', () => {
+  const body = '- [ ] Ship the release (cloud)';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Ship the release (cloud)', done: false, owner: null, location: null },
+  ]);
+});
+
+test('parseTasks: a word that merely contains "cloud" is not mistaken for the marker without parentheses', () => {
+  const body = '- [ ] Migrate to the cloud provider — Ada';
+  assert.deepEqual(parseTasks(body), [
+    { id: null, text: 'Migrate to the cloud provider', done: false, owner: 'Ada', location: null },
+  ]);
+});
+
+test('parseTasks: an id tag, an owner tag, and a location marker all parse together on one line', () => {
+  const body = '- [x] CG-M1-01 · Working install and build commands recorded. — coordinator (cloud)';
+  assert.deepEqual(parseTasks(body), [
+    {
+      id: 'CG-M1-01',
+      text: 'Working install and build commands recorded.',
+      done: true,
+      owner: 'coordinator',
+      location: 'cloud',
+    },
   ]);
 });
