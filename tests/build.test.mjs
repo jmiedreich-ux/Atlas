@@ -2005,6 +2005,50 @@ test('build: a task id tag (decision 62, draft) reaches the real built page as d
   );
 });
 
+test('build: a "(cloud)"/"(local)" location marker reaches the real built page as an icon, end to end', async () => {
+  // Owner request, 2026-08-25: "put a little icons next each so i can tell the difference" — a
+  // real compound packet id (CG-M1-01 style) alongside the location marker, together, the actual
+  // shape Foundry's own issues use.
+  const out = freshDir('task-location-e2e');
+  const bodies = new Map([
+    [
+      104,
+      [
+        '- [ ] CG-M1-01 · Working install and build commands recorded. — coordinator (cloud)',
+        '- [ ] CG-M1-02 · Token/skin boundary and shared example types. — foundation (local)',
+        '- [x] CG-M1-03 · Reusable example frame.',
+      ].join('\n'),
+    ],
+  ]);
+  await build(FIXTURE_ROOT, out, { fetchImpl: stubFetchWithIssueBodies(bodies), quiet: true });
+
+  const html = readFileSync(path.join(out, 'index.html'), 'utf8');
+  const nodeMatch = new RegExp('data-milestone-node="beacon-M4"[\\s\\S]*?data-task-list[\\s\\S]*?</ul>').exec(html);
+  assert.ok(nodeMatch, 'beacon/M4 did not render a task list');
+
+  assert.ok(nodeMatch[0].includes('data-task-id="CG-M1-01"'), 'the compound id did not reach data-task-id');
+  assert.ok(nodeMatch[0].includes('data-task-id="CG-M1-02"'), 'the second compound id did not reach data-task-id');
+  assert.ok(nodeMatch[0].includes('coordinator'), 'the cloud task\'s owner text is missing');
+  assert.ok(nodeMatch[0].includes('foundation'), 'the local task\'s owner text is missing');
+
+  assert.equal(
+    (nodeMatch[0].match(/aria-label="cloud"/g) ?? []).length,
+    1,
+    'exactly one task should show the cloud icon',
+  );
+  assert.equal(
+    (nodeMatch[0].match(/aria-label="local"/g) ?? []).length,
+    1,
+    'exactly one task should show the local icon',
+  );
+  // The third task has an id but no owner tag at all, so no location marker either — no icon.
+  assert.equal(
+    (nodeMatch[0].match(/task-location-icon/g) ?? []).length,
+    2,
+    'the third task (no owner tag) should not show a location icon',
+  );
+});
+
 test('build: real GitHub assignees on a milestone\'s own issue render on the page, end to end', async () => {
   const out = freshDir('assignees-e2e');
   const bodies = new Map([[104, '- [ ] Wire up the relay']]);

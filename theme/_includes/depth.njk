@@ -73,6 +73,13 @@
   visual languages. `prefers-reduced-motion` drops the pulse to a static ring, same posture
   `action-modal-track` already takes. A done task is unchanged: a plain "✓".
 
+  Owner request, 2026-08-25: "can you put a little icons next each so i can tell the difference" —
+  a task's owner tag may carry a location marker (`— name (cloud)` / `— name (local)`,
+  `src/tasks.mjs`'s `parseTasks`), rendered as a small cloud or monitor outline before the owner
+  name (`.task-location-icon`). Absent entirely when a task has no marker — most tasks never will,
+  and an icon for "unknown" would claim more than is known. Muted, not the primary accent: this is
+  metadata about who owns a task, not a call to action the way the pending-ring above is.
+
   Owner request, 2026-08-24: "make the tasks clickable to their respected git hub link." Every task
   under one milestone comes from ONE checklist inside ONE issue — `milestone.issueUrl` (`src/build.mjs`,
   built from `config.repo` and the milestone's own `issue` number, never from a fetched object) — so
@@ -221,7 +228,18 @@
 {%- else %}
 <span class="task-text">{{ t.text }}</span>
 {%- endif %}
-<span class="task-owner">{{ t.owner or 'Unassigned' }}</span>
+<span class="task-owner">
+{%- if t.location == 'cloud' -%}
+<svg class="task-location-icon" aria-label="cloud" viewBox="0 0 24 24" width="12" height="12">
+<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+</svg>
+{%- elif t.location == 'local' -%}
+<svg class="task-location-icon" aria-label="local" viewBox="0 0 24 24" width="12" height="12">
+<rect x="2" y="3" width="20" height="14" rx="2"></rect>
+<line x1="8" y1="21" x2="16" y2="21"></line>
+<line x1="12" y1="17" x2="12" y2="21"></line>
+</svg>
+{%- endif -%}{{ t.owner or 'Unassigned' }}</span>
 </li>
 {%- endfor %}
 </ul>

@@ -962,9 +962,26 @@ a.assignee-name:hover {
 }
 
 .task-owner {
+  align-items: center;
   color: var(--sky-text-muted);
+  display: flex;
   font-size: 0.8rem;
+  gap: 4px;
   margin-left: auto;
+}
+
+/* Owner request, 2026-08-25: "put a little icons next each so i can tell the difference" — a
+ * cloud outline for a cloud-assigned packet, a monitor outline for a local one. Stroked in
+ * `--sky-text-muted`, the same tone the owner name beside it already uses — this is metadata
+ * about who owns a task, not a call to action, so it does not reach for the primary accent the
+ * way `.task-pending-ring` above does. */
+.task-location-icon {
+  fill: none;
+  flex-shrink: 0;
+  stroke: var(--sky-text-muted);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
 }
 
 .milestone-task-count {

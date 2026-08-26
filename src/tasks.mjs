@@ -6,17 +6,24 @@
 // Deliberately no hierarchy: an indented sub-item reads as an ordinary top-level line, because the
 // owner has said sub-tasks, if they ever appear, "would all just get listed sequentially."
 
-// An optional leading task id — `T3 · Move dialog to…` — decision 62 (draft): the same id shape
-// `headingId` (api/lib/records.mjs) uses for a register question's heading (letters then digits,
-// `/^[A-Za-z]{1,8}[-.]?\d+[a-z]?$/`), mirrored here rather than imported — `api/` and `src/` are
-// separate concerns in this codebase, and the two ids need to match the same shape exactly, not
-// merely resemble it, so a future comparison between a register id and a task id never has to
-// wonder if they were ever the same rule. Unlike a register heading, a task line has no natural
-// first-token boundary a plain id could lean on, so the id here needs an unambiguous separator of
-// its own — the middle dot, never plain whitespace. That is what keeps this from misfiring on a
-// task that merely starts with an id-shaped word: "T3 create the menu" has no `·`, so it stays
-// ordinary text, `id: null`, exactly as every task parsed before this existed.
-const TASK_ID_TAG = /^([A-Za-z]{1,8}[-.]?\d+[a-z]?)\s*·\s*(.+)$/;
+// An optional leading task id — `T3 · Move dialog to…` — decision 62 (draft), widened to also
+// accept a compound packet-style id — `CG-M1-01 · Working install…` — a real shape this project's
+// own consuming issues actually use, which the original single-segment shape (letters, one
+// optional dash/dot, digits, one optional trailing letter — the same as `headingId`,
+// api/lib/records.mjs, uses for a register question's heading) could not match at all.
+//
+// The shape below is deliberately permissive on STRUCTURE (any number of `-`/`.`-joined
+// alphanumeric segments) and strict on CONTENT (at least one digit somewhere in the whole thing,
+// checked separately below, not in the regex itself — a lookahead could enforce it inline, but a
+// plain `.test()` after the fact reads more plainly than a regex clever enough to need a comment
+// explaining it). The digit requirement is what keeps a plain word from being misread as an id:
+// "AB · text" has no digit anywhere in "AB", so it is rejected and stays ordinary text with a
+// literal "AB ·" in it — the same case `headingId` itself already guards against for "Open".
+//
+// The middle dot is still the only separator that can start this — a task line has no natural
+// first-token boundary otherwise, so "T3 create the menu" (no `·`) stays ordinary text, `id: null`,
+// exactly as every task parsed before this existed.
+const TASK_ID_TAG = /^([A-Za-z0-9]+(?:[-.][A-Za-z0-9]+)*)\s*·\s*(.+)$/;
 
 // A line may end with an owner tag: an em-dash, an en-dash, or a plain hyphen, preceded by
 // whitespace, followed by a name. Whitespace before the dash is what keeps this from misfiring on
@@ -35,6 +42,14 @@ const TASK_ID_TAG = /^([A-Za-z]{1,8}[-.]?\d+[a-z]?)\s*·\s*(.+)$/;
 // with no lookahead or backtracking trick required.
 const OWNER_TAG = /\s+[—–-]\s*([^\s—–-][^—–-]*)$/;
 
+// An optional trailing "(cloud)" or "(local)" INSIDE the owner tag's own captured text — e.g.
+// "— foundation (local)" — read after `OWNER_TAG` has already isolated the owner segment, not as
+// a competing pattern against the whole line. Case-insensitive: a checklist is typed by hand, and
+// "(Local)" is not a different fact than "(local)". Absent entirely for a task with no owner tag
+// at all, and absent (not guessed) for one that has a tag but no location — this records only
+// what a person actually wrote, the same posture `id`/`owner` themselves already take.
+const LOCATION_TAG = /\s*\((cloud|local)\)\s*$/i;
+
 // GitHub task-list syntax: "- [ ] text" or "- [x] text", any leading indentation, case-insensitive
 // mark. Anything else on a line — prose, a heading, an ordinary bullet with no checkbox — is not a
 // task and is ignored.
@@ -42,7 +57,8 @@ const TASK_LINE = /^-\s*\[([ xX])\]\s+(.+)$/;
 
 /**
  * @param {string | null | undefined} issueBody
- * @returns {{ id: string | null, text: string, done: boolean, owner: string | null }[]}
+ * @returns {{ id: string | null, text: string, done: boolean, owner: string | null,
+ *   location: 'cloud' | 'local' | null }[]}
  */
 export function parseTasks(issueBody) {
   if (typeof issueBody !== 'string') return [];
@@ -60,20 +76,27 @@ export function parseTasks(issueBody) {
     // one, and neither pattern can ever match inside the other's own capture, so order between
     // them only matters for readability here, not correctness.
     const idMatch = TASK_ID_TAG.exec(text);
-    if (idMatch) {
+    if (idMatch && /\d/.test(idMatch[1])) {
       id = idMatch[1];
       text = idMatch[2].trim();
     }
 
     let owner = null;
+    let location = null;
     const ownerMatch = OWNER_TAG.exec(text);
     if (ownerMatch) {
       owner = ownerMatch[1].trim();
       text = text.slice(0, ownerMatch.index).trim();
+
+      const locationMatch = LOCATION_TAG.exec(owner);
+      if (locationMatch) {
+        location = locationMatch[1].toLowerCase();
+        owner = owner.slice(0, locationMatch.index).trim();
+      }
     }
     if (text.length === 0) continue;
 
-    tasks.push({ id, text, done, owner });
+    tasks.push({ id, text, done, owner, location });
   }
   return tasks;
 }
