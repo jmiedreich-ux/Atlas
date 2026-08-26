@@ -282,6 +282,43 @@ progress. It is also not put on the site itself, deliberately: the pages render 
 directory with no manifest behind it is not a record. Atlas showing a feature that nothing supports
 is the failure decision 3 exists to prevent, and it is not worth trading for a louder reminder.
 
+## Writing a milestone's task checklist
+
+A milestone's `issue` field (above) names a real GitHub issue, and **the tasks shown on the
+milestone's page are parsed from that issue's own checklist** — nothing about a task is ever
+written into `workstream.json` itself. Each line follows GitHub's own task-list syntax, `- [ ]
+text` or `- [x] text`, plus three optional tags read out of `text`, in this order:
+
+1. **A leading id** (decision 62) — `T3 · Move the dialog to a portal`: any run of letters and
+   digits joined by `-` or `.`, containing at least one digit, followed by a middle dot (`·`, not
+   a colon or a pipe). Write the id in plain text. `**T3** ·` (GitHub-bold) is tolerated for
+   compatibility, but plain is the form to write.
+2. **A trailing owner tag** — `— Ada` or `- Ada`, at the very end of the line: whitespace, a dash
+   (em, en, or hyphen), then a name. A name is a person, a role, a role pair
+   (`coordinator/reviewer`), or a role with a location marker (below) — **letters, digits, spaces,
+   parentheses and `/`, nothing else.** Anything else in that trailing run — a comma, a semicolon,
+   a period, a backtick — is read as ordinary sentence text, not a name, and the tag is dropped.
+3. **A location marker**, only inside an owner tag — `(cloud)` or `(local)` immediately after the
+   name: `— foundation (local)`.
+
+**The one strict rule: never use a dash as a sentence connector inside a task's own text.** The
+parser cannot always tell "a real trailing owner tag" apart from "an ordinary clause ending the
+sentence" from shape alone — only from what follows the dash, and a short clause with no
+punctuation in it can still pass that check by accident. This is exactly the bug a real milestone
+shipped with (2026-08-25, issue #868): `Migration 076 — ordered delete, one transaction, names
+what it discards.` read as task text `Migration 076` and owner `ordered delete, one transaction,
+names what it discards.` **Use a period, a colon, or a semicolon instead of a dash** wherever a
+task's own sentence needs a connector; reserve the dash for an actual owner tag at the end of the
+line.
+
+```
+- [ ] T1 · Settle the open questions with the owner. No code first.
+- [ ] T2 · Migration 076: ordered delete, one transaction, names what it discards.
+- [ ] Ship the release — foundation (local)
+```
+
+`src/tasks.mjs` is the authoritative source for this grammar.
+
 ## What a project publishes
 
 Atlas renders every Markdown file under `docs/` (and `ROADMAP.md`) as a page, and copies every
