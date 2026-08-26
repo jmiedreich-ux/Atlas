@@ -909,6 +909,35 @@ a.assignee-name:hover {
   text-decoration: line-through;
 }
 
+/* Owner request, 2026-08-25: "be expressive" — a not-yet-done task's icon, replacing a plain "○".
+ * The same `--sky-color-primary` accent `.action-modal-track`'s own sweep already uses, so an open
+ * task and a running action share one visual language rather than two. `transform-box: fill-box`
+ * keeps the ring's scale centered on itself rather than the SVG viewport's own origin — without it
+ * a circle not already centered at (0,0) would scale outward in the wrong direction. Reduced-motion
+ * override lives in the shared block below `.action-modal-track`'s own, not a second one here. */
+.task-pending-icon {
+  flex-shrink: 0;
+}
+
+.task-pending-dot {
+  fill: var(--sky-color-primary);
+}
+
+.task-pending-ring {
+  fill: none;
+  stroke: var(--sky-color-primary);
+  stroke-opacity: 0.7;
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: task-pending-pulse 1.8s ease-out infinite;
+}
+
+@keyframes task-pending-pulse {
+  0% { stroke-opacity: 0.7; transform: scale(1); }
+  100% { stroke-opacity: 0; transform: scale(2.4); }
+}
+
 /* Same de-styling `.milestone-name-link` already gets ("I don't want the link look on them") — a
  * task linking to its issue reads as ordinary task text at rest, with a hover/focus underline as
  * the only hint it goes anywhere. `.task-line.is-done`'s muted/strikethrough rule above still wins
@@ -1323,7 +1352,11 @@ a.assignee-name:hover {
 }
 
 /* A visitor who has asked for less motion still learns a request is running and how it ended —
- * the classes above still switch, only the sweep's own keyframe animation drops. */
+ * the classes above still switch, only the sweep's own keyframe animation drops. Same posture for
+ * `.task-pending-ring`: the ring stays, at its resting (non-pulsing) state, rather than
+ * disappearing — a visitor still sees which tasks are open, just without the pulse. One shared
+ * block for both, rather than two, so a stylesheet reader has one place to look for what reduced
+ * motion actually changes. */
 @media (prefers-reduced-motion: reduce) {
   .action-modal-track.is-running .action-modal-fill,
   .action-modal-track.is-running .action-modal-dot {
@@ -1337,6 +1370,10 @@ a.assignee-name:hover {
 
   .action-modal-track.is-running .action-modal-dot {
     left: calc(50% - 5px);
+  }
+
+  .task-pending-ring {
+    animation: none;
   }
 }
 

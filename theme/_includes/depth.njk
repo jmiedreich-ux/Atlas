@@ -66,6 +66,13 @@
   legible to a person who needs to refer to a specific task out loud or in writing, the same reason
   `.milestone-label` (M1, M2, …) is visible text rather than only a `data-milestone-node` attribute.
 
+  Owner request, 2026-08-25: "be expressive" (the icon for a not-yet-done task). Was a plain "○"
+  character; now a small pulsing ring (`.task-pending-icon`, `theme/tokens.css`) in
+  `--sky-color-primary` — the same accent tonight's action modal already sweeps with, so an open
+  task and a running action read as the same kind of "not finished yet" rather than two unrelated
+  visual languages. `prefers-reduced-motion` drops the pulse to a static ring, same posture
+  `action-modal-track` already takes. A done task is unchanged: a plain "✓".
+
   Owner request, 2026-08-24: "make the tasks clickable to their respected git hub link." Every task
   under one milestone comes from ONE checklist inside ONE issue — `milestone.issueUrl` (`src/build.mjs`,
   built from `config.repo` and the milestone's own `issue` number, never from a fetched object) — so
@@ -198,7 +205,14 @@
 <ul class="task-list{% if detail == 'full-muted' %} is-muted{% endif %}" data-task-list data-milestone="{{ stream.slug }}-{{ milestone.manifest.id }}">
 {%- for t in milestone.manifest.tasks %}
 <li class="task-line{% if t.done %} is-done{% endif %}" data-task data-task-index="{{ loop.index0 }}"{% if t.id %} data-task-id="{{ t.id }}"{% endif %} aria-describedby="task-note">
-<span class="task-check" aria-hidden="true">{% if t.done %}✓{% else %}○{% endif %}</span>
+<span class="task-check" aria-hidden="true">{%- if t.done -%}
+✓
+{%- else -%}
+<svg class="task-pending-icon" viewBox="0 0 16 16" width="12" height="12">
+<circle class="task-pending-ring" cx="8" cy="8" r="3"></circle>
+<circle class="task-pending-dot" cx="8" cy="8" r="3"></circle>
+</svg>
+{%- endif -%}</span>
 {%- if t.id %}
 <span class="task-id">{{ t.id }}</span>
 {%- endif %}

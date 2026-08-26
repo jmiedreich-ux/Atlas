@@ -1962,6 +1962,16 @@ test('build: fetchIssueBodies -> parseTasks -> milestone.manifest.tasks -> a ren
   assert.ok(nodeMatch[0].includes('Ship the housing'), 'the second parsed task text is missing from the page');
   assert.ok(nodeMatch[0].includes('Grace'), 'the second parsed owner tag is missing from the page');
   assert.match(nodeMatch[0], /class="task-line is-done"/, 'the checked task did not render as done');
+
+  // Owner request, 2026-08-25: "be expressive" — an open task's icon is the pulsing-ring SVG, not
+  // the plain "○" it used to be; a done task still gets the plain checkmark, unchanged.
+  assert.match(nodeMatch[0], /<svg class="task-pending-icon"/, 'the not-done task did not render the pending-ring icon');
+  assert.ok(nodeMatch[0].includes('✓'), 'the done task did not render its checkmark');
+  assert.equal(
+    (nodeMatch[0].match(/<svg class="task-pending-icon"/g) ?? []).length,
+    1,
+    'only the not-done task should show the pending-ring icon — the other task is done',
+  );
 });
 
 test('build: a task id tag (decision 62, draft) reaches the real built page as data-task-id, end to end', async () => {
